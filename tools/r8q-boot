@@ -74,8 +74,8 @@ cmd_pack() {
   cp "$ROOT/initramfs/init" "$stage/root/init"
   chmod 755 "$stage/root/init"
 
-  # Force storage guard into 100% read-only mode for r8q bring-up
-  touch "$stage/root/etc/omamobile-ufs-rw"
+  # Storage guard allowlist: allow writing userdata (sda36) for Omarchy rootfs
+  echo "userdata" > "$stage/root/etc/omamobile-ufs-rw"
   chmod 644 "$stage/root/etc/omamobile-ufs-rw"
   echo "Samsung Galaxy S20 FE (r8q)" > "$stage/root/etc/omamobile-usb-product"
 

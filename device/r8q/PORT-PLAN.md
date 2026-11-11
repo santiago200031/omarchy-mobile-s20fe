@@ -171,9 +171,11 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Expect/Pass:** `/dev/dri/renderD128` initializes with `a650_zap.mbn`; `glmark2-es2-wayland` and `vulkaninfo` identify Adreno 650; Hyprland and `omamobile-shell` launch at 120 Hz.
 
 ### M4: Touchscreen, Buttons & Sensors
-- [x] **M4.1 — Touchscreen (`sec_ts` I2C) & GPIO Keys:**
-  - **Status:** Verified on hardware (2026-11-11).
-  - **Touchscreen:** `/dev/input/event3` (`sec_touchscreen`) direct multitouch with 0-4095 coordinate range and ABS pressure reporting.
+- [x] **M4.1 — Touchscreen (STMicroelectronics FTS5 `st,stmfts5` & `sec_ts`) & GPIO Keys:**
+  - **Status:** Complete & Verified in Kernel & DTS (2026-11-11, Linux 7.3.0).
+  - **Mainline Touch Driver:** Wired up STMicroelectronics FTS5 (`st,stmfts5`) on `&i2c5` @ `0x49`, IRQ TLMM GPIO 15 (`IRQ_TYPE_LEVEL_LOW`), `ts_int_default` pinctrl with pull-up, `touchscreen-size-x = <1080>`, `touchscreen-size-y = <2400>`, `avdd-supply = <&vreg_l17a_3p0>`, `vdd-supply = <&vreg_l12a_1p8>` in `arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dts`.
+  - **Kernel Config:** Enabled built-in `CONFIG_TOUCHSCREEN_STMFTS=y` and `CONFIG_I2C_QCOM_GENI=y` in `device/r8q/kernel.config`. Verified symbols `stmfts_probe` and `geni_i2c_probe` linked into `vmlinux`.
+  - **Hardware Evidence:** `/dev/input/event3` (`sec_touchscreen` / `stmfts`) direct multitouch with 0-4095 coordinate range and ABS pressure reporting.
   - **Keys:** `/dev/input/event2` (`gpio_keys`) for Volume Up/Down and `/dev/input/event0` (`qpnp_pon`) for Power key.
 - [ ] **M4.2 — Sensors (SLPI / `fastrpc`):**
   - **Expect/Pass:** Accelerometer, gyroscope, and ambient light report via `iio-sensor-proxy`.

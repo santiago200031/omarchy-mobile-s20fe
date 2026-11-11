@@ -184,9 +184,16 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Expect/Pass:** `/sys/class/power_supply/battery/capacity` and `status` report accurate charge state; thermal zones throttle CPU/GPU safely.
 
 ### M7: Dual-Boot / Rootfs Integration (`omamobile-device-r8q`)
-- [ ] **M7.1 — Rootfs on `userdata`:**
-  - **Details:** Boot Arch Linux ARM + Omarchy Mobile rootfs from `/data/omarchy-root.img` (coexisting with LineageOS) or dedicated `userdata` partition once daily-driver readiness is confirmed.
-  - **Package:** Create `packages/omamobile-device-r8q` with UCM audio profiles, firmware extraction script (`tools/extract-vendor-firmware`), and display scaling (`PANEL_SIZE=1080x2400`).
+- [x] **M7.1 — Rootfs on `userdata` & Package Integration (`omamobile-device-r8q`):**
+  - **Status:** Complete & Integrated (2026-11-11).
+  - **Device Package:** Implemented `packages/omamobile-device-r8q` 0.1.1 containing:
+    - Freestanding `reboot-to` syscall binary and `reboot` wrapper for recovery/download mode.
+    - Systemd-networkd USB gadget (`172.16.42.1`) and NetworkManager unmanaged override.
+    - Dropbear & SSH privilege separation and pacman mirrorlist.
+    - ALSA UCM2 audio profiles for `kona-mtp-snd-card` with dual CS35L40 amplifiers (`HiFi.conf`).
+    - Sysctl VM memory tuning (`90-r8q-vm.conf`), MGLRU protect (`80-r8q-mglru.conf`), and `zram-generator` configuration (`91-r8q-zram.conf`).
+    - Adreno 650 GPU devfreq udev rules (`80-r8q-gpu.rules`) and 120 Hz Hyprland animation springs (`hyprland-r8q.conf`).
+  - **Firmware & Coexistence:** Extracted all Qualcomm vendor firmware into `~/.cache/omamobile/firmware/r8q/lib/firmware/` via `tools/r8q-extract-firmware`. Verified safe coexistence on `userdata` (`/data/omarchy`).
 
 ### M8: On-Device Local Text Model (LLM) & Performance Tuning
 - [x] **M8.1 — RAM Compression, MGLRU & VM Tuning (`zram` + `zstd` + `lz4`):**

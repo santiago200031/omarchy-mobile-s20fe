@@ -45,7 +45,7 @@ EOF
 
 cmd_pack() {
   local out_img="${1:-$KERNEL_OUT/recovery-omamobile.img}"
-  local kernel="$KERNEL_OUT/arch/arm64/boot/Image.gz"
+  local kernel="$KERNEL_OUT/arch/arm64/boot/Image"
   local dtb="$KERNEL_OUT/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb"
   local cache_dir="$HOME/.cache/omamobile/alpine"
   local ver="3.24.2"

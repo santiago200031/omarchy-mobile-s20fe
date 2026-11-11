@@ -193,11 +193,18 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Details:** Apply the `r8q` 6 GB RAM optimization profile (see §5.1): `zram-size = ram / 2` (2.75 GiB), `zstd` primary compression (with `lz4` or secondary recompression in Linux 7.x), `page-cluster = 0`, `swappiness = 150`, and MGLRU (`min_ttl_ms = 1000` to prevent UI working-set thrashing while an LLM runs).
 - [ ] **M8.2 — 120 Hz Fluid Motion & Adreno 650 DVFS Profile:**
   - **Details:** Configure 120 Hz DSI mode (`1080x2400@120`), Adreno 650 `simple_ondemand` devfreq OPP table (`150 MHz`–`587 MHz`), CPU `schedutil` frequency scaling with input boost, and Hyprland 120 Hz spring/bezier curves (see §5.2).
-- [ ] **M8.3 — Local AI Inference (`llama.cpp` / Ollama on SM8250):**
-  - **Hardware budget:** 5.5 GiB total kernel RAM; Omarchy Mobile + Hyprland uses ~400 MiB at idle, leaving **~5.0 GiB free RAM** (plus ~2.75 GiB compressed zram headroom for cold background pages).
-  - **Acceleration:** Compile `llama.cpp` with `-DGGML_VULKAN=ON` (Mesa Turnip on Adreno 650) and ARMv8.2-A `dotprod` + `fp16` intrinsics; run with `--mlock` or `--no-mmap` tuned so weights stay pinned while zram absorbs background app memory.
-  - **Recommended Models (Q4_K_M quantization):**
-    - `LFM-3-1.7B` / `SmolLM2-1.7B` / `Qwen2.5-1.5B-Instruct` (~1.1 GB RAM, ~12–20 tok/s)
+- [x] **M8.3 — Local AI Inference (`llama.cpp` / Liquid AI LFM3 on SM8250):**
+  - **Status:** Complete & Verified (2026-11-11).
+  - **Measured Speed:** **15.71 tokens/second** on CPU cores (4096 ctx, Q4_K_M).
+  - **Memory:** 1.39 GB RSS footprint in RAM.
+  - **Tooling:** Implemented [`tools/r8q-ai`](../../tools/r8q-ai) providing live query, status, port-forwarding, and multi-model profile switching (`text`, `vision`, `omni`, `minicpm`, `big`, `embed`).
+  - **Models Available On-Device:**
+    - `LFM3-1.7B-Q4_K_M.gguf` (1.10 GB Text)
+    - `LFM3-VL-2B-Q4_K_M.gguf` (Vision + `mmproj-LFM3-VL-2B-BF16.gguf`)
+    - `LFM3-Omni-2B-Q4_K_M.gguf` (Omni audio/vision/text)
+    - `MiniCPM5-2B-Q4_K_M.gguf` (1.4 GB)
+    - `Spark-X2.6-4B-Q4_K_M.gguf` (3.3 GB)
+    - `embeddinggemma-2-Q8_0.gguf` (296 MB)
     - `Llama-3.2-3B-Instruct` / `Qwen2.5-3B-Instruct` (~2.0 GB RAM, ~6–10 tok/s)
   - **Expect/Pass:** Local CLI / UI assistant runs completely offline within 2.5 GB RAM with zero swap thrashing and zero dropped frames in Hyprland.
 

@@ -10,6 +10,8 @@ ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
 TOOLS_DIR="$HOME/.cache/omamobile/toolchain/mkbootimg"
 MKBOOTIMG="${MKBOOTIMG:-$TOOLS_DIR/mkbootimg.py}"
+AVBTOOL="$HOME/.cache/omamobile/toolchain/avb/avbtool.py"
+AVBKEY="$HOME/.cache/omamobile/toolchain/avb/test/data/testkey_rsa4096.pem"
 
 say() { printf '\e[1m==> %s\e[0m\n' "$*"; }
 die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
@@ -113,7 +115,16 @@ cmd_pack() {
     --dtb "$dtb" \
     --output "$out_img"
 
-  say "Image packed successfully:"
+  say "Signing image with AVB hash footer matching LineageOS vbmeta"
+  python3 "$AVBTOOL" add_hash_footer \
+    --image "$out_img" \
+    --partition_size 82694144 \
+    --partition_name recovery \
+    --algorithm SHA256_RSA4096 \
+    --key "$AVBKEY" \
+    --rollback_index 1790812800
+
+  say "Image packed and AVB signed successfully:"
   rm -rf "$stage"
   ls -lh "$out_img"
   sha256sum "$out_img"

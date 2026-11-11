@@ -53,8 +53,39 @@ html, body {
   overflow: hidden;
 }
 
-/* 1. Status Bar */
-.status-bar {
+/* View Transitions API (modern-web-guidance compliant) */
+#status-bar {
+  view-transition-name: system-status-bar;
+}
+
+#btn-open-drawer {
+  view-transition-name: search-assistant-pill;
+}
+
+#quick-settings {
+  view-transition-name: quick-settings-panel;
+}
+
+#app-drawer {
+  view-transition-name: app-drawer-panel;
+}
+
+#ai-agent-window {
+  view-transition-name: ai-terminal-window;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
   height: 44px;
   padding: 0 16px;
   display: flex;

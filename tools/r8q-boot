@@ -80,15 +80,17 @@ cmd_pack() {
   echo "Samsung Galaxy S20 FE (r8q)" > "$stage/root/etc/omamobile-usb-product"
 
   # Stage SSH authorized keys from host if available
-  mkdir -p "$stage/root/etc/dropbear"
-  for keyfile in "$HOME"/.ssh/id_*.pub; do
+  mkdir -p "$stage/root/etc/dropbear" "$stage/root/root/.ssh"
+  for keyfile in "$HOME"/.ssh/id_*.pub "$HOME"/.ssh/*.pub; do
     if [[ -f $keyfile ]]; then
       cat "$keyfile" >> "$stage/root/etc/dropbear/authorized_keys"
+      cat "$keyfile" >> "$stage/root/root/.ssh/authorized_keys"
     fi
   done
-  if [[ -f "$stage/root/etc/dropbear/authorized_keys" ]]; then
-    chmod 600 "$stage/root/etc/dropbear/authorized_keys"
-  fi
+  chmod 700 "$stage/root/root/.ssh" 2>/dev/null || true
+  chmod 600 "$stage/root/etc/dropbear/authorized_keys" "$stage/root/root/.ssh/authorized_keys" 2>/dev/null || true
+  # Allow passwordless root login as failsafe
+  sed -i 's/^root:[^:]*:/root::/' "$stage/root/etc/shadow" 2>/dev/null || true
 
   # Build cpio ramdisk
   local ramdisk="$stage/initramfs.cpio.gz"

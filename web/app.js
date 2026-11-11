@@ -46,18 +46,40 @@ document.addEventListener('DOMContentLoaded', () => {
   const terminalDialog = document.getElementById('ai-agent-window');
   const btnCloseTerminal = document.getElementById('btn-close-terminal');
 
-  // Quick Settings Open/Close
+  // Quick Settings Open/Close (Enhanced with View Transitions API per modern-web-guidance)
   function openQuickSettings() {
     if (!qsDialog.open) {
-      qsDialog.showModal();
-      statusBar.setAttribute('aria-expanded', 'true');
+      if (!document.startViewTransition) {
+        qsDialog.showModal();
+        statusBar.setAttribute('aria-expanded', 'true');
+        btnCloseQs?.focus();
+      } else {
+        const transition = document.startViewTransition(() => {
+          qsDialog.showModal();
+          statusBar.setAttribute('aria-expanded', 'true');
+        });
+        transition.finished.finally(() => {
+          btnCloseQs?.focus();
+        });
+      }
     }
   }
 
   function closeQuickSettings() {
     if (qsDialog.open) {
-      qsDialog.close();
-      statusBar.setAttribute('aria-expanded', 'false');
+      if (!document.startViewTransition) {
+        qsDialog.close();
+        statusBar.setAttribute('aria-expanded', 'false');
+        statusBar?.focus();
+      } else {
+        const transition = document.startViewTransition(() => {
+          qsDialog.close();
+          statusBar.setAttribute('aria-expanded', 'false');
+        });
+        transition.finished.finally(() => {
+          statusBar?.focus();
+        });
+      }
     }
   }
 
@@ -73,20 +95,41 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // App Drawer Open/Close
+  // App Drawer Open/Close (Enhanced with View Transitions API per modern-web-guidance)
   function openAppDrawer() {
     if (!drawerDialog.open) {
-      drawerDialog.showModal();
-      btnOpenDrawer.setAttribute('aria-expanded', 'true');
       const searchInput = document.getElementById('drawer-search-input');
-      if (searchInput) searchInput.focus();
+      if (!document.startViewTransition) {
+        drawerDialog.showModal();
+        btnOpenDrawer.setAttribute('aria-expanded', 'true');
+        searchInput?.focus();
+      } else {
+        const transition = document.startViewTransition(() => {
+          drawerDialog.showModal();
+          btnOpenDrawer.setAttribute('aria-expanded', 'true');
+        });
+        transition.finished.finally(() => {
+          searchInput?.focus();
+        });
+      }
     }
   }
 
   function closeAppDrawer() {
     if (drawerDialog.open) {
-      drawerDialog.close();
-      btnOpenDrawer.setAttribute('aria-expanded', 'false');
+      if (!document.startViewTransition) {
+        drawerDialog.close();
+        btnOpenDrawer.setAttribute('aria-expanded', 'false');
+        btnOpenDrawer?.focus();
+      } else {
+        const transition = document.startViewTransition(() => {
+          drawerDialog.close();
+          btnOpenDrawer.setAttribute('aria-expanded', 'false');
+        });
+        transition.finished.finally(() => {
+          btnOpenDrawer?.focus();
+        });
+      }
     }
   }
 
@@ -102,20 +145,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Terminal Window Open/Close
+  // Terminal Window Open/Close (Enhanced with View Transitions API per modern-web-guidance)
   function openTerminal() {
     closeAppDrawer();
     closeQuickSettings();
     if (!terminalDialog.open) {
-      terminalDialog.showModal();
       const termInput = document.getElementById('terminal-input');
-      if (termInput) termInput.focus();
+      if (!document.startViewTransition) {
+        terminalDialog.showModal();
+        termInput?.focus();
+      } else {
+        const transition = document.startViewTransition(() => {
+          terminalDialog.showModal();
+        });
+        transition.finished.finally(() => {
+          termInput?.focus();
+        });
+      }
     }
   }
 
   function closeTerminal() {
     if (terminalDialog.open) {
-      terminalDialog.close();
+      if (!document.startViewTransition) {
+        terminalDialog.close();
+        btnOpenDrawer?.focus();
+      } else {
+        const transition = document.startViewTransition(() => {
+          terminalDialog.close();
+        });
+        transition.finished.finally(() => {
+          btnOpenDrawer?.focus();
+        });
+      }
     }
   }
 

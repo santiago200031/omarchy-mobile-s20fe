@@ -361,8 +361,8 @@ cmd_kernel() {
     fi
     $localversion
     make ARCH=arm64 LLVM=1 O=$KERNEL_OUT olddefconfig
-    make ARCH=arm64 LLVM=1 O=$KERNEL_OUT -j$JOBS Image.gz dtbs modules
-    ls -lh $KERNEL_OUT/arch/arm64/boot/Image.gz
+    make ARCH=arm64 LLVM=1 O=$KERNEL_OUT -j$JOBS Image Image.gz dtbs modules
+    ls -lh $KERNEL_OUT/arch/arm64/boot/Image*
     ls $KERNEL_OUT/arch/arm64/boot/dts/exynos/google/
   "
   # The compiler this build used, for images' TOOLCHAIN and the bundle's

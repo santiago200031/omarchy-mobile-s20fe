@@ -134,11 +134,76 @@ cmd_verify() {
   fi
 }
 
+cmd_flash_recovery() {
+  local img="${1:-$KERNEL_OUT/recovery-omamobile.img}"
+  local backup_dir="$HOME/android/backups/r8q-nv"
+  local expected_boot_sha="2210cd703c8ab9ea96874a071a362bc088dddc2b4df524d0e8be767a26b3e3b4"
+
+  [[ -f $img ]] || die "Image not found at $img (run pack first)"
+  [[ -d $backup_dir ]] || die "Backup directory not found at $backup_dir"
+
+  say "Safety check 1: Checking adb connection to phone"
+  adb get-state >/dev/null 2>&1 || die "Phone not detected over adb"
+
+  say "Safety check 2: Verifying primary LineageOS boot partition (sda23) is untouched"
+  local live_boot_sha
+  live_boot_sha=$(adb shell "sha256sum /dev/block/by-name/boot 2>/dev/null | awk '{print \$1}'" | tr -d '\r\n')
+  [[ $live_boot_sha == "$expected_boot_sha" ]] || die "Boot partition sha mismatch! Expected $expected_boot_sha, got '$live_boot_sha'"
+  say "LineageOS primary boot slot is 100% verified and untouched ($live_boot_sha)"
+
+  say "Pushing test recovery image to /data/local/tmp/"
+  local img_sha img_bytes
+  img_sha=$(sha256sum "$img" | awk '{print $1}')
+  img_bytes=$(stat -c%s "$img")
+  adb push "$img" /data/local/tmp/recovery-omamobile.img >/dev/null
+
+  say "Verifying pushed image checksum on phone"
+  local pushed_sha
+  pushed_sha=$(adb shell "sha256sum /data/local/tmp/recovery-omamobile.img 2>/dev/null | awk '{print \$1}'" | tr -d '\r\n')
+  [[ $pushed_sha == "$img_sha" ]] || die "Pushed image checksum mismatch on phone"
+
+  say "Writing test recovery image to /dev/block/by-name/recovery (sda24)"
+  adb shell "dd if=/data/local/tmp/recovery-omamobile.img of=/dev/block/by-name/recovery bs=4096 conv=fsync 2>/dev/null"
+  adb shell "rm -f /data/local/tmp/recovery-omamobile.img"
+
+  say "Verifying recovery partition readback checksum"
+  local blocks=$(( (img_bytes + 4095) / 4096 ))
+  local readback_sha
+  readback_sha=$(adb shell "dd if=/dev/block/by-name/recovery bs=4096 count=$blocks 2>/dev/null | head -c $img_bytes | sha256sum | awk '{print \$1}'" | tr -d '\r\n')
+  [[ $readback_sha == "$img_sha" ]] || die "Recovery readback checksum mismatch ($readback_sha != $img_sha)"
+
+  say "Recovery partition successfully updated and verified ($img_sha)"
+  say "Rebooting into test recovery image..."
+  adb reboot recovery
+  say "Phone rebooted to recovery. Waiting for USB network gadget on 172.16.42.1..."
+}
+
+cmd_restore_recovery() {
+  local backup="$HOME/android/backups/r8q-nv/recovery.img"
+  local expected_sha="36855fb919f3af98d0e4e45692672d4a96989e9090a4cc882754139543cfef35"
+
+  [[ -f $backup ]] || die "Stock recovery backup not found at $backup"
+  say "Safety check: checking adb connection"
+  adb get-state >/dev/null 2>&1 || die "Phone not detected over adb"
+
+  say "Restoring stock LineageOS recovery from $backup"
+  adb push "$backup" /data/local/tmp/recovery.img >/dev/null
+  adb shell "dd if=/data/local/tmp/recovery.img of=/dev/block/by-name/recovery bs=4096 conv=fsync 2>/dev/null"
+  adb shell "rm -f /data/local/tmp/recovery.img"
+
+  local restored_sha
+  restored_sha=$(adb shell "sha256sum /dev/block/by-name/recovery | awk '{print \$1}'" | tr -d '\r\n')
+  [[ $restored_sha == "$expected_sha" ]] || die "Restore sha mismatch!"
+  say "Stock LineageOS recovery successfully restored and verified ($restored_sha)"
+}
+
 cmd="${1:-}"
 shift || true
 case $cmd in
   pack) cmd_pack "$@" ;;
   verify) cmd_verify "$@" ;;
+  flash-recovery) cmd_flash_recovery "$@" ;;
+  restore-recovery) cmd_restore_recovery ;;
   info) cmd_info ;;
   *) usage; exit 1 ;;
 esac

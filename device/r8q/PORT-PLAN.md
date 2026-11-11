@@ -139,8 +139,13 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Status:** Complete (2026-11-11).
   - **Tool:** Created `tools/r8q-boot` supporting `pack`, `verify`, `flash-recovery`, and `restore-recovery`.
   - **Storage Guard:** Enforces 100% read-only lock (`/etc/omamobile-ufs-rw` empty), USB network gadget (`172.16.42.1`), ACM console, Dropbear SSH keys, and panic/watchdog parameters.
-  - **AVB Footer:** Signed with `avbtool add_hash_footer` using `SHA256_RSA4096` and key `testkey_rsa4096.pem` matching device `vbmeta` public key hash `2597c218aae470a130f61162feaae70afd97f011` and rollback index `1790812800` (82,694,144 bytes).
-  - **Artifact:** `$KERNEL_OUT/recovery-omamobile.img` (82,694,144 bytes, verified `ANDROID!` header v2 magic, page size 4096, kernel `Image.gz` + Alpine rootfs + dropbear + `sm8250-samsung-r8q.dtb` + AVB footer).
+  - **Boot Header v2 & DTBO:** Header configured with `os_version = 16.0.0` (0x200001aa), `recovery_dtbo` (5,062,656 bytes embedded at offset 0x0143f000) extracted from device backup, and DTB at 0x01f00000.
+  - **AVB Footer:** Signed with `avbtool add_hash_footer` using `SHA256_RSA4096`, key `testkey_rsa4096.pem` matching device `vbmeta` public key hash `2597c218aae470a130f61162feaae70afd97f011`, rollback index `1790812800`, salt `c87c8f874194bd7fde350e71426ac253760df3146460905df3fc630afc2a0322`, and prop `com.android.build.recovery.fingerprint`.
+  - **Artifact:** `$KERNEL_OUT/recovery-omamobile.img` (82,694,144 bytes, verified `ANDROID!` header v2 magic, page size 4096, kernel `Image.gz` + Alpine rootfs + dropbear + `recovery_dtbo` + `sm8250-samsung-r8q.dtb` + AVB footer, sha256 `acd51fe0e9baa7d707ee8b871d4d21c7d7c17c60be90cdc3466e4a9489e4ca9a`).
+- [x] **M2.1b — Create Device Support Package (`packages/omamobile-device-r8q`):**
+  - **Status:** Complete (2026-11-11).
+  - **Package:** `packages/omamobile-device-r8q` provides freestanding `reboot-to` syscall helper, `reboot` wrapper for download/recovery, `20-usb-gadget.network` (`172.16.42.1`), `sshd` privilege separation, and pacman mirrorlist.
+  - **Verification:** `packages/omamobile-device-r8q/test/all` passed 100%; `tools/pr-check` verified clean.
 - [ ] **M2.2 — First Boot via `recovery` Slot (`sda24`):**
   - **Pre-gate:** Ask human for approval before writing `sda24`. Verify `boot` (`sda23`) is untouched.
   - **Commands:** Pack test `recovery-omamobile.img` (with `/chosen/bootargs` including `console=tty0 panic=10`), write to `/dev/block/by-name/recovery` (`sda24`), verify sha256, and run `adb reboot recovery`.

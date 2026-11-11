@@ -135,8 +135,11 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Pass:** Build cleanly completed in Docker container without errors. Modules cleanly stripped and archived.
 
 ### M2: Initramfs Storage Guard & Non-Destructive First Boot
-- [ ] **M2.1 — Adapt Initramfs Storage Guard for `r8q`:**
-  - **Details:** Ensure `initramfs/init` forces all `sda*`, `sdb*`, `sdc*`, `sdd*` block devices read-only (`blockdev --setro`), brings up USB gadget (`a600000.dwc3`, CDC NCM `172.16.42.1` + ACM serial + `dropbear` SSH), and sets a 90-second automatic `reboot` dead-man timer if no SSH login occurs.
+- [x] **M2.1 — Adapt Initramfs Storage Guard for `r8q` & Pack Header-v2 Image:**
+  - **Status:** Complete (2026-11-11).
+  - **Tool:** Created `tools/r8q-boot` supporting `pack`, `verify`, and `info`.
+  - **Storage Guard:** Enforces 100% read-only lock (`/etc/omamobile-ufs-rw` empty), USB network gadget (`172.16.42.1`), ACM console, Dropbear SSH keys, and panic/watchdog parameters.
+  - **Artifact:** `$KERNEL_OUT/recovery-omamobile.img` (15 MB, verified `ANDROID!` header v2 magic, page size 4096, kernel `Image.gz` + ramdisk + `sm8250-samsung-r8q.dtb`).
 - [ ] **M2.2 — First Boot via `recovery` Slot (`sda24`):**
   - **Pre-gate:** Ask human for approval before writing `sda24`. Verify `boot` (`sda23`) is untouched.
   - **Commands:** Pack test `recovery-omamobile.img` (with `/chosen/bootargs` including `console=tty0 panic=10`), write to `/dev/block/by-name/recovery` (`sda24`), verify sha256, and run `adb reboot recovery`.

@@ -219,6 +219,14 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Measured Speed:** **15.71 tokens/second** on CPU cores (4096 ctx, Q4_K_M).
   - **Memory:** 1.39 GB RSS footprint in RAM.
   - **Tooling:** Implemented [`tools/r8q-ai`](../../tools/r8q-ai) providing live query, status, port-forwarding, and multi-model profile switching (`text`, `vision`, `omni`, `minicpm`, `big`, `embed`).
+- [x] **M8.4 — Live Edge Subagent Server (Port 8080) & Mobile Web GUI:**
+  - **Status:** Complete & Live on Hardware (2026-11-11, Linux `7.3.0-rc6-omamobile-push1-gfc7086a68fca-dirty`).
+  - **RAM Compression:** 4 GB `zram` compressed swap with `zstd` algorithm initialized and active (`swapon -p 100 /dev/zram0`).
+  - **MGLRU Working Set:** `/sys/kernel/mm/lru_gen/min_ttl_ms = 1000` protecting Wayland surfaces and touch handlers.
+  - **Input:** Virtual multitouch device (`omamobile-touchscreen`, `event1`) and hardware keys (`gpio-keys`, `event0`) active on `seat0` with pointer, gesture, and keyboard capabilities.
+  - **Wayland Display:** `cage` compositor with WPE WebKit (`cog`) active and rendering the Modern Web Guidance compliant 4-panel launcher (`http://127.0.0.1:3000/`) at 1080x2400.
+  - **AI Subagent Server:** Running on port 8080 (`omamobile-ai-server.py`), providing OpenAI-compatible `/health`, `/v1/models`, and `/v1/chat/completions` endpoints accessible on-device and from laptop host via USB network (`http://172.16.42.1:8080`).
+
   - **Models Available On-Device:**
     - `LFM3-1.7B-Q4_K_M.gguf` (1.10 GB Text)
     - `LFM3-VL-2B-Q4_K_M.gguf` (Vision + `mmproj-LFM3-VL-2B-BF16.gguf`)

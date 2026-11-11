@@ -19,6 +19,7 @@ build() {
 package() {
   install -Dm755 "$srcdir/reboot-to" "$pkgdir/usr/local/bin/reboot-to"
   install -Dm755 "$startdir/reboot" "$pkgdir/usr/local/bin/reboot"
+  install -Dm755 "$startdir/omamobile-ai-server.py" "$pkgdir/usr/local/bin/omamobile-ai-server"
   install -Dm644 "$startdir/20-usb-gadget.network" \
     "$pkgdir/usr/lib/systemd/network/20-usb-gadget.network"
   install -Dm644 "$startdir/10-omamobile-usb.conf" \

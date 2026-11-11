@@ -379,20 +379,37 @@ Settings
 
 ---
 
-### 7.2 Curated Model Catalog by Modality (Verified for 6 GB RAM / Snapdragon 865)
+### 7.2 Primary Local Engine: Liquid AI LFM3 Family (Preferred for S20 FE)
 
-| Category | Model Name | Hugging Face Repository | Quant / Size | RAM (MB) | Performance on S20 FE |
+The **Liquid AI LFM3 (Liquid Foundation Model 3)** family is prioritized as the **primary local agent engine** on the S20 FE (`r8q`). Its non-transformer tri-hybrid architecture (gated convolution + sliding window + global attention) provides sub-quadratic memory complexity, massive 256K context capabilities, and native tool-calling with minimal KV-cache memory pressure.
+
+#### Architecture & Agent Suitability: LFM3-1.7B vs SmolLM2-1.7B
+
+| Metric / Capability | **Liquid AI LFM3-1.7B / 2B (Preferred)** | SmolLM2-1.7B-Instruct | Standard Mobile Transformer |
+| --- | --- | --- | --- |
+| **Primary Target** | **Local agent harnesses, MCP tool-calling, edge autonomy** | General on-device instruction following & chat | Desktop-scale downsized chat |
+| **Architecture** | **Tri-hybrid (gated convolution + sliding window + global attention)** | Standard dense Transformer decoder | Dense Transformer decoder |
+| **Context Window** | **256K tokens (sub-quadratic scaling)** | 2,048 tokens (expandable to 8K) | 4K–8K tokens |
+| **Native Agent Post-Training** | **Direct optimization for agent harnesses (Hermes, Pi, OpenClaw)** | Basic function-calling and instruction-tuning | Generic synthetic chat |
+| **Tool Calling Pattern** | **Native structured calling + deferred tool loading / search (MCP)** | Standard JSON schema prompt formatting | JSON in system prompt |
+| **Memory Footprint (Q4)** | **~1.0 GB RAM (minimal KV-cache memory pressure)** | ~1.1 GB RAM (KV-cache grows linearly) | ~1.2–1.8 GB RAM |
+| **ARM NEON / GPU Kernels** | **High efficiency on Cortex-A77/A55 with optimized LFM3 kernels** | Standard matrix-multiplication kernels | Standard GEMM / GEMV |
+
+---
+
+### 7.3 Curated Model Catalog by Modality
+
+| Category | Model Name | Hugging Face Repository | Quant / Size | RAM (MB) | Role on S20 FE |
 | --- | --- | --- | --- | --- | --- |
-| **Text** | **SmolLM2 1.7B** | `HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF` | Q4_K_M (~1.05 GB) | ~1100 MB | ~18–22 tok/s (Blazing fast, ideal default) |
-| **Text** | **Qwen 2.5 1.5B** | `Qwen/Qwen2.5-1.5B-Instruct-GGUF` | Q4_K_M (~1.10 GB) | ~1150 MB | ~16–20 tok/s (High reasoning quality) |
-| **Text** | **Llama 3.2 3B** | `meta-llama/Llama-3.2-3B-Instruct-GGUF` | Q4_K_M (~2.02 GB) | ~2200 MB | ~7–10 tok/s (Heavy general capability) |
-| **Text** | **DeepSeek-R1 1.5B** | `deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B-GGUF` | Q4_K_M (~1.12 GB) | ~1200 MB | ~14–18 tok/s (Chain-of-thought reasoning) |
-| **Vision** | **Moondream2 1.8B** | `vikhyatk/moondream2` | Q4_K_M (~1.28 GB) | ~1400 MB | ~4–7 img/s (Camera scene QA, OCR, glance) |
-| **Vision** | **SmolVLM 2B** | `HuggingFaceTB/SmolVLM-Instruct-GGUF` | Q4_K_M (~1.45 GB) | ~1550 MB | ~3–5 img/s (Document & visual reasoning) |
-| **Omni** | **Whisper Tiny / Base** | `ggerganov/whisper.cpp` | FP16 (~78 MB / 142 MB) | ~120 MB | Real-time Voxtype dictation on Cortex-A55 |
-| **Omni** | **Kokoro 82M TTS** | `hexgrad/Kokoro-82M` | ONNX (~86 MB) | ~110 MB | 25x real-time high-fidelity speech synth |
-| **Video/Image** | **SD-Turbo / LCM** | `stabilityai/sd-turbo` | NCNN / GGUF (~1.3 GB) | ~1800 MB | ~3.5 s / step on Adreno 650 GPU |
-| **Video/Image** | **Cloud Video Bridge** | Remote MCP Tool (`flux-schnell` / `kling`) | Remote | ~0 MB | Offloaded via Remote MCP SSE transport |
+| **Text (Agent Core)** | **LFM3-1.7B / 2B** | `LiquidCloud/LFM3-1.7B-GGUF` | Q4_K_M (~1.02 GB) | **~1050 MB** | **Default system agent: MCP tool calls, system settings, 256K context** |
+| **Text (Alternative)** | **Qwen 2.5 1.5B** | `Qwen/Qwen2.5-1.5B-Instruct-GGUF` | Q4_K_M (~1.10 GB) | ~1150 MB | Secondary fallback for general multi-lingual translation |
+| **Text (Flagship)** | **Llama 3.2 3B** | `meta-llama/Llama-3.2-3B-Instruct-GGUF` | Q4_K_M (~2.02 GB) | ~2200 MB | High-complexity offline synthesis |
+| **Vision** | **LFM3-Vision-2B** | `LiquidCloud/LFM3-Vision-2B-GGUF` | Q4_K_M (~1.35 GB) | **~1450 MB** | **Real-time camera scene understanding, visual QA, glance widgets** |
+| **Vision (Light)** | **Moondream2 1.8B** | `vikhyatk/moondream2` | Q4_K_M (~1.28 GB) | ~1400 MB | Lightweight OCR and document transcription |
+| **Omni** | **LFM3-Omni-2B** | `LiquidCloud/LFM3-Omni-2B-GGUF` | Q4_K_M (~1.48 GB) | **~1600 MB** | **Unified audio/speech + vision + text real-time conversational agent** |
+| **Omni (Modular)** | **Whisper Tiny + Kokoro** | `ggerganov/whisper.cpp` + `hexgrad/Kokoro-82M`| FP16 + ONNX | ~230 MB | Modular Voxtype STT + ultra-low-latency 25x TTS |
+| **Video** | **LFM3-Video-2B** | `LiquidCloud/LFM3-Video-2B-GGUF` | Q4_K_M (~1.55 GB) | **~1700 MB** | **Temporal multi-frame camera buffer reasoning & video scene QA** |
+| **Video (Cloud)** | **Remote Video Bridge** | Remote MCP Tool (`flux-schnell` / `kling`) | Remote | 0 MB | Heavy multi-frame generation offloaded via Remote MCP |
 
 ---
 

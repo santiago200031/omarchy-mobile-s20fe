@@ -101,6 +101,12 @@ cmd_pack() {
   say "Packing Android header-v2 image: $out_img"
   mkdir -p "$(dirname "$out_img")"
 
+  local recovery_dtbo="$KERNEL_OUT/recovery_dtbo.img"
+  local dtbo_arg=()
+  if [[ -f $recovery_dtbo ]]; then
+    dtbo_arg=(--recovery_dtbo "$recovery_dtbo")
+  fi
+
   python3 "$MKBOOTIMG" \
     --header_version 2 \
     --pagesize 4096 \
@@ -109,10 +115,13 @@ cmd_pack() {
     --ramdisk_offset 0x01000000 \
     --tags_offset 0x00000100 \
     --dtb_offset 0x01f00000 \
+    --os_version 16.0.0 \
+    --os_patch_level 2026-10 \
     --cmdline "console=tty0 clk_ignore_unused pd_ignore_unused panic=10 rdinit=/init omamobile.ufs-probe" \
     --kernel "$kernel" \
     --ramdisk "$ramdisk" \
     --dtb "$dtb" \
+    "${dtbo_arg[@]}" \
     --output "$out_img"
 
   say "Signing image with AVB hash footer matching LineageOS vbmeta"
@@ -122,7 +131,9 @@ cmd_pack() {
     --partition_name recovery \
     --algorithm SHA256_RSA4096 \
     --key "$AVBKEY" \
-    --rollback_index 1790812800
+    --rollback_index 1790812800 \
+    --salt c87c8f874194bd7fde350e71426ac253760df3146460905df3fc630afc2a0322 \
+    --prop com.android.build.recovery.fingerprint:samsung/lineage_r8q/r8q:16/BP4A.251205.006/e8c0c141f5:userdebug/release-keys
 
   say "Image packed and AVB signed successfully:"
   rm -rf "$stage"

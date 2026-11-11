@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# tools/r8q-extract-firmware: extract and squash Qualcomm SM8250 firmware from running Galaxy S20 FE
+import os, struct, subprocess, sys
+
+say = lambda msg: print(f"\033[1;34m==>\033[0m {msg}")
+die = lambda msg: (print(f"\033[1;31mERROR:\033[0m {msg}", file=sys.stderr), sys.exit(1))
+
+OUT_DIR = os.path.expanduser("~/.cache/omamobile/firmware/r8q/lib/firmware")
+STAGE_DIR = "/tmp/r8q-fw-stage"
+
+def run(cmd, capture=False):
+    res = subprocess.run(cmd, shell=True, text=True, stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE if capture else None)
+    if res.returncode != 0:
+        die(f"Command failed: {cmd}\n{res.stderr if capture else ''}")
+    return res.stdout if capture else None
+
+def check_adb():
+    devs = run("adb devices", capture=True)
+    if "\tdevice" not in devs:
+        die("Galaxy S20 FE not detected over adb (check cable or unlock screen)")
+
+def squash_mdt(mdt_file, out_file):
+    with open(mdt_file, "rb") as f:
+        header = f.read(64)
+    if header[:4] != b"\x7fELF":
+        die(f"{mdt_file} is not an ELF file")
+    is_64 = header[4] == 2
+    e_phoff = struct.unpack("<Q" if is_64 else "<I", header[32:40] if is_64 else header[28:32])[0]
+    e_phentsize = struct.unpack("<H", header[54:56] if is_64 else header[42:44])[0]
+    e_phnum = struct.unpack("<H", header[56:58] if is_64 else header[44:46])[0]
+    
+    with open(mdt_file, "rb") as f:
+        f.seek(0)
+        out_data = bytearray(f.read())
+    
+    base_dir = os.path.dirname(mdt_file)
+    prefix = os.path.splitext(os.path.basename(mdt_file))[0]
+    
+    with open(mdt_file, "rb") as f:
+        f.seek(e_phoff)
+        for i in range(e_phnum):
+            ph = f.read(e_phentsize)
+            if is_64:
+                p_type, p_flags, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_align = struct.unpack("<IIQQQQQQ", ph[:56])
+            else:
+                p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align = struct.unpack("<IIIIIIII", ph[:32])
+            
+            b_file = os.path.join(base_dir, f"{prefix}.b{i:02d}")
+            if os.path.exists(b_file) and p_filesz > 0:
+                with open(b_file, "rb") as bf:
+                    seg_data = bf.read()
+                if len(out_data) < p_offset + p_filesz:
+                    out_data.extend(b"\x00" * (p_offset + p_filesz - len(out_data)))
+                out_data[p_offset:p_offset + p_filesz] = seg_data
+    
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    with open(out_file, "wb") as out:
+        out.write(out_data)
+    say(f"Squashed {os.path.basename(mdt_file)} -> {out_file} ({len(out_data):,} bytes)")
+
+def main():
+    check_adb()
+    os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(STAGE_DIR, exist_ok=True)
+
+    say(f"Extracting vendor firmware from device to {OUT_DIR}...")
+
+    # 1. GPU Firmware: Adreno 650
+    qcom_dir = os.path.join(OUT_DIR, "qcom")
+    os.makedirs(qcom_dir, exist_ok=True)
+    say("Pulling Adreno 650 GMU and SQE microcode...")
+    run(f"adb pull /vendor/firmware/a650_gmu.bin {qcom_dir}/a650_gmu.bin >/dev/null")
+    run(f"adb pull /vendor/firmware/a650_sqe.fw {qcom_dir}/a650_sqe.fw >/dev/null")
+
+    say("Pulling and squashing a650_zap shader firmware...")
+    run(f"adb shell \"sh -c 'cd /vendor/firmware_mnt/image && tar -cf - a650_zap.*'\" | tar -C {STAGE_DIR}/ -xf -")
+    squash_mdt(f"{STAGE_DIR}/a650_zap.mdt", f"{qcom_dir}/a650_zap.mbn")
+
+    # 2. Subsystem DSPs: ADSP, CDSP, SLPI
+    dsp_target_dir = os.path.join(OUT_DIR, "qcom/sm8250/Samsung/r8q")
+    os.makedirs(dsp_target_dir, exist_ok=True)
+    for dsp in ["adsp", "cdsp", "slpi"]:
+        say(f"Pulling and squashing {dsp} firmware...")
+        run(f"adb shell \"sh -c 'cd /vendor/firmware_mnt/image && tar -cf - {dsp}.*'\" | tar -C {STAGE_DIR}/ -xf -")
+        squash_mdt(f"{STAGE_DIR}/{dsp}.mdt", f"{dsp_target_dir}/{dsp}.mbn")
+
+    # 3. Audio Amplifiers: Cirrus CS35L40
+    cirrus_dir = os.path.join(OUT_DIR, "cirrus")
+    os.makedirs(cirrus_dir, exist_ok=True)
+    say("Pulling Cirrus CS35L40 speaker amplifier firmware...")
+    run(f"adb shell \"sh -c 'cd /vendor/firmware && tar -cf - cs35l40-*'\" | tar -C {cirrus_dir}/ -xf -")
+
+    # 4. Wi-Fi: QCA6390
+    wlan_dir = os.path.join(OUT_DIR, "qca6390")
+    os.makedirs(wlan_dir, exist_ok=True)
+    say("Pulling QCA6390 Wi-Fi 6 board configuration...")
+    run(f"adb pull /vendor/firmware/qca6390/ {OUT_DIR}/ >/dev/null 2>&1 || true")
+
+    say(f"All firmware successfully extracted and squashed into {OUT_DIR}!")
+    run(f"rm -rf {STAGE_DIR}")
+    run(f"ls -lhR {OUT_DIR} | head -35")
+
+if __name__ == "__main__":
+    main()

@@ -159,7 +159,11 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
 ### M3: Display & GPU (Hyprland First Light)
 - [ ] **M3.1 — Framebuffer & KMS (`msm_drm` + `s6e3fc3`):**
   - **Expect/Pass:** `/sys/class/drm/card0-DSI-1/status` reports `connected`; 1080x2400@120Hz mode active; backlight control works via `/sys/class/backlight/`.
-- [ ] **M3.2 — Adreno 650 GPU (`msm` + `a650_zap.mbn` + Mesa Turnip/Freedreno):**
+- [x] **M3.2 — Extract & Stage Adreno 650 GPU Microcode (`tools/r8q-extract-firmware`):**
+  - **Status:** Complete (2026-11-11).
+  - **Artifacts:** Extracted `qcom/a650_gmu.bin` (41 KB), `qcom/a650_sqe.fw` (31 KB), and squashed `qcom/a650_zap.mbn` (14 KB) from device storage into `~/.cache/omamobile/firmware/r8q/lib/firmware/qcom/`.
+  - **Subsystems:** Also extracted and squashed `adsp.mbn` (23.5 MB), `cdsp.mbn` (9.3 MB), `slpi.mbn` (7.4 MB), Cirrus `cs35l40-*` amp firmware, and `qca6390` Wi-Fi/BT microcode.
+- [ ] **M3.3 — Adreno 650 GPU Acceleration (Mesa Turnip/Freedreno):**
   - **Expect/Pass:** `/dev/dri/renderD128` initializes with `a650_zap.mbn`; `glmark2-es2-wayland` and `vulkaninfo` identify Adreno 650; Hyprland and `omamobile-shell` launch at 120 Hz.
 
 ### M4: Touchscreen, Buttons & Sensors

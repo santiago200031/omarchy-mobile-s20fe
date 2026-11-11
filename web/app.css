@@ -15,11 +15,6 @@
   --omarchy-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --omarchy-font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
   --spring-easing: cubic-bezier(0.22, 1.0, 0.36, 1.0);
-  font-size: calc(14px + 1.2vw);
-}
-
-*, *::before, *::after, html, body {
-  cursor: none !important;
 }
 
 * {
@@ -43,10 +38,10 @@ html, body {
 
 /* Outer Container / Phone Frame */
 .phone-viewport {
-  width: 100vw;
-  height: 100vh;
-  max-width: 100vw;
-  margin: 0;
+  width: 100%;
+  height: 100svh;
+  max-width: 480px;
+  margin: 0 auto;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -433,10 +428,10 @@ dialog::backdrop {
 
 .Drawer {
   inset: 0;
-  width: 100vw;
-  height: 100vh;
-  max-width: 100vw;
-  margin: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 480px;
+  margin: 0 auto;
   padding: 0;
   background: transparent;
   border: 0;
@@ -821,10 +816,10 @@ dialog::backdrop {
 /* Modal 3: Terminal App Window */
 .AppWindow {
   inset: 0;
-  width: 100vw;
-  height: 100vh;
-  max-width: 100vw;
-  margin: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 480px;
+  margin: 0 auto;
   padding: 0;
   background: #0a0d14;
   border: none;

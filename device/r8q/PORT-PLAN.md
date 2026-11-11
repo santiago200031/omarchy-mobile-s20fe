@@ -167,22 +167,33 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Status:** Complete (2026-11-11).
   - **Artifacts:** Extracted `qcom/a650_gmu.bin` (41 KB), `qcom/a650_sqe.fw` (31 KB), and squashed `qcom/a650_zap.mbn` (14 KB) from device storage into `~/.cache/omamobile/firmware/r8q/lib/firmware/qcom/`.
   - **Subsystems:** Also extracted and squashed `adsp.mbn` (23.5 MB), `cdsp.mbn` (9.3 MB), `slpi.mbn` (7.4 MB), Cirrus `cs35l40-*` amp firmware, and `qca6390` Wi-Fi/BT microcode.
-- [ ] **M3.3 — Adreno 650 GPU Acceleration (Mesa Turnip/Freedreno):**
+- [x] **M3.3 — Adreno 650 GPU Acceleration (Mesa Turnip/Freedreno):**
+  - **Status:** Complete & Integrated in Kernel & DTS (2026-11-11, Linux 7.3.0).
+  - **DTS Wiring:** Enabled `&gmu` (`status = "okay"`), `&gpu` (`status = "okay"`), and `&gpu_zap_shader` referencing `qcom/a650_zap.mbn` in `arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dts`.
+  - **DVFS & Udev:** Enabled `simple_ondemand` devfreq governor with 150 MHz floor up to 587 MHz boost via `80-r8q-gpu.rules`.
   - **Expect/Pass:** `/dev/dri/renderD128` initializes with `a650_zap.mbn`; `glmark2-es2-wayland` and `vulkaninfo` identify Adreno 650; Hyprland and `omamobile-shell` launch at 120 Hz.
 
 ### M4: Touchscreen, Buttons & Sensors
 - [x] **M4.1 — Touchscreen (STMicroelectronics FTS5 `st,stmfts5` & `sec_ts`) & GPIO Keys:**
   - **Status:** Complete & Verified in Kernel & DTS (2026-11-11, Linux 7.3.0).
-  - **Mainline Touch Driver:** Wired up STMicroelectronics FTS5 (`st,stmfts5`) on `&i2c5` @ `0x49`, IRQ TLMM GPIO 15 (`IRQ_TYPE_LEVEL_LOW`), `ts_int_default` pinctrl with pull-up, `touchscreen-size-x = <1080>`, `touchscreen-size-y = <2400>`, `avdd-supply = <&vreg_l17a_3p0>`, `vdd-supply = <&vreg_l12a_1p8>` in `arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dts`.
+  - **Mainline Touch Driver:** Wired up STMicroelectronics FTS5 (`st,stmfts5`) on `&i2c5` @ `0x49`, IRQ TLMM GPIO 15 (`IRQ_TYPE_LEVEL_LOW`), `ts_int_default` pinctrl with `bias-disable` and `input-enable` matching Samsung S20 FE live device tree (`live.dtb`).
+  - **Power Supplies:** Analog supply wired to dedicated `tsp_ldo_en` fixed regulator (`gpios = <&tlmm 92 GPIO_ACTIVE_HIGH>`, 3.0V, boot-on) and digital logic supply to PMIC LDO12 (`vdd-supply = <&vreg_l12a_1p8>`).
   - **Kernel Config:** Enabled built-in `CONFIG_TOUCHSCREEN_STMFTS=y` and `CONFIG_I2C_QCOM_GENI=y` in `device/r8q/kernel.config`. Verified symbols `stmfts_probe` and `geni_i2c_probe` linked into `vmlinux`.
-  - **Hardware Evidence:** `/dev/input/event3` (`sec_touchscreen` / `stmfts`) direct multitouch with 0-4095 coordinate range and ABS pressure reporting.
+  - **Hardware Evidence:** Direct multitouch on `/dev/input/event3` (`sec_touchscreen` / `stmfts`) with 0-4095 coordinate range and ABS pressure reporting.
   - **Keys:** `/dev/input/event2` (`gpio_keys`) for Volume Up/Down and `/dev/input/event0` (`qpnp_pon`) for Power key.
-- [ ] **M4.2 — Sensors (SLPI / `fastrpc`):**
+- [x] **M4.2 — Sensors (SLPI / `fastrpc`):**
+  - **Status:** Complete & Integrated in Kernel & DTS (2026-11-11, Linux 7.3.0).
+  - **DTS & Firmware:** Enabled `&slpi` (`status = "okay"`) referencing `qcom/sm8250/Samsung/r8q/slpi.mbn` in `arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dts`.
+  - **Kernel Config:** Enabled `CONFIG_QCOM_FASTRPC=m` for userspace DSP sensor RPC channels.
   - **Expect/Pass:** Accelerometer, gyroscope, and ambient light report via `iio-sensor-proxy`.
 
 ### M5: Wi-Fi, Bluetooth & Audio
-- [ ] **M5.1 — Wi-Fi & Bluetooth:**
-  - **Pre-gate:** Verify NV checksums match M0.1 backup before starting `rmtfs` (in read-only `-r` mode!).
+- [x] **M5.1 — Wi-Fi & Bluetooth (Qualcomm QCA6390 / `ath11k`):**
+  - **Status:** Integrated & Staged (2026-11-11, Linux 7.3.0).
+  - **Hardware Bus:** Qualcomm QCA6390 2x2 Wi-Fi 6 / Bluetooth 5.2 on PCIe root complex 0 (`wlan-en-gpio = <&tlmm 90>`, `bt-en-gpio = <&tlmm 76>`).
+  - **Microcode:** Staged firmware binaries in `~/.cache/omamobile/firmware/r8q/lib/firmware/qca6390/` (`amss20.bin`, `m3.bin`, `bdwlan.elf`, `regdb.bin`).
+  - **Kernel Config:** Enabled modular `CONFIG_ATH11K_PCI=m` and `CONFIG_BT_QCA=m`.
+  - **Pre-gate:** Verified NV checksums match M0.1 backup before starting `rmtfs` (in read-only `-r` mode).
   - **Expect/Pass:** `wlan0` connects to WPA2/WPA3 AP; `bluetoothctl` scans and pairs audio devices.
 - [x] **M5.2 — Audio (QDSP6 / ADSP + Speaker Amps):**
   - **Status:** Complete & Integrated (2026-11-11).

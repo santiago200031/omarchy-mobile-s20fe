@@ -327,13 +327,16 @@ cmd_capture() {
 }
 
 cmd_kernel() {
-  local release=0
-  case ${1:-} in
-    '') ;;
-    --release) release=1 ;;
-    *) die "kernel: expected --release or no argument" ;;
-  esac
-  (($# <= 1)) || die "kernel: expected --release or no argument"
+  local release=0 fast=0 targets=()
+  for arg in "$@"; do
+    case "$arg" in
+      --release) release=1 ;;
+      --fast) fast=1 ;;
+      Image|Image.gz|dtbs|modules|*.dtb) targets+=("$arg") ;;
+      *) die "kernel: unexpected argument '$arg' (expected --release, --fast, or targets like dtbs/Image)" ;;
+    esac
+  done
+  ((${#targets[@]} == 0)) && targets=(Image Image.gz dtbs modules)
   [[ -d "$KERNEL_DIR" ]] || die "no kernel tree at $KERNEL_DIR"
   [[ -n "$CLANG_DIR" ]] || die "no clang found: run tools/fetch-toolchain (or 'lineage-ref sync', or set CLANG_DIR)"
   # The codename goes into a path below, as in load_device
@@ -349,21 +352,27 @@ cmd_kernel() {
       || die "kernel --release: $KERNEL_DIR has uncommitted changes"
     say "Release build: LOCALVERSION -omamobile, no device fragment"
   fi
-  say "Building $KERNEL_DIR into $KERNEL_OUT"
+  say "Building $KERNEL_DIR into $KERNEL_OUT (targets: ${targets[*]}, jobs: $JOBS)"
   mkdir -p "$KERNEL_OUT"
+  local config_step=""
+  if ((fast)) && [[ -f "$KERNEL_OUT/.config" ]]; then
+    config_step="make ARCH=arm64 LLVM=1 O=$KERNEL_OUT olddefconfig"
+  else
+    config_step="
+      make ARCH=arm64 LLVM=1 O=$KERNEL_OUT defconfig
+      scripts/kconfig/merge_config.sh -m -O $KERNEL_OUT $KERNEL_OUT/.config $ROOT/kernel/configs/omamobile.config
+      if [ -f $fragment ]; then
+        scripts/kconfig/merge_config.sh -m -O $KERNEL_OUT $KERNEL_OUT/.config $fragment
+      fi
+      $localversion
+      make ARCH=arm64 LLVM=1 O=$KERNEL_OUT olddefconfig
+    "
+  fi
   in_container "
     set -e
-    make ARCH=arm64 LLVM=1 O=$KERNEL_OUT defconfig
-    scripts/kconfig/merge_config.sh -m -O $KERNEL_OUT $KERNEL_OUT/.config $ROOT/kernel/configs/omamobile.config
-    # The device's own options on top, where they would break another device
-    if [ -f $fragment ]; then
-      scripts/kconfig/merge_config.sh -m -O $KERNEL_OUT $KERNEL_OUT/.config $fragment
-    fi
-    $localversion
-    make ARCH=arm64 LLVM=1 O=$KERNEL_OUT olddefconfig
-    make ARCH=arm64 LLVM=1 O=$KERNEL_OUT -j$JOBS Image Image.gz dtbs modules
-    ls -lh $KERNEL_OUT/arch/arm64/boot/Image*
-    ls $KERNEL_OUT/arch/arm64/boot/dts/exynos/google/
+    $config_step
+    make ARCH=arm64 LLVM=1 O=$KERNEL_OUT -j$JOBS ${targets[*]}
+    ls -lh $KERNEL_OUT/arch/arm64/boot/Image* 2>/dev/null || true
   "
   # The compiler this build used, for images' TOOLCHAIN and the bundle's
   # MANIFEST: clang's own version line (the Android build and llvm-project

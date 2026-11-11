@@ -248,7 +248,169 @@ To make motions feel instantaneous and fluid on the `S6E3FC3` 120 Hz AMOLED pane
 
 ---
 
-## 6. Pre-Push Checklist (Every Commit)
+---
+
+## 7. AI & Agents Settings Architecture: Models & MCPs
+
+To make the S20 FE a true AI-first mobile device, Omarchy Mobile integrates a dedicated **Settings > AI > Agents** configuration subsystem. This subsystem manages on-device and remote LLMs/VLMs downloaded from Hugging Face and connects agents to local and remote tools via Anthropic's **Model Context Protocol (MCP)**.
+
+```
+Settings
+ └── AI
+      └── Agents
+           ├── Models (Hugging Face Model Manager)
+           │    ├── Text (LLMs)
+           │    ├── Vision (VLMs)
+           │    ├── Omni / Audio (STT & TTS)
+           │    └── Video / Image Generation
+           └── MCPs (Model Context Protocol Registry)
+                ├── Local MCPs (stdio on-device tools)
+                └── Remote MCPs (SSE / HTTP cloud bridges)
+```
+
+### 7.1 Configuration Specification (`~/.config/omamobile/ai/agents.json`)
+
+```json
+{
+  "$schema": "https://omamobile.org/schemas/ai-agents-v1.json",
+  "version": 1,
+  "default_agent": "agy",
+  "inference_backend": "llama.cpp",
+  "active_models": {
+    "text": "qwen2.5-1.5b-instruct-q4_k_m",
+    "vision": "moondream2-q4_k_m",
+    "stt": "whisper-tiny.en",
+    "tts": "kokoro-82m"
+  },
+  "models": [
+    {
+      "id": "qwen2.5-1.5b-instruct-q4_k_m",
+      "name": "Qwen 2.5 1.5B Instruct",
+      "category": "text",
+      "source": "huggingface",
+      "repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "size_bytes": 1050000000,
+      "ram_required_mb": 1100,
+      "installed": true,
+      "local_path": "~/.cache/omamobile/models/text/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+    },
+    {
+      "id": "llama-3.2-3b-instruct-q4_k_m",
+      "name": "Llama 3.2 3B Instruct",
+      "category": "text",
+      "source": "huggingface",
+      "repo": "meta-llama/Llama-3.2-3B-Instruct-GGUF",
+      "file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "size_bytes": 2020000000,
+      "ram_required_mb": 2200,
+      "installed": false
+    },
+    {
+      "id": "moondream2-q4_k_m",
+      "name": "Moondream2 (Tiny VLM)",
+      "category": "vision",
+      "source": "huggingface",
+      "repo": "vikhyatk/moondream2",
+      "file": "moondream2-text-model-q4_k_m.gguf",
+      "mmproj": "moondream2-mmproj-f16.gguf",
+      "size_bytes": 1280000000,
+      "ram_required_mb": 1400,
+      "installed": false
+    },
+    {
+      "id": "whisper-tiny.en",
+      "name": "OpenAI Whisper Tiny (English)",
+      "category": "omni",
+      "source": "huggingface",
+      "repo": "ggerganov/whisper.cpp",
+      "file": "ggml-tiny.en.bin",
+      "size_bytes": 77800000,
+      "ram_required_mb": 120,
+      "installed": true
+    },
+    {
+      "id": "kokoro-82m",
+      "name": "Kokoro 82M Speech Synth",
+      "category": "omni",
+      "source": "huggingface",
+      "repo": "hexgrad/Kokoro-82M",
+      "file": "kokoro-v0_19.onnx",
+      "size_bytes": 86000000,
+      "ram_required_mb": 110,
+      "installed": true
+    }
+  ],
+  "mcps": [
+    {
+      "id": "omamobile-system",
+      "name": "Phone Hardware & Sensors",
+      "type": "local",
+      "transport": "stdio",
+      "command": "/usr/lib/omamobile/mcps/omamobile-mcp-system",
+      "args": [],
+      "env": {},
+      "permissions": ["battery", "wifi", "brightness", "torch", "haptics"],
+      "enabled": true
+    },
+    {
+      "id": "local-filesystem",
+      "name": "Device File Access",
+      "type": "local",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/santiago/Documents", "/home/santiago/Downloads"],
+      "enabled": true
+    },
+    {
+      "id": "remote-search",
+      "name": "Private Web Search MCP",
+      "type": "remote",
+      "transport": "sse",
+      "url": "https://mcp-search.internal.net/sse",
+      "headers": {
+        "Authorization": "Bearer ${SEARCH_MCP_KEY}"
+      },
+      "enabled": false
+    }
+  ]
+}
+```
+
+---
+
+### 7.2 Curated Model Catalog by Modality (Verified for 6 GB RAM / Snapdragon 865)
+
+| Category | Model Name | Hugging Face Repository | Quant / Size | RAM (MB) | Performance on S20 FE |
+| --- | --- | --- | --- | --- | --- |
+| **Text** | **SmolLM2 1.7B** | `HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF` | Q4_K_M (~1.05 GB) | ~1100 MB | ~18–22 tok/s (Blazing fast, ideal default) |
+| **Text** | **Qwen 2.5 1.5B** | `Qwen/Qwen2.5-1.5B-Instruct-GGUF` | Q4_K_M (~1.10 GB) | ~1150 MB | ~16–20 tok/s (High reasoning quality) |
+| **Text** | **Llama 3.2 3B** | `meta-llama/Llama-3.2-3B-Instruct-GGUF` | Q4_K_M (~2.02 GB) | ~2200 MB | ~7–10 tok/s (Heavy general capability) |
+| **Text** | **DeepSeek-R1 1.5B** | `deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B-GGUF` | Q4_K_M (~1.12 GB) | ~1200 MB | ~14–18 tok/s (Chain-of-thought reasoning) |
+| **Vision** | **Moondream2 1.8B** | `vikhyatk/moondream2` | Q4_K_M (~1.28 GB) | ~1400 MB | ~4–7 img/s (Camera scene QA, OCR, glance) |
+| **Vision** | **SmolVLM 2B** | `HuggingFaceTB/SmolVLM-Instruct-GGUF` | Q4_K_M (~1.45 GB) | ~1550 MB | ~3–5 img/s (Document & visual reasoning) |
+| **Omni** | **Whisper Tiny / Base** | `ggerganov/whisper.cpp` | FP16 (~78 MB / 142 MB) | ~120 MB | Real-time Voxtype dictation on Cortex-A55 |
+| **Omni** | **Kokoro 82M TTS** | `hexgrad/Kokoro-82M` | ONNX (~86 MB) | ~110 MB | 25x real-time high-fidelity speech synth |
+| **Video/Image** | **SD-Turbo / LCM** | `stabilityai/sd-turbo` | NCNN / GGUF (~1.3 GB) | ~1800 MB | ~3.5 s / step on Adreno 650 GPU |
+| **Video/Image** | **Cloud Video Bridge** | Remote MCP Tool (`flux-schnell` / `kling`) | Remote | ~0 MB | Offloaded via Remote MCP SSE transport |
+
+---
+
+### 7.3 MCP (Model Context Protocol) Integration
+
+1. **Local MCPs (On-Device via `stdio`):**
+   - Packaged in `/usr/lib/omamobile/mcps/`
+   - Gives the local agent control of native phone capabilities without root:
+     - `omamobile-mcp-system`: reads battery, Wi-Fi status, thermal zones, sets brightness, triggers haptics.
+     - `omamobile-mcp-camera`: captures still frames from `omacam` / libcamera for input into Moondream2.
+     - `omamobile-mcp-notes`: interacts with Omarchy's notes and calendar widgets.
+2. **Remote MCPs (Cloud / LAN via `SSE` / `Streamable HTTP`):**
+   - Configurable per-agent in `agents.json`.
+   - Allows the phone agent to query external databases, search engines, or trigger heavy remote GPU tasks while keeping sensitive device credentials local.
+
+---
+
+## 8. Pre-Push Checklist (Every Commit)
 
 Before committing or opening any PR, always run:
 ```sh

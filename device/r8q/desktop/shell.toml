@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# Samsung Galaxy S20 FE (r8q) overrides for the Omarchy shell, installed as
+# ~/.config/omarchy/shell.toml (user keys win over the theme's shell.toml).
+# Only what differs from the stock Omarchy Mobile phone profile.
+#
+# Panel: 1080x2400, 6.5 in, about 407 ppi (16.0 px/mm). At the stock phone
+# scale 2.25 one logical px is about 0.14 mm.
+
+[bar]
+# omamobile.bar is max(44, size-horizontal) tall: 44 is 6.2 mm here, 48 is
+# 6.7 mm, inside a 7-9 mm touch target.
+size-horizontal = 48
+
+[spacing]
+# The bar's left/right inset (stock 18 = 2.5 mm). 20 (2.8 mm) keeps the clock
+# and battery icon clear of the rounded corners and the center punch-hole camera.
+huge = 20

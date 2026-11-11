@@ -1,0 +1,52 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-setup-ui: stock Omarchy Mobile display setup for Samsung Galaxy S20 FE (r8q),
+# plus r8q overrides (shell.toml). Run as the desktop user.
+set -euo pipefail
+if [[ ${1:-} == --revert ]]; then SRC=$(cd "$(dirname "$0")" && pwd)
+else SRC=$(cd "${1:-$(dirname "$0")}" && pwd); fi
+[[ $(id -u) != 0 ]] || { echo "run as the desktop user" >&2; exit 1; }
+share=/usr/share/omamobile/shell
+cfg=~/.config/omarchy
+mon=~/.config/hypr/monitors.lua
+links=~/.local/state/r8q-setup-ui/icon-links
+
+if [[ ${1:-} == --revert ]]; then
+  [[ -f $cfg/shell.json.pre-r8q-ui ]] && cp "$cfg/shell.json.pre-r8q-ui" "$cfg/shell.json"
+  [[ -f $mon.pre-r8q-ui ]] && cp "$mon.pre-r8q-ui" "$mon"
+  rm -f "$cfg/shell.toml"
+  if [[ -f $links ]]; then
+    while read -r l; do [[ -L $l ]] && rm -f "$l"; done < "$links"
+    rm -f "$links"
+  fi
+  echo "reverted; restart with: hyprctl reload; omarchy-restart-shell"; exit 0
+fi
+
+[[ -d $share/plugins ]] || { echo "omamobile-shell is not installed" >&2; exit 1; }
+[[ -f $cfg/shell.json.pre-r8q-ui ]] || cp "$cfg/shell.json" "$cfg/shell.json.pre-r8q-ui"
+[[ -f $mon.pre-r8q-ui ]] || cp "$mon" "$mon.pre-r8q-ui"
+
+mkdir -p "$cfg/plugins"
+for p in "$share"/plugins/omamobile.*; do ln -sfn "$p" "$cfg/plugins/$(basename "$p")"; done
+cp "$share/profile/shell.json" "$cfg/shell.json"
+sed -i 's/^local omarchy_monitor_scale = .*/local omarchy_monitor_scale = 2.25/' "$mon"
+install -m 644 "$SRC/shell.toml" "$cfg/shell.toml"
+
+declare -A svg=() have=()
+while read -r n; do svg[$n]=1; done < <(find ~/.icons ~/.local/share/icons /usr/local/share/icons /usr/share/icons \
+  \( -path '*/apps/*' -o -path '*/devices/*' \) -name '*.svg' -printf '%f\n' 2>/dev/null | sed 's/\.svg$//' | sort -u)
+mkdir -p "${links%/*}"; touch "$links"
+for sz in 512x512 256x256; do
+  for f in /usr/share/icons/hicolor/$sz/apps/*.png; do
+    [[ -f $f ]] || continue
+    n=$(basename "$f" .png)
+    [[ -n ${svg[$n]:-} || -n ${have[$n]:-} ]] && continue
+    have[$n]=1
+    l=~/.local/share/icons/hicolor/$sz/apps/$n.png
+    [[ -e $l ]] && continue
+    mkdir -p "${l%/*}"; ln -s "$f" "$l"; echo "$l" >> "$links"
+  done
+done
+omarchy-done mark omamobile-shell-profile 2>/dev/null || true
+omarchy-done mark omamobile-monitor-scale 2>/dev/null || true
+echo "done; apply with: hyprctl reload; omarchy-restart-shell"

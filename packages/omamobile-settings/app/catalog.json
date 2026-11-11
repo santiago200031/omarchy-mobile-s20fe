@@ -8,11 +8,169 @@
         "detail": "System, software and storage",
         "icon": "system",
         "page": "about"
+      },
+      {
+        "id": "ai",
+        "title": "AI & Agents",
+        "detail": "Models, MCPs, Subagent Server & Remote llama.cpp",
+        "icon": "ai",
+        "page": "ai"
       }
     ]
   },
   "about": {
     "title": "About this device",
+    "rows": []
+  },
+  "ai": {
+    "title": "AI & Agents",
+    "rows": [
+      {
+        "id": "ai-models",
+        "title": "Models",
+        "detail": "Text, Vision, Omni, Video (Liquid AI & Hugging Face)",
+        "icon": "models",
+        "page": "ai-models"
+      },
+      {
+        "id": "ai-mcps",
+        "title": "MCPs",
+        "detail": "Local and remote Model Context Protocol tools",
+        "icon": "mcp",
+        "page": "ai-mcps"
+      },
+      {
+        "id": "ai-server",
+        "title": "Subagent & Remote Inference",
+        "detail": "Expose phone server to PC or connect to remote llama.cpp",
+        "icon": "server",
+        "page": "ai-server"
+      }
+    ]
+  },
+  "ai-models": {
+    "title": "Models",
+    "rows": [
+      {
+        "id": "models-text",
+        "title": "Text Models",
+        "detail": "LFM-3-1.7B, SmolLM2-1.7B, Qwen2.5-3B",
+        "icon": "text",
+        "page": "models-text"
+      },
+      {
+        "id": "models-vision",
+        "title": "Vision Models",
+        "detail": "LFM-2B Vision, Qwen2-VL-2B",
+        "icon": "vision",
+        "page": "models-vision"
+      },
+      {
+        "id": "models-omni",
+        "title": "Omni Models",
+        "detail": "LFM-2B Omni multimodal agents",
+        "icon": "omni",
+        "page": "models-omni"
+      },
+      {
+        "id": "models-video",
+        "title": "Video Models",
+        "detail": "LFM-2B Video temporal reasoning",
+        "icon": "video",
+        "page": "models-video"
+      }
+    ]
+  },
+  "models-text": {
+    "title": "Text Models",
+    "rows": [
+      {
+        "id": "text-lfm3",
+        "title": "Liquid AI LFM-3-1.7B",
+        "detail": "Edge agent, 256K context, Q4_K_M (~1.0 GB RAM)",
+        "icon": "text",
+        "page": "text-lfm3"
+      },
+      {
+        "id": "text-smollm2",
+        "title": "SmolLM2-1.7B-Instruct",
+        "detail": "Instruction following & chat, Q4_K_M (~1.1 GB RAM)",
+        "icon": "text",
+        "page": "text-smollm2"
+      },
+      {
+        "id": "text-qwen25",
+        "title": "Qwen 2.5 3B-Instruct",
+        "detail": "General knowledge & code, Q4_K_M (~2.0 GB RAM)",
+        "icon": "text",
+        "page": "text-qwen25"
+      }
+    ]
+  },
+  "models-vision": {
+    "title": "Vision Models",
+    "rows": [
+      {
+        "id": "vision-lfm2b",
+        "title": "Liquid AI LFM-2B Vision",
+        "detail": "Visual question answering & screen grounding",
+        "icon": "vision",
+        "page": "vision-lfm2b"
+      },
+      {
+        "id": "vision-qwen2vl",
+        "title": "Qwen2-VL-2B-Instruct",
+        "detail": "Document & image understanding, Q4 (~1.5 GB RAM)",
+        "icon": "vision",
+        "page": "vision-qwen2vl"
+      }
+    ]
+  },
+  "models-omni": {
+    "title": "Omni Models",
+    "rows": [
+      {
+        "id": "omni-lfm2b",
+        "title": "Liquid AI LFM-2B Omni",
+        "detail": "Voice, vision and text multimodal agent",
+        "icon": "omni",
+        "page": "omni-lfm2b"
+      },
+      {
+        "id": "omni-smolvlm",
+        "title": "SmolVLM-Instruct",
+        "detail": "Lightweight multimodal reasoning (~1.2 GB RAM)",
+        "icon": "omni",
+        "page": "omni-smolvlm"
+      }
+    ]
+  },
+  "models-video": {
+    "title": "Video Models",
+    "rows": [
+      {
+        "id": "video-lfm2b",
+        "title": "Liquid AI LFM-2B Video",
+        "detail": "Long-sequence temporal video processing",
+        "icon": "video",
+        "page": "video-lfm2b"
+      }
+    ]
+  },
+  "text-lfm3": { "title": "Liquid AI LFM-3-1.7B", "rows": [] },
+  "text-smollm2": { "title": "SmolLM2-1.7B-Instruct", "rows": [] },
+  "text-qwen25": { "title": "Qwen 2.5 3B-Instruct", "rows": [] },
+  "vision-lfm2b": { "title": "Liquid AI LFM-2B Vision", "rows": [] },
+  "vision-qwen2vl": { "title": "Qwen2-VL-2B-Instruct", "rows": [] },
+  "omni-lfm2b": { "title": "Liquid AI LFM-2B Omni", "rows": [] },
+  "omni-smolvlm": { "title": "SmolVLM-Instruct", "rows": [] },
+  "video-lfm2b": { "title": "Liquid AI LFM-2B Video", "rows": [] },
+  "ai-mcps": {
+    "title": "Model Context Protocol",
+    "rows": []
+  },
+  "ai-server": {
+    "title": "Subagent & Remote Inference",
     "rows": []
   }
 }

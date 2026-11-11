@@ -25,6 +25,10 @@ ApplicationWindow {
         backend.back()
     }
     readonly property bool showingAbout: backend.page === "about" && !backend.searching
+    readonly property bool showingAiServer: backend.page === "ai-server" && !backend.searching
+    readonly property bool showingAiMcp: backend.page === "ai-mcps" && !backend.searching
+    readonly property bool showingModelDetail: (backend.page.startsWith("text-") || backend.page.startsWith("vision-") || backend.page.startsWith("omni-") || backend.page.startsWith("video-")) && !backend.searching
+    readonly property bool showingCustomPage: showingAbout || showingAiServer || showingAiMcp || showingModelDetail
     Connections {
         target: backend
         function onRaiseRequested() { window.show(); window.raise(); window.requestActivate() }
@@ -52,16 +56,27 @@ ApplicationWindow {
             id: search
             objectName: "settingsSearch"
             Layout.fillWidth: true; Layout.preferredHeight: 52
-            visible: !window.showingAbout
+            visible: !window.showingCustomPage
             placeholderText: qsTr("Search settings")
             color: backend.foreground; placeholderTextColor: backend.muted
             onTextEdited: backend.search(text)
             background: Rectangle { radius: Math.min(backend.radius, width / 2, height / 2); color: SettingsStyle.fill("normal") }
         }
         AboutPage { visible: window.showingAbout; Layout.fillWidth: true; Layout.fillHeight: true; controller: deviceInfo; colors: backend }
+        AiServerPage { visible: window.showingAiServer; Layout.fillWidth: true; Layout.fillHeight: true; colors: backend }
+        AiMcpPage { visible: window.showingAiMcp; Layout.fillWidth: true; Layout.fillHeight: true; colors: backend }
+        AiModelDetailPage {
+            visible: window.showingModelDetail; Layout.fillWidth: true; Layout.fillHeight: true; colors: backend
+            modelName: backend.title
+            category: backend.page.startsWith("text-") ? "Text" : backend.page.startsWith("vision-") ? "Vision" : backend.page.startsWith("omni-") ? "Omni" : "Video"
+            repoId: backend.page === "text-lfm3" ? "liquidai/LFM-3-1.7B-GGUF" : backend.page === "text-smollm2" ? "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF" : backend.page === "text-qwen25" ? "Qwen/Qwen2.5-3B-Instruct-GGUF" : ""
+            fileName: backend.page === "text-lfm3" ? "LFM-3-1.7B-Q4_K_M.gguf" : backend.page === "text-smollm2" ? "smollm2-1.7b-instruct-q4_k_m.gguf" : backend.page === "text-qwen25" ? "qwen2.5-3b-instruct-q4_k_m.gguf" : ""
+            ramUsage: backend.page === "text-lfm3" ? "~1.0 GB RAM" : backend.page === "text-smollm2" ? "~1.1 GB RAM" : backend.page === "text-qwen25" ? "~2.0 GB RAM" : "~1.5 GB RAM"
+            contextSize: backend.page === "text-lfm3" ? "256K tokens" : backend.page === "text-smollm2" ? "2,048 tokens" : "32K tokens"
+        }
         ListView {
             id: list
-            visible: !window.showingAbout
+            visible: !window.showingCustomPage
             Layout.fillWidth: true; Layout.fillHeight: true
             clip: true; model: backend.rows
             delegate: SettingsItemDelegate {

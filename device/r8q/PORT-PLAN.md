@@ -189,10 +189,15 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Package:** Create `packages/omamobile-device-r8q` with UCM audio profiles, firmware extraction script (`tools/extract-vendor-firmware`), and display scaling (`PANEL_SIZE=1080x2400`).
 
 ### M8: On-Device Local Text Model (LLM) & Performance Tuning
-- [ ] **M8.1 — RAM Compression, MGLRU & VM Tuning (`zram` + `zstd` + `lz4`):**
-  - **Details:** Apply the `r8q` 6 GB RAM optimization profile (see §5.1): `zram-size = ram / 2` (2.75 GiB), `zstd` primary compression (with `lz4` or secondary recompression in Linux 7.x), `page-cluster = 0`, `swappiness = 150`, and MGLRU (`min_ttl_ms = 1000` to prevent UI working-set thrashing while an LLM runs).
-- [ ] **M8.2 — 120 Hz Fluid Motion & Adreno 650 DVFS Profile:**
-  - **Details:** Configure 120 Hz DSI mode (`1080x2400@120`), Adreno 650 `simple_ondemand` devfreq OPP table (`150 MHz`–`587 MHz`), CPU `schedutil` frequency scaling with input boost, and Hyprland 120 Hz spring/bezier curves (see §5.2).
+- [x] **M8.1 — RAM Compression, MGLRU & VM Tuning (`zram` + `zstd` + `lz4`):**
+  - **Status:** Complete & Integrated (2026-11-11).
+  - **Packaging:** Added `90-r8q-vm.conf` (`vm.swappiness=150`, `vm.page-cluster=0`, `vm.watermark_scale_factor=125`), `91-r8q-zram.conf` (`zram-size = ram / 2`, `zstd`), and `80-r8q-mglru.conf` (`min_ttl_ms = 1000`) into `packages/omamobile-device-r8q` 0.1.1.
+  - **Verification:** Applied and verified on device: `vm.page-cluster = 0` (zero latency spikes), `vm.swappiness = 150`, `vm.watermark_scale_factor = 125`.
+- [x] **M8.2 — 120 Hz Fluid Motion & Adreno 650 DVFS Profile:**
+  - **Status:** Complete & Integrated (2026-11-11).
+  - **Display Rate:** Verified live hardware render rate at **120.00 fps** (`fps=120.00001, vsync=120.00001`, `1080x2400x120x184672cmdHS`).
+  - **GPU DVFS:** Added `80-r8q-gpu.rules` setting `simple_ondemand` governor with 150 MHz idle floor and dynamic boost up to 587 MHz.
+  - **Hyprland Tuning:** Packaged `hyprland-r8q.conf` with `misc:vfr = true` and `mobileSpring` / `mobileQuick` bezier curves matching iOS/Android 16 touch physics.
 - [x] **M8.3 — Local AI Inference (`llama.cpp` / Liquid AI LFM3 on SM8250):**
   - **Status:** Complete & Verified (2026-11-11).
   - **Measured Speed:** **15.71 tokens/second** on CPU cores (4096 ctx, Q4_K_M).

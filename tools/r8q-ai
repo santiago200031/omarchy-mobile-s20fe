@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# tools/r8q-ai: control and query on-device AI subagent server on Galaxy S20 FE (r8q)
+set -euo pipefail
+
+say() { echo -e "\033[1;34m==>\033[0m $*"; }
+die() { echo -e "\033[1;31mERROR:\033[0m $*" >&2; exit 1; }
+
+ensure_adb() {
+  adb get-state >/dev/null 2>&1 || die "Phone not detected over adb"
+}
+
+ensure_forward() {
+  adb forward tcp:8080 tcp:8080 >/dev/null 2>&1 || true
+}
+
+cmd_status() {
+  ensure_adb
+  ensure_forward
+  say "Querying on-device AI server status..."
+  adb shell "/data/data/com.termux/files/usr/bin/bash /data/data/com.termux/files/home/llama-status 2>/dev/null || true"
+  
+  if curl -s --max-time 3 http://localhost:8080/health >/dev/null 2>&1; then
+    say "Local forwarded endpoint: http://localhost:8080/v1 [HEALTHY]"
+    local model_name
+    model_name=$(curl -s http://localhost:8080/v1/models 2>/dev/null | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown")
+    echo "Active model: $model_name"
+  else
+    echo "Endpoint http://localhost:8080 is not responding."
+  fi
+}
+
+cmd_forward() {
+  ensure_adb
+  adb forward tcp:8080 tcp:8080
+  say "Port forwarded: localhost:8080 -> phone:8080"
+}
+
+cmd_models() {
+  ensure_adb
+  say "Installed models in phone ~/models:"
+  adb shell "ls -lh /data/data/com.termux/files/home/models/*.gguf 2>/dev/null | awk '{print \$5, \$NF}' || true"
+}
+
+cmd_switch() {
+  local target="${1:-}"
+  [[ -n $target ]] || die "Usage: tools/r8q-ai switch <text|vision|omni|minicpm|big|embed>"
+  ensure_adb
+  
+  local script=""
+  case "$target" in
+    text) script="llama-start" ;;
+    vision) script="llama-vision" ;;
+    omni) script="llama-omni" ;;
+    minicpm) script="llama-minicpm" ;;
+    big) script="llama-big" ;;
+    embed) script="llama-embed" ;;
+    *) die "Unknown model profile '$target'. Choose from: text, vision, omni, minicpm, big, embed" ;;
+  esac
+
+  say "Switching active on-device model to $target ($script)..."
+  adb shell "am start -n com.termux/.HomeActivity >/dev/null 2>&1"
+  adb shell "su u0_a191 sh -c 'export HOME=/data/data/com.termux/files/home; /data/data/com.termux/files/usr/bin/bash /data/data/com.termux/files/home/$script' 2>/dev/null || /data/data/com.termux/files/usr/bin/bash /data/data/com.termux/files/home/$script"
+  sleep 3
+  cmd_status
+}
+
+cmd_stop() {
+  ensure_adb
+  say "Stopping on-device AI server..."
+  adb shell "/data/data/com.termux/files/usr/bin/bash /data/data/com.termux/files/home/llama-stop 2>/dev/null || pkill -f llama-server 2>/dev/null || true"
+  say "Stopped. RAM reclaimed."
+}
+
+cmd_query() {
+  local prompt="${*:-}"
+  [[ -n $prompt ]] || die "Usage: tools/r8q-ai query \"Your prompt here\""
+  ensure_forward
+
+  local payload
+  payload=$(cat <<EOF
+{
+  "messages": [{"role": "user", "content": $(python3 -c "import json, sys; print(json.dumps(sys.argv[1]))" "$prompt")}],
+  "max_tokens": 150,
+  "temperature": 0.7
+}
+EOF
+)
+
+  say "Querying http://localhost:8080/v1/chat/completions..."
+  curl -s http://localhost:8080/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d "$payload" | python3 -c "
+import json, sys
+try:
+    res = json.load(sys.stdin)
+    if 'choices' in res and len(res['choices']) > 0:
+        print('\n' + res['choices'][0]['message']['content'].strip() + '\n')
+    else:
+        print(json.dumps(res, indent=2))
+except Exception as e:
+    print('Failed to parse response:', e)
+"
+}
+
+usage() {
+  cat <<'EOF'
+tools/r8q-ai: control on-device AI subagent server on Galaxy S20 FE (r8q)
+
+Commands:
+  status                     Show on-device llama-server status, RSS, and model
+  forward                    Ensure adb port forwarding tcp:8080 -> tcp:8080
+  models                     List local models available in device storage
+  switch <profile>           Switch profile (text | vision | omni | minicpm | big | embed)
+  query "<prompt>"           Send prompt to phone and print response
+  stop                       Stop llama-server on phone to free RAM
+EOF
+}
+
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+  status) cmd_status ;;
+  forward) cmd_forward ;;
+  models) cmd_models ;;
+  switch) cmd_switch "$@" ;;
+  query) cmd_query "$@" ;;
+  stop) cmd_stop ;;
+  *) usage; exit 1 ;;
+esac

@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# Omarchy Mobile: Adreno 650 GPU devfreq governor and scaling
+ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="*kgsl-3d0*", ATTR{governor}="simple_ondemand"
+ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="*kgsl-3d0*", ATTR{min_freq}="150000000"

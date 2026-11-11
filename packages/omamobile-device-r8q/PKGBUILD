@@ -33,6 +33,16 @@ package() {
   ln -s /dev/null "$pkgdir/etc/systemd/system/systemd-firstboot.service"
   install -Dm644 "$startdir/omamobile-mirrorlist" \
     "$pkgdir/etc/pacman.d/omamobile-mirrorlist"
+  install -Dm644 "$startdir/90-r8q-vm.conf" \
+    "$pkgdir/usr/lib/sysctl.d/90-r8q-vm.conf"
+  install -Dm644 "$startdir/91-r8q-zram.conf" \
+    "$pkgdir/usr/lib/systemd/zram-generator.conf.d/91-r8q-zram.conf"
+  install -Dm644 "$startdir/80-r8q-mglru.conf" \
+    "$pkgdir/usr/lib/tmpfiles.d/80-r8q-mglru.conf"
+  install -Dm644 "$startdir/80-r8q-gpu.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/80-r8q-gpu.rules"
+  install -Dm644 "$startdir/hyprland-r8q.conf" \
+    "$pkgdir/usr/share/omamobile/hypr/r8q.conf"
   install -Dm644 "$startdir/LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   # Enable sshd and networkd. Nothing else starts.

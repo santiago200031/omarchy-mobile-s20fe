@@ -5,5 +5,11 @@ cd "$(dirname "$0")/.."
 cmp reboot-to.c ../../device/r8q/initramfs/reboot-to.c
 cmp reboot ../../device/r8q/reboot
 sh -n reboot
+grep -q "vm.swappiness = 150" 90-r8q-vm.conf
+grep -q "zram-size = ram / 2" 91-r8q-zram.conf
+grep -q "min_ttl_ms" 80-r8q-mglru.conf
+grep -q "simple_ondemand" 80-r8q-gpu.rules
+grep -q "mobileSpring" hyprland-r8q.conf
+echo ok config
 echo ok wrapper
 echo ok sources

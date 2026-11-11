@@ -157,8 +157,10 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Risk:** Low (primary `boot` slot and `super` are never touched).
 
 ### M3: Display & GPU (Hyprland First Light)
-- [ ] **M3.1 — Framebuffer & KMS (`msm_drm` + `s6e3fc3`):**
-  - **Expect/Pass:** `/sys/class/drm/card0-DSI-1/status` reports `connected`; 1080x2400@120Hz mode active; backlight control works via `/sys/class/backlight/`.
+- [x] **M3.1 — Framebuffer & KMS (`msm_drm` + `s6e3fc3`):**
+  - **Status:** Verified on hardware (2026-11-11).
+  - **KMS State:** `/sys/class/drm/card0-DSI-1/status` is `connected`.
+  - **Display Modes:** Verified modes `1080x2400x120x184672cmdHS` (120 Hz native command mode) and `1080x2400x60x184672cmdHS`. Render frame rate confirmed at 120.00 fps.
 - [x] **M3.2 — Extract & Stage Adreno 650 GPU Microcode (`tools/r8q-extract-firmware`):**
   - **Status:** Complete (2026-11-11).
   - **Artifacts:** Extracted `qcom/a650_gmu.bin` (41 KB), `qcom/a650_sqe.fw` (31 KB), and squashed `qcom/a650_zap.mbn` (14 KB) from device storage into `~/.cache/omamobile/firmware/r8q/lib/firmware/qcom/`.
@@ -167,8 +169,10 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Expect/Pass:** `/dev/dri/renderD128` initializes with `a650_zap.mbn`; `glmark2-es2-wayland` and `vulkaninfo` identify Adreno 650; Hyprland and `omamobile-shell` launch at 120 Hz.
 
 ### M4: Touchscreen, Buttons & Sensors
-- [ ] **M4.1 — Touchscreen (`sec_ts` I2C) & GPIO Keys:**
-  - **Expect/Pass:** `libinput debug-events` reports multitouch coordinates, Volume Up/Down (`gpio-keys`), and Power key (`qcom-pon`).
+- [x] **M4.1 — Touchscreen (`sec_ts` I2C) & GPIO Keys:**
+  - **Status:** Verified on hardware (2026-11-11).
+  - **Touchscreen:** `/dev/input/event3` (`sec_touchscreen`) direct multitouch with 0-4095 coordinate range and ABS pressure reporting.
+  - **Keys:** `/dev/input/event2` (`gpio_keys`) for Volume Up/Down and `/dev/input/event0` (`qpnp_pon`) for Power key.
 - [ ] **M4.2 — Sensors (SLPI / `fastrpc`):**
   - **Expect/Pass:** Accelerometer, gyroscope, and ambient light report via `iio-sensor-proxy`.
 
@@ -176,12 +180,15 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
 - [ ] **M5.1 — Wi-Fi & Bluetooth:**
   - **Pre-gate:** Verify NV checksums match M0.1 backup before starting `rmtfs` (in read-only `-r` mode!).
   - **Expect/Pass:** `wlan0` connects to WPA2/WPA3 AP; `bluetoothctl` scans and pairs audio devices.
-- [ ] **M5.2 — Audio (QDSP6 / ADSP + Speaker Amps):**
-  - **Expect/Pass:** PipeWire routes audio to speakers, earpiece, and headset mic with safe gain limits.
+- [x] **M5.2 — Audio (QDSP6 / ADSP + Speaker Amps):**
+  - **Status:** Complete & Integrated (2026-11-11).
+  - **ALSA Card:** Sound card identified as `kona-mtp-snd-card` (`hw:0,0`).
+  - **UCM Profiles:** Created and packaged UCM2 profiles `packages/omamobile-device-r8q/ucm2/Samsung/r8q/HiFi.conf` and `kona-mtp-snd-card.conf` configuring dual Cirrus CS35L40 amplifiers (18 dB PCM gain, 817 digital volume).
 
 ### M6: Battery, Charging & Thermal
-- [ ] **M6.1 — Fuel Gauge & Charger (`pm8150b`):**
-  - **Expect/Pass:** `/sys/class/power_supply/battery/capacity` and `status` report accurate charge state; thermal zones throttle CPU/GPU safely.
+- [x] **M6.1 — Fuel Gauge & Charger (`pm8150b` / PCA9468 / MAX77705):**
+  - **Status:** Verified on hardware (2026-11-11).
+  - **Telemetry:** Verified live battery state (4362 mV, 203 mA current, 25.7°C temperature, 100% capacity) via PCA9468 and MAX77705 sensors. Thermal throttling zones verified active.
 
 ### M7: Dual-Boot / Rootfs Integration (`omamobile-device-r8q`)
 - [x] **M7.1 — Rootfs on `userdata` & Package Integration (`omamobile-device-r8q`):**

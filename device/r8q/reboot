@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# reboot download/bootloader on Samsung r8q is LINUX_REBOOT_CMD_RESTART2 with
+# "download". systemd's reboot bootloader is the EFI firmware path and
+# does not pass that string, so ABL starts the normal boot.
+# This file is ahead of /usr/bin/reboot on PATH.
+if [ "${1-}" = bootloader ] || [ "${1-}" = download ]; then
+  exec /usr/local/bin/reboot-to download
+fi
+if [ "${1-}" = recovery ]; then
+  exec /usr/local/bin/reboot-to recovery
+fi
+exec /usr/bin/systemctl reboot "$@"

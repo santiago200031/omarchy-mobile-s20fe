@@ -101,10 +101,11 @@ cmd_pack() {
   say "Packing Android header-v2 image: $out_img"
   mkdir -p "$(dirname "$out_img")"
 
-  local recovery_dtbo="$KERNEL_OUT/recovery_dtbo.img"
+  # Downstream Android recovery_dtbo conflicts with mainline 7.x DTB paths.
+  # Leave recovery_dtbo empty (dtbo_size=0) matching stock boot.img.
   local dtbo_arg=()
-  if [[ -f $recovery_dtbo ]]; then
-    dtbo_arg=(--recovery_dtbo "$recovery_dtbo")
+  if [[ "${OMAMOBILE_WITH_DTBO:-0}" == "1" ]] && [[ -f "$KERNEL_OUT/recovery_dtbo.img" ]]; then
+    dtbo_arg=(--recovery_dtbo "$KERNEL_OUT/recovery_dtbo.img")
   fi
 
   python3 "$MKBOOTIMG" \
@@ -135,9 +136,19 @@ cmd_pack() {
     --salt c87c8f874194bd7fde350e71426ac253760df3146460905df3fc630afc2a0322 \
     --prop com.android.build.recovery.fingerprint:samsung/lineage_r8q/r8q:16/BP4A.251205.006/e8c0c141f5:userdebug/release-keys
 
-  say "Image packed and AVB signed successfully:"
+  local tar_out="${out_img%.img}.tar.md5"
+  say "Creating Samsung Odin/Heimdall flashable TAR package: $tar_out"
+  (
+    cd "$(dirname "$out_img")"
+    tar -H ustar -c "$(basename "$out_img")" > "${tar_out%.md5}"
+    md5sum -t "${tar_out%.md5}" >> "${tar_out%.md5}"
+    mv "${tar_out%.md5}" "$tar_out"
+  )
+
+  say "Image packed, AVB signed, and TAR created successfully:"
   rm -rf "$stage"
-  ls -lh "$out_img"
+  ls -lh "$out_img" "$tar_out"
+  sha256sum "$out_img"
   sha256sum "$out_img"
 }
 

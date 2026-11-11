@@ -1,0 +1,31 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-web: Serve the Omarchy Mobile Web Experience for Samsung Galaxy S20 FE (r8q).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+PORT="${PORT:-3000}"
+WEB_DIR="$ROOT/web"
+
+say() { printf '\e[1m==> %s\e[0m\n' "$*"; }
+
+say "Starting Omarchy Mobile Web Experience on port $PORT..."
+say "Setting up adb reverse so phone can access http://localhost:$PORT..."
+adb reverse tcp:$PORT tcp:$PORT 2>/dev/null || true
+
+say "Ensuring on-device AI subagent port 8080 is forwarded..."
+adb forward tcp:8080 tcp:8080 2>/dev/null || true
+
+say "Omarchy Mobile is live!"
+say "Phone URL:   http://localhost:$PORT"
+say "Desktop URL: http://localhost:$PORT"
+say ""
+say "To open directly on phone screen: tools/r8q-web --open"
+
+if [[ "${1:-}" == "--open" ]]; then
+  say "Launching on phone screen via ADB..."
+  adb shell am start -a android.intent.action.VIEW -d "http://localhost:$PORT" >/dev/null
+fi
+
+cd "$WEB_DIR"
+exec python3 -m http.server "$PORT" --bind 0.0.0.0

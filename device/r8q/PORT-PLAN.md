@@ -123,10 +123,16 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Qualcomm IDs:** `qcom,msm-id = <0x0164 0x020001>` (SM8250 rev 2.1), `qcom,board-id = <0x08 0x06>` (MTP rev 6). Live FDT saved to `~/android/reference/r8q/live.dtb`.
 
 ### M1: Kernel & Device Tree Build (Offline on Laptop)
-- [ ] **M1.1 — Create `omamobile-r8q` Kernel Worktree:**
-  - **Commands:** Branch `omamobile-r8q` from `omamobile` in `~/omamobile-kernel/wt-r8q`. Import `sm8250-samsung-r8q.dts` (and common `sm8250-samsung-common.dtsi` from `sm8250-mainline` / pmaports) + `S6E3FC3` panel driver (`drm/panel/panel-samsung-s6e3fc3.c` if not yet in tree).
-  - **Expect/Pass:** `KERNEL_DIR=~/omamobile-kernel/wt-r8q KERNEL_OUT=~/omamobile-kernel/out-r8q bin/omamobile kernel` builds `Image`, `qcom/sm8250-samsung-r8q.dtb`, and modules cleanly with `W=1` and `dt-validate`.
-  - **Risk:** None (offline build).
+- [x] **M1.1 — Kernel & SM8250 Device Tree Build (`linux-omarchy-mobile`):**
+  - **Status:** Complete (2026-11-11).
+  - **Kernel Release:** `7.3.0-rc6-omamobile-push1-gfc7086a68fca`
+  - **Toolchain:** Android Clang 22.0.2 (r596125) + lld in `omamobile-build:24.04` Docker container.
+  - **Artifacts:**
+    - `arch/arm64/boot/Image`: 43,051,520 bytes
+    - `arch/arm64/boot/Image.gz`: 15,534,511 bytes
+    - `arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb`: 112,499 bytes (verified with `qcom,kona-mtp`, `qcom,kona`, `qcom,board-id = <0x08 0x06>`)
+    - `modules-7.3.0-rc6-omamobile-push1-gfc7086a68fca.tar.zst`: 17 MiB (1,827 stripped modules)
+  - **Pass:** Build cleanly completed in Docker container without errors. Modules cleanly stripped and archived.
 
 ### M2: Initramfs Storage Guard & Non-Destructive First Boot
 - [ ] **M2.1 — Adapt Initramfs Storage Guard for `r8q`:**

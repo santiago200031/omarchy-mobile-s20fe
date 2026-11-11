@@ -427,6 +427,46 @@ The **Liquid AI LFM3 (Liquid Foundation Model 3)** family is prioritized as the 
 
 ---
 
+### 7.4 Dual-Mode AI Architecture: Remote llama.cpp Client & Phone-as-Subagent Server
+
+To maximize flexibility, Omarchy Mobile supports two complementary network operating modes for AI:
+
+#### 1. Client Mode: Offload to Remote llama.cpp / Custom Servers
+- **Settings Path:** `Settings > AI > Agents > Inference Backend`
+- **Options:** `On-Device (Local)` | `Remote Endpoint (OpenAI/llama.cpp)`
+- **Remote Configuration Fields:**
+  - `Endpoint URL`: e.g. `http://192.168.1.100:8080/v1` (your desktop llama.cpp server)
+  - `Model Identifier`: e.g. `Meta-Llama-3.1-70B-Instruct`
+  - `API Key`: Optional auth bearer token
+  - `Context Length`: e.g. `32768`
+- **Advantage:** Allows the phone to leverage 70B+ flagship models running on your PC/home server, saving phone battery and RAM while keeping Omarchy's voice bar, search, and widget agents fully responsive.
+
+#### 2. Server Mode: Phone as an OpenAI-Compatible Subagent Endpoint
+- **Settings Path:** `Settings > AI > Agents > Subagent Server`
+- **Features & Controls:**
+  - **Toggle:** `Enable Subagent Server` (`omamobile-ai-server.service`)
+  - **Bind Interface:**
+    - `USB Cable Only (172.16.42.1)`: Private, high-speed, zero Wi-Fi exposure.
+    - `Local Wi-Fi (0.0.0.0)`: Broadcast via mDNS (`s20fe-agent.local:8080`).
+  - **Port:** Default `8080` (configurable)
+  - **Served Model:** Select from installed on-device models (`LFM3-1.7B`, `LFM3-Vision-2B`, `Qwen2.5-1.5B`).
+- **OpenAI-Compatible REST Endpoints:**
+  - `GET /v1/models`
+  - `POST /v1/chat/completions`
+  - `POST /v1/completions`
+- **Use Case:** Your PC or development environment can treat the S20 FE as a dedicated, low-power edge subagent. Combined with the phone's local MCP tools, your PC can dispatch sub-tasks to the phone:
+  ```bash
+  # Query the phone subagent over USB from your PC:
+  curl http://172.16.42.1:8080/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "lfm3-1.7b",
+      "messages": [{"role": "user", "content": "Query battery status and report remaining time."}]
+    }'
+  ```
+
+---
+
 ## 8. Pre-Push Checklist (Every Commit)
 
 Before committing or opening any PR, always run:

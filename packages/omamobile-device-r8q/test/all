@@ -10,6 +10,8 @@ grep -q "zram-size = ram / 2" 91-r8q-zram.conf
 grep -q "min_ttl_ms" 80-r8q-mglru.conf
 grep -q "simple_ondemand" 80-r8q-gpu.rules
 grep -q "mobileSpring" hyprland-r8q.conf
+test -f ucm2/conf.d/kona-mtp-snd-card/kona-mtp-snd-card.conf
+test -f ucm2/Samsung/r8q/HiFi.conf
 echo ok config
 echo ok wrapper
 echo ok sources

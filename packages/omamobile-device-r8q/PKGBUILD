@@ -43,6 +43,10 @@ package() {
     "$pkgdir/usr/lib/udev/rules.d/80-r8q-gpu.rules"
   install -Dm644 "$startdir/hyprland-r8q.conf" \
     "$pkgdir/usr/share/omamobile/hypr/r8q.conf"
+  install -Dm644 "$startdir/ucm2/conf.d/kona-mtp-snd-card/kona-mtp-snd-card.conf" \
+    "$pkgdir/usr/share/alsa/ucm2/conf.d/kona-mtp-snd-card/kona-mtp-snd-card.conf"
+  install -Dm644 "$startdir/ucm2/Samsung/r8q/HiFi.conf" \
+    "$pkgdir/usr/share/alsa/ucm2/Samsung/r8q/HiFi.conf"
   install -Dm644 "$startdir/LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   # Enable sshd and networkd. Nothing else starts.

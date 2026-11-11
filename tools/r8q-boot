@@ -45,6 +45,9 @@ cmd_pack() {
   local out_img="${1:-$KERNEL_OUT/recovery-omamobile.img}"
   local kernel="$KERNEL_OUT/arch/arm64/boot/Image.gz"
   local dtb="$KERNEL_OUT/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb"
+  local cache_dir="$HOME/.cache/omamobile/alpine"
+  local ver="3.24.2"
+  local tarball="alpine-minirootfs-$ver-aarch64.tar.gz"
 
   [[ -f $kernel ]] || die "Kernel not found at $kernel (run bin/omamobile kernel first)"
   [[ -f $dtb ]] || die "DTB not found at $dtb (run bin/omamobile kernel first)"
@@ -53,8 +56,17 @@ cmd_pack() {
   local stage
   stage=$(mktemp -d)
 
-  say "Building guarded initramfs in $stage"
-  mkdir -p "$stage/root" "$stage/root/etc" "$stage/root/dev" "$stage/root/proc" "$stage/root/sys" "$stage/root/run"
+  say "Staging Alpine Linux ARM64 rootfs in $stage"
+  mkdir -p "$stage/root" "$cache_dir/apks"
+  tar -xzf "$cache_dir/$tarball" -C "$stage/root"
+
+  say "Fetching and staging packages (dropbear, kexec-tools, e2fsprogs)"
+  local apks
+  apks=$(python3 -I "$ROOT/tools/alpine-fetch.py" "$ver" "$cache_dir/apks" dropbear kexec-tools e2fsprogs e2fsprogs-extra) ||
+    die "alpine-fetch.py failed"
+  for apk in $apks; do
+    tar -xzf "$apk" -C "$stage/root" --exclude='.PKGINFO' --exclude='.SIGN.*' --exclude='.*.sh' 2>/dev/null || true
+  done
 
   # Stage shared initramfs init
   cp "$ROOT/initramfs/init" "$stage/root/init"
@@ -63,6 +75,7 @@ cmd_pack() {
   # Force storage guard into 100% read-only mode for r8q bring-up
   touch "$stage/root/etc/omamobile-ufs-rw"
   chmod 644 "$stage/root/etc/omamobile-ufs-rw"
+  echo "Samsung Galaxy S20 FE (r8q)" > "$stage/root/etc/omamobile-usb-product"
 
   # Stage SSH authorized keys from host if available
   mkdir -p "$stage/root/etc/dropbear"
@@ -77,9 +90,10 @@ cmd_pack() {
 
   # Build cpio ramdisk
   local ramdisk="$stage/initramfs.cpio.gz"
+  say "Creating compressed initramfs ramdisk"
   (
     cd "$stage/root"
-    find . -mindepth 1 | cpio -H newc -o | gzip -9 -n > "$ramdisk"
+    find . -mindepth 1 | cpio -H newc -o 2>/dev/null | gzip -9 -n > "$ramdisk"
   )
 
   say "Packing Android header-v2 image: $out_img"

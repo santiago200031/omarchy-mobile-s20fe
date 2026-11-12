@@ -32,6 +32,12 @@ grep -q 'scaling_governor' cpufreq-no-dvfs
 grep -q 'cpufreq-no-dvfs' omamobile-r8q-cpuidle.service
 grep -q 'cpufreq-no-dvfs' PKGBUILD
 grep -q 'omamobile-r8q-cpuidle.service' PKGBUILD
+test -x r8q-rtc-epoch
+sh -n r8q-rtc-epoch
+! ./r8q-rtc-epoch bogus 2>/dev/null
+grep -q 'r8q-rtc-epoch restore' omamobile-r8q-rtc.service
+grep -q 'r8q-rtc-epoch save' omamobile-r8q-rtc.service
+grep -q 'omamobile-r8q-rtc.service' PKGBUILD
 grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service
 grep -qx 'OnUnitActiveSec=4min' omamobile-r8q-panel.timer
 echo ok config

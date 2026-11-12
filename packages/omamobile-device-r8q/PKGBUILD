@@ -87,6 +87,11 @@ package() {
     "$pkgdir/usr/lib/systemd/system/omamobile-r8q-panel.service"
   install -Dm644 "$startdir/omamobile-r8q-panel.timer" \
     "$pkgdir/usr/lib/systemd/system/omamobile-r8q-panel.timer"
+  # The PMIC RTC resets on every reboot: carry the wall clock in a file.
+  install -Dm755 "$startdir/r8q-rtc-epoch" \
+    "$pkgdir/usr/lib/omamobile/r8q-rtc-epoch"
+  install -Dm644 "$startdir/omamobile-r8q-rtc.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-rtc.service"
   install -d "$pkgdir/etc/systemd/system"
   for target in sleep suspend hibernate hybrid-sleep suspend-then-hibernate; do
     ln -s /dev/null "$pkgdir/etc/systemd/system/$target.target"
@@ -108,4 +113,5 @@ package() {
   ln -s ../omamobile-r8q-ufs.service "$wants/omamobile-r8q-ufs.service"
   ln -s ../omamobile-r8q-cpuidle.service "$wants/omamobile-r8q-cpuidle.service"
   ln -s ../omamobile-r8q-panel.timer "$wants/omamobile-r8q-panel.timer"
+  ln -s ../omamobile-r8q-rtc.service "$wants/omamobile-r8q-rtc.service"
 }

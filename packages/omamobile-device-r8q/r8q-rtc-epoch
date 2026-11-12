@@ -1,0 +1,31 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# omamobile r8q-rtc-epoch: carry wall-clock time across reboots.
+#
+# The PMIC RTC loses its time on every reboot (reads 1975), and NTP can take
+# a minute or jump either way on this phone's clock. TLS (pacman) and build
+# stamps break when the clock is decades off, so keep our own epoch: save
+# the current time at shutdown, restore it at boot, but only forwards — the
+# clock never steps backwards from this helper.
+set -eu
+epoch_file=/var/lib/omamobile/r8q-epoch
+case "${1:-}" in
+save)
+  mkdir -p "$(dirname "$epoch_file")"
+  date +%s > "$epoch_file"
+  ;;
+restore)
+  [ -r "$epoch_file" ] || exit 0
+  saved=$(cat "$epoch_file")
+  now=$(date +%s)
+  case "$saved" in ''|*[!0-9]*) exit 0;; esac
+  # Sanity: the saved value must look like 2026 or later.
+  if [ "$saved" -gt 1767225600 ] && [ "$now" -lt "$saved" ]; then
+    date -u -s "@$saved"
+  fi
+  ;;
+*)
+  echo "usage: $0 {save|restore}" >&2
+  exit 1
+  ;;
+esac

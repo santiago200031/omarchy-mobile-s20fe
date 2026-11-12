@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# r8q: the PMIC RTC resets on reboot, so carry the wall clock in a file.
+# Restores at boot (before any time-sync client), saves at shutdown.
+[Unit]
+Description=Omarchy Mobile: r8q wall-clock epoch save/restore
+After=local-fs.target
+Before=time-sync.target systemd-timesyncd.service chronyd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/omamobile/r8q-rtc-epoch restore
+ExecStop=/usr/lib/omamobile/r8q-rtc-epoch save
+
+[Install]
+WantedBy=multi-user.target

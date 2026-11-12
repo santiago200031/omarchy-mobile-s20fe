@@ -82,6 +82,8 @@ systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 
 systemctl restart systemd-logind 2>/dev/null || true
 
 # Disable mobile sleep daemon which freezes userspace on SM8250
+mkdir -p /etc/systemd/user
+ln -sfn /dev/null /etc/systemd/user/omamobile-sleepd.service
 systemctl --user -M alarm@ mask omamobile-sleepd.service 2>/dev/null || true
 systemctl --user -M alarm@ stop omamobile-sleepd.service 2>/dev/null || true
 rm -f /home/alarm/.local/state/omarchy/toggles/omamobile-sleep

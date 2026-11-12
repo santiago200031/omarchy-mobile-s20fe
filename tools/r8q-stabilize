@@ -1,0 +1,122 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-stabilize: make an S20 FE (r8q) Omarchy boot survive idle, and collect
+# the facts a bring-up needs. The r8q kernel's s2idle never wakes (no wake
+# source is armed), so a single idle timeout freezes the phone until a PMIC
+# hard reset. Until suspend works, keep the phone out of it at every layer
+# that can reach the freezer:
+#
+#   1. systemd's own gate (sleep.conf.d): logind refuses suspend for everyone,
+#      including "systemctl suspend" and the sleep targets.
+#   2. the targets themselves, masked, for anything that calls them directly.
+#   3. logind's idle action, so an idle seat never asks for suspend.
+#   4. the session's own idle daemons (hypridle, omamobile-sleepd): they call
+#      "systemctl suspend" and "hyprctl dispatch dpms off". With simpledrm
+#      there is no DPMS, so a screen-off leaves a black screen too.
+#
+# Idempotent and read-only apart from those config files. Run over USB:
+#   tools/r8q-stabilize [user@host]
+set -euo pipefail
+
+REMOTE="${1:-root@172.16.42.1}"
+SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+          -o ConnectTimeout=8 -q)
+
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+
+say "Waiting for $REMOTE (up to 240 s) ..."
+for _ in $(seq 1 60); do
+  if ssh "${SSH_OPTS[@]}" "$REMOTE" true >/dev/null 2>&1; then break; fi
+  sleep 4
+done
+ssh "${SSH_OPTS[@]}" "$REMOTE" true >/dev/null 2>&1 || {
+  echo "r8q-stabilize: $REMOTE did not answer" >&2; exit 1; }
+say "Connected."
+
+ssh "${SSH_OPTS[@]}" "$REMOTE" 'bash -s' <<'REMOTE_EOF'
+set -u
+
+echo "== disarm suspend: systemd gate =="
+install -d /etc/systemd/sleep.conf.d
+cat > /etc/systemd/sleep.conf.d/10-r8q-no-suspend.conf <<'CONF'
+# SPDX-License-Identifier: MIT
+# r8q: the kernel's s2idle never wakes (no wake source armed), so any
+# suspend leaves the phone frozen until a PMIC hard reset. Refuse it here,
+# the one gate every caller goes through, until suspend works on this port.
+[Sleep]
+AllowSuspend=no
+AllowHibernation=no
+AllowSuspendThenHibernate=no
+AllowHybridSleep=no
+CONF
+
+install -d /etc/systemd/logind.conf.d
+cat > /etc/systemd/logind.conf.d/10-r8q-no-idle.conf <<'CONF'
+# SPDX-License-Identifier: MIT
+# r8q: keep the seat out of idle actions; see 10-r8q-no-suspend.conf.
+[Login]
+HandlePowerKey=ignore
+HandleSuspendKey=ignore
+HandleHibernateKey=ignore
+HandleLidSwitch=ignore
+IdleAction=ignore
+CONF
+
+systemctl mask --quiet sleep.target suspend.target hibernate.target \
+  hybrid-sleep.target suspend-then-hibernate.target 2>/dev/null || true
+systemctl daemon-reload
+systemctl restart systemd-logind 2>/dev/null || true
+echo "   AllowSuspend=$(systemctl show -p AllowSuspend --value 2>/dev/null || echo '?')"
+
+echo "== disarm suspend: session idle daemons =="
+# omamobile-sleepd (Omarchy Mobile's own screen-off sleep watcher)
+systemctl --user -M alarm@ mask --quiet omamobile-sleepd.service 2>/dev/null || true
+systemctl --user -M alarm@ stop --quiet omamobile-sleepd.service 2>/dev/null || true
+rm -f /home/alarm/.local/state/omarchy/toggles/omamobile-sleep
+
+# Omarchy's hypridle: drop its suspend listener (the file is Lua on 4.5 and
+# conf on 4.0.6; either way the listener line names suspend).
+for f in /home/alarm/.config/hypr/hypridle.conf /home/alarm/.config/hypr/hypridle.lua; do
+  [ -f "$f" ] || continue
+  if grep -qiE 'suspend|systemctl suspend' "$f"; then
+    cp -n "$f" "$f.omamobile-backup" 2>/dev/null || true
+    sed -i -E '/systemctl suspend/d' "$f"
+    echo "   patched $f"
+  fi
+done
+# The 4.5 Lua form may build the listener from a table; disable the daemon
+# outright if it still holds a suspend path, so nothing can reach the freezer.
+if pgrep -x hypridle >/dev/null 2>&1; then
+  if grep -rqiE 'systemctl suspend' /home/alarm/.config/hypr/ 2>/dev/null; then
+    systemctl --user -M alarm@ mask --quiet hypridle.service 2>/dev/null || true
+    systemctl --user -M alarm@ stop --quiet hypridle.service 2>/dev/null || true
+    echo "   hypridle masked (still had a suspend path)"
+  else
+    su - alarm -c 'hyprctl reload' >/dev/null 2>&1 || true
+    echo "   hypridle config reloaded"
+  fi
+fi
+
+echo "== current state =="
+printf 'kernel:  '; uname -r
+printf 'uptime:  '; cut -d' ' -f1 /proc/uptime
+printf 'cmdline: '; cat /proc/cmdline
+printf 'sleep:   '; cat /sys/power/state 2>/dev/null
+printf 'mem_sleep: '; cat /sys/power/mem_sleep 2>/dev/null
+printf 'drm:     '; ls /sys/class/drm/ 2>/dev/null | tr '\n' ' '; echo
+for c in /sys/class/drm/card*/status; do [ -f "$c" ] && printf '%s: %s\n' "$c" "$(cat "$c")"; done
+printf 'gpu:     '; ls /sys/class/drm/card*/device/driver 2>/dev/null | head -3 | tr '\n' ' '; echo
+printf 'modules dir: '; ls -d /usr/lib/modules/* 2>/dev/null | tr '\n' ' '; echo
+printf 'msm/adreno/smmu modules: '
+lsmod 2>/dev/null | awk '{print $1}' | grep -E '^(msm|adreno|arm_smmu|iommu)' | tr '\n' ' '; echo
+printf 'failed units: '; systemctl --failed --no-legend 2>/dev/null | awk '{print $1}' | tr '\n' ' '; echo
+REMOTE_EOF
+
+say "Collecting bring-up facts into logs/r8q-$(date +%Y%m%d-%H%M%S)/"
+dir="logs/r8q-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$dir"
+ssh "${SSH_OPTS[@]}" "$REMOTE" 'dmesg' > "$dir/dmesg.txt" 2>/dev/null || true
+ssh "${SSH_OPTS[@]}" "$REMOTE" 'journalctl -b --no-pager -p warning' > "$dir/journal-warn.txt" 2>/dev/null || true
+ssh "${SSH_OPTS[@]}" "$REMOTE" 'systemctl status --no-pager' > "$dir/systemctl.txt" 2>/dev/null || true
+ssh "${SSH_OPTS[@]}" "$REMOTE" 'cat /sys/kernel/debug/dri/0/name 2>/dev/null; ls -l /dev/dri 2>/dev/null' > "$dir/dri.txt" 2>/dev/null || true
+echo "   $dir"

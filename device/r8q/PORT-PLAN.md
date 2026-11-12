@@ -2,7 +2,7 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`) Port & Integration Plan
 
-**Status (2026-11-12):** M0-M2, M4.1, M5.1 verified on hardware. `omamobile-device-r8q` **0.1.6 installed** (auto-pins `performance`, disables deep idle, kills UFS auto-hibernate at every boot); **0.1.7 queued** (persist `clkscale_enable=0` + `clkgate_enable=0` + `omamobile-update` fix). Desktop on `simpledrm` + `llvmpipe`; Wi-Fi **off** (UFS-bisect run in progress); GPU/BT/audio/battery staged.
+**Status (2026-11-12):** M0-M2, M4.1, M5.1 verified on hardware. `omamobile-device-r8q` **0.1.6 installed** (auto-pins `performance`, disables deep idle, kills UFS auto-hibernate at every boot); **0.1.7 queued** (persist `clkscale_enable=0` + `clkgate_enable=0` + `omamobile-update` fix). Desktop on `simpledrm` + `llvmpipe`; Wi-Fi re-enabled after the passed bisect; GPU/BT/audio/battery staged.
 - **Kernel branch:** `omamobile-r8q` (`~/omamobile-kernel/wt-r8q`, out `~/omamobile-kernel/out-r8q`)
 - **Upstream:** `derekross/linux-omarchy-mobile` (`v7.3-rc6`), `sm8250-mainline`/postmarketOS `samsung-r8q`
 
@@ -33,7 +33,7 @@ Mainline `7.3.0-rc6` boots from `recovery` (`sda24`); LineageOS untouched on `bo
 
 ### Open Blockers (Priority Order)
 
-1. **UFS RPMh AMC-vote soak & `0.1.7` package:** Wi-Fi-off bisection proved crashes #3-#6 came from `ufshcd_ungate_work -> ufs_qcom_icc_update_bw -> icc_set_bw -> rpmh_write_batch (-110)` (same voter as the `sugov` crash, different trigger: any UFS clock ungate, even background journal/SSH I/O). Mitigations under test: `performance` + no deep idle + `auto_hibern8=0` + `clkscale/clkgate=0` + Wi-Fi off. Persist survivors in `0.1.7`; kernel fix (RPMh AMC TCS/voter quirk) goes to maintainer.
+1. **UFS RPMh AMC-vote soak & `0.1.7` package:** Wi-Fi-off bisection proved crashes #3-#6 came from `ufshcd_ungate_work -> ufs_qcom_icc_update_bw -> icc_set_bw -> rpmh_write_batch (-110)` (same voter as the `sugov` crash, different trigger: any UFS clock ungate, even background journal/SSH I/O). Mitigations VERIFIED 2026-11-12: with `performance` + no deep idle + `auto_hibern8=0` + `clkscale/clkgate=0` (+ Wi-Fi off for the bisect), the phone idled past 17 min with zero `ramoops` events — first survival beyond the ~11-min wall. Wi-Fi re-enabled after; UFS votes stay off. Persist in `0.1.7`; kernel fix (RPMh AMC TCS/voter quirk) goes to maintainer.
 2. **Adreno 650 (`M3.3`):** Firmware gate clear (`a650_sqe.fw` v0x112 on laptop; signed `a650_zap.mbn` extracted). Stage SQE to `/lib/firmware`, fix `adreno_smmu -110` (`GPU_CX_GDSC`/`gpucc`/`rpmhpd`) + `S6E3FC3` DSI nodes, unblacklist `msm`, verify `renderD128` + `vulkaninfo`. Pin GPU devfreq on first boot (same `-110` trap).
 3. **Staged peripherals (one per boot, `ttyGS0` armed):** Wi-Fi UX/persistence (`usb0` unmanaged); `bluetoothctl` scan with timeout guard (`bt-agent` stays masked); ADSP + `snd-soc-sm8250` + dual `CS35L41` (`aplay -l` + UCM2); `MAX77705` `-EINVAL` + `/sys/class/power_supply/*` to shell.
 4. **`omamobile-update` fetch failure:** (a) live `usb0` default route has no metric, beats `wlp1s0` — restart `systemd-networkd` to apply `0.1.6` `Metric=900`; (b) `[omamobile]` points at missing `file:///var/lib/omamobile/repo` — populate via `tools/repo-push` or comment out; (c) add `DisableSandbox` (no kernel Landlock). Bundle into `0.1.7`; run post-soak (flaps networking).

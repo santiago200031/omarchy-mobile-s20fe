@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
-# omamobile-ufs-no-autohibern8: keep the S20 FE's UFS link out of auto-hibernate.
+# omamobile-ufs-no-autohibern8: keep the S20 FE's UFS link quiet.
 #
 # The Qualcomm UFS controller hibernates its link after 150 ms of idle
 # (auto_hibern8), and on this phone a failed hibern8 exit leaves the link
@@ -9,10 +9,19 @@
 # (the serial console still works). The console logs the UFS write-booster
 # query failing on every runtime suspend, which is what made it visible.
 #
-# Writing 0 keeps the link active. It costs a little idle power and buys a
-# phone that does not wedge after a few minutes of use. Revisit once the UFS
-# link power management is trusted on this port.
+# Worse, every UFS clock ungate/scale votes interconnect bandwidth through
+# the RPMh BCM voter (`ufs_qcom_icc_update_bw -> icc_set_bw`), and on this
+# phone's TrustZone firmware that AMC write can time out (-110), wedging a
+# core until the watchdog resets the phone (pstore proved it twice, from
+# `sugov` and from `ufshcd_ungate_work`). Clock gating and scaling are
+# therefore off too: no ungate votes, no scale votes.
+#
+# Writing 0 keeps the link and clocks active. It costs idle power and buys
+# a phone that stays up. Revisit once the RPMh AMC path and the UFS link
+# power management are trusted on this port.
 set -eu
 host=/sys/devices/platform/soc@0/1d84000.ufshc
 [ -w "$host/auto_hibern8" ] || exit 0
 echo 0 > "$host/auto_hibern8"
+[ -w "$host/clkscale_enable" ] && echo 0 > "$host/clkscale_enable"
+[ -w "$host/clkgate_enable" ] && echo 0 > "$host/clkgate_enable"

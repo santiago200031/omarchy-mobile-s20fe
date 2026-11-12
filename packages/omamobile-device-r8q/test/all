@@ -21,6 +21,8 @@ grep -q 'serial-getty@ttyGS0' PKGBUILD
 grep -qx 'RuntimeWatchdogSec=30s' 10-r8q-watchdog.conf
 grep -qx 'blacklist msm' 50-r8q-gpu-blacklist.conf
 grep -q 'auto_hibern8' ufs-no-autohibern8
+grep -q 'clkscale_enable' ufs-no-autohibern8
+grep -q 'clkgate_enable' ufs-no-autohibern8
 grep -q 'auto_hibern8' omamobile-r8q-ufs.service
 test -x cpuidle-no-deep-sleep
 grep -q '!= WFI' cpuidle-no-deep-sleep

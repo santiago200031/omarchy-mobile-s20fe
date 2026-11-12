@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# omamobile r8q-wifi-aspm: quiet the QCA6390's ASPM correctable-error flood.
+#
+# With L0s/L1 enabled, the endpoint misses replay deadlines coming out of
+# the low-power states and logs a stream of AER correctable errors on every
+# active scan. The packets are retransmitted (harmless), but the log flood
+# buries real diagnostics. Scoped to the Wi-Fi endpoint only: resolve the
+# PCI device behind phy0 dynamically and clear its ASPM flags once the
+# interface exists. Never fails the boot: no phy, no work.
+set -eu
+phy=/sys/class/ieee80211/phy0
+i=0
+while [ ! -e "$phy" ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
+if [ ! -e "$phy" ]; then
+  logger -t r8q-wifi-aspm "no phy0 after 30s, nothing to do"
+  exit 0
+fi
+dev=$(readlink -f "$phy/device")
+for knob in l0s_aspm l1_aspm; do
+  if [ -w "$dev/link/$knob" ]; then echo 0 > "$dev/link/$knob"; fi
+done
+logger -t r8q-wifi-aspm "ASPM cleared on $(basename "$dev")"

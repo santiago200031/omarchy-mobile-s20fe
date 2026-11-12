@@ -92,6 +92,11 @@ package() {
     "$pkgdir/usr/lib/omamobile/r8q-rtc-epoch"
   install -Dm644 "$startdir/omamobile-r8q-rtc.service" \
     "$pkgdir/usr/lib/systemd/system/omamobile-r8q-rtc.service"
+  # Quiet the QCA6390 ASPM correctable-error flood once Wi-Fi is up.
+  install -Dm755 "$startdir/r8q-wifi-aspm" \
+    "$pkgdir/usr/lib/omamobile/r8q-wifi-aspm"
+  install -Dm644 "$startdir/omamobile-r8q-wifi.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-wifi.service"
   install -d "$pkgdir/etc/systemd/system"
   for target in sleep suspend hibernate hybrid-sleep suspend-then-hibernate; do
     ln -s /dev/null "$pkgdir/etc/systemd/system/$target.target"
@@ -114,4 +119,5 @@ package() {
   ln -s ../omamobile-r8q-cpuidle.service "$wants/omamobile-r8q-cpuidle.service"
   ln -s ../omamobile-r8q-panel.timer "$wants/omamobile-r8q-panel.timer"
   ln -s ../omamobile-r8q-rtc.service "$wants/omamobile-r8q-rtc.service"
+  ln -s ../omamobile-r8q-wifi.service "$wants/omamobile-r8q-wifi.service"
 }

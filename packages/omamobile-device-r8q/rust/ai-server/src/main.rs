@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Omarchy Mobile On-Device Edge Subagent Server (Rust native implementation)
 // Provides OpenAI-compatible endpoints (/v1/chat/completions, /v1/models, /health)
-// for local mobile UI and remote laptop subagent orchestration over USB (172.16.42.1:8080).
+// for local mobile UI and remote laptop subagent orchestration over USB (172.16.42.1:18081).
+// Port :8080 belongs to llama-server (real LFM3 inference, on-demand); this stub serves stats only.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -9,7 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const PORT: u16 = 8080;
+const PORT: u16 = 18081;
 
 #[derive(Default, Debug)]
 struct SystemStats {

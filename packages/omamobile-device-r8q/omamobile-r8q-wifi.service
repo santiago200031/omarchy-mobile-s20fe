@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# r8q: quiet the QCA6390 ASPM error flood once Wi-Fi is up (see the helper).
+# Additive only: it touches nothing when no wireless phy exists.
+[Unit]
+Description=Omarchy Mobile: r8q Wi-Fi endpoint ASPM quiet-down
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/omamobile/r8q-wifi-aspm
+
+[Install]
+WantedBy=multi-user.target

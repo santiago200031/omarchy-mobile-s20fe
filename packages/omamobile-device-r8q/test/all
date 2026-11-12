@@ -35,9 +35,15 @@ grep -q 'omamobile-r8q-cpuidle.service' PKGBUILD
 test -x r8q-rtc-epoch
 sh -n r8q-rtc-epoch
 ! ./r8q-rtc-epoch bogus 2>/dev/null
+test -x r8q-wifi-aspm
+sh -n r8q-wifi-aspm
+grep -q 'l0s_aspm' r8q-wifi-aspm
+grep -q 'r8q-wifi-aspm' omamobile-r8q-wifi.service
+grep -q 'omamobile-r8q-wifi.service' PKGBUILD
 grep -q 'r8q-rtc-epoch restore' omamobile-r8q-rtc.service
 grep -q 'r8q-rtc-epoch save' omamobile-r8q-rtc.service
 grep -q 'omamobile-r8q-rtc.service' PKGBUILD
+grep -q '18081' rust/ai-server/src/main.rs
 grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service
 grep -qx 'OnUnitActiveSec=4min' omamobile-r8q-panel.timer
 echo ok config

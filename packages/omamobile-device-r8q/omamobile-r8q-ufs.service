@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# r8q: keep the UFS link out of auto-hibernate (see the helper for why).
+[Unit]
+Description=Omarchy Mobile: r8q UFS link stays out of auto-hibernate
+After=local-fs.target
+ConditionPathExists=/sys/devices/platform/soc@0/1d84000.ufshc/auto_hibern8
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/omamobile/ufs-no-autohibern8
+
+[Install]
+WantedBy=multi-user.target

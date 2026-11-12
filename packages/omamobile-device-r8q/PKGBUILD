@@ -67,6 +67,12 @@ package() {
   # A wedged userspace reboots the phone instead of needing a hard reset.
   install -Dm644 "$startdir/10-r8q-watchdog.conf" \
     "$pkgdir/usr/lib/systemd/system.conf.d/10-r8q-watchdog.conf"
+  # The UFS link must not auto-hibernate: a failed hibern8 exit wedges every
+  # process that touches the disk (README-suspend.md, "UFS").
+  install -Dm755 "$startdir/ufs-no-autohibern8" \
+    "$pkgdir/usr/lib/omamobile/ufs-no-autohibern8"
+  install -Dm644 "$startdir/omamobile-r8q-ufs.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-ufs.service"
   install -d "$pkgdir/etc/systemd/system"
   for target in sleep suspend hibernate hybrid-sleep suspend-then-hibernate; do
     ln -s /dev/null "$pkgdir/etc/systemd/system/$target.target"
@@ -85,4 +91,5 @@ package() {
   ln -s ../systemd-networkd.service "$wants/systemd-networkd.service"
   ln -s ../sshd.service "$wants/sshd.service"
   ln -s ../serial-getty@.service "$wants/serial-getty@ttyGS0.service"
+  ln -s ../omamobile-r8q-ufs.service "$wants/omamobile-r8q-ufs.service"
 }

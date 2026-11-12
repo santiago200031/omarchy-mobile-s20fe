@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# omamobile-ufs-no-autohibern8: keep the S20 FE's UFS link out of auto-hibernate.
+#
+# The Qualcomm UFS controller hibernates its link after 150 ms of idle
+# (auto_hibern8), and on this phone a failed hibern8 exit leaves the link
+# wedged: every process that touches the disk stops, journald stops writing
+# and sshd stops answering, while the kernel and cached userspace stay alive
+# (the serial console still works). The console logs the UFS write-booster
+# query failing on every runtime suspend, which is what made it visible.
+#
+# Writing 0 keeps the link active. It costs a little idle power and buys a
+# phone that does not wedge after a few minutes of use. Revisit once the UFS
+# link power management is trusted on this port.
+set -eu
+host=/sys/devices/platform/soc@0/1d84000.ufshc
+[ -w "$host/auto_hibern8" ] || exit 0
+echo 0 > "$host/auto_hibern8"

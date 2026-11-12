@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# r8q: keep the CPUs out of deep idle states (see the helper for why).
+[Unit]
+Description=Omarchy Mobile: r8q CPUs stay out of deep idle
+After=local-fs.target
+ConditionPathExists=/sys/devices/system/cpu/cpu0/cpuidle
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/omamobile/cpuidle-no-deep-sleep
+ExecStart=/usr/lib/omamobile/cpufreq-no-dvfs
+
+[Install]
+WantedBy=multi-user.target

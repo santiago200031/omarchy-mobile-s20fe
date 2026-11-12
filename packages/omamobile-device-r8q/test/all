@@ -22,6 +22,14 @@ grep -qx 'RuntimeWatchdogSec=30s' 10-r8q-watchdog.conf
 grep -qx 'blacklist msm' 50-r8q-gpu-blacklist.conf
 grep -q 'auto_hibern8' ufs-no-autohibern8
 grep -q 'auto_hibern8' omamobile-r8q-ufs.service
+test -x cpuidle-no-deep-sleep
+grep -q '!= WFI' cpuidle-no-deep-sleep
+grep -q 'cpuidle-no-deep-sleep' omamobile-r8q-cpuidle.service
+test -x cpufreq-no-dvfs
+grep -q 'scaling_governor' cpufreq-no-dvfs
+grep -q 'cpufreq-no-dvfs' omamobile-r8q-cpuidle.service
+grep -q 'cpufreq-no-dvfs' PKGBUILD
+grep -q 'omamobile-r8q-cpuidle.service' PKGBUILD
 grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service
 grep -qx 'OnUnitActiveSec=4min' omamobile-r8q-panel.timer
 echo ok config

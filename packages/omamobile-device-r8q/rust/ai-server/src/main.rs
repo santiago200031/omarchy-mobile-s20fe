@@ -171,9 +171,7 @@ fn handle_connection(mut stream: TcpStream) {
 
     if method == "GET" && path == "/v1/models" {
         let body = "{\"object\":\"list\",\"data\":[\
-            {\"id\":\"LFM3-1.7B-Q4_K_M\",\"object\":\"model\",\"owned_by\":\"liquid-ai\"},\
-            {\"id\":\"LFM3-Vision-2B\",\"object\":\"model\",\"owned_by\":\"liquid-ai\"},\
-            {\"id\":\"Qwen2.5-1.5B-Instruct\",\"object\":\"model\",\"owned_by\":\"qwen\"}\
+            {\"id\":\"LFM3-1.7B-Q4_K_M\",\"object\":\"model\",\"owned_by\":\"liquid-ai\"}\
         ]}";
 
         let resp = format!(

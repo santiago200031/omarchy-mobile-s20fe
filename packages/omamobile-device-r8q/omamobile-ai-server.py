@@ -73,10 +73,10 @@ class AIHandler(http.server.BaseHTTPRequestHandler):
             self._set_headers(200)
             models = {
                 "object": "list",
+                # LFM3-1.7B is the only default model. Others appear here once
+                # their GGUF is pushed to the phone (tools/r8q-ai push-model).
                 "data": [
                     {"id": "LFM3-1.7B-Q4_K_M", "object": "model", "owned_by": "liquid-ai"},
-                    {"id": "LFM3-Vision-2B", "object": "model", "owned_by": "liquid-ai"},
-                    {"id": "Qwen2.5-1.5B-Instruct", "object": "model", "owned_by": "qwen"}
                 ]
             }
             self.wfile.write(json.dumps(models).encode())

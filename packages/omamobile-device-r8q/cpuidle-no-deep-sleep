@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# omamobile-cpuidle-no-deep-sleep: keep the S20 FE's CPUs out of deep idle.
+#
+# On this phone a core sometimes never returns from a PSCI deep state
+# (cpu-sleep-*/cluster-sleep-*): RCU reports a stall, the wedged CPU stops
+# answering NMIs, and the hardware watchdog reboots the phone minutes later.
+# Seen 2026-11-12 across seven boots (3-22 min each), with the previous
+# boot's journal ending in "rcu_preempt detected stalls" and a CPU stuck
+# in cpuidle_enter_state while another answered no NMI for 10 s.
+#
+# Only WFI stays enabled. It costs idle power and buys a phone that stays
+# up. Revisit once the PSCI deep states are trusted on this port.
+set -eu
+for d in /sys/devices/system/cpu/cpu[0-9]*/cpuidle/state[0-9]*; do
+  if [ -w "$d/disable" ] && [ "$(cat "$d/name")" != WFI ]; then
+    echo 1 > "$d/disable"
+  fi
+done

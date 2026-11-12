@@ -76,6 +76,14 @@ package() {
     "$pkgdir/usr/lib/omamobile/ufs-no-autohibern8"
   install -Dm644 "$startdir/omamobile-r8q-ufs.service" \
     "$pkgdir/usr/lib/systemd/system/omamobile-r8q-ufs.service"
+  # A core sometimes never returns from a PSCI deep idle state (RCU stall,
+  # NMI timeout, watchdog reboot minutes later): only WFI stays enabled.
+  install -Dm755 "$startdir/cpuidle-no-deep-sleep" \
+    "$pkgdir/usr/lib/omamobile/cpuidle-no-deep-sleep"
+  install -Dm755 "$startdir/cpufreq-no-dvfs" \
+    "$pkgdir/usr/lib/omamobile/cpufreq-no-dvfs"
+  install -Dm644 "$startdir/omamobile-r8q-cpuidle.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-cpuidle.service"
   # fbcon blanks the console after 10 minutes and the panel stays black: keep
   # it unblanked (see the service for why the timer repeats it).
   install -Dm644 "$startdir/omamobile-r8q-panel.service" \
@@ -101,5 +109,6 @@ package() {
   ln -s ../sshd.service "$wants/sshd.service"
   ln -s ../serial-getty@.service "$wants/serial-getty@ttyGS0.service"
   ln -s ../omamobile-r8q-ufs.service "$wants/omamobile-r8q-ufs.service"
+  ln -s ../omamobile-r8q-cpuidle.service "$wants/omamobile-r8q-cpuidle.service"
   ln -s ../omamobile-r8q-panel.timer "$wants/omamobile-r8q-panel.timer"
 }

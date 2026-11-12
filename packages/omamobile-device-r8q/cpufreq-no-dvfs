@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# omamobile-cpufreq-no-dvfs: pin every CPUFreq policy to the performance governor.
+#
+# A DVFS transition can hang on an AMC RPMh write (rpmh_write_batch timeout
+# from qcom_cpufreq_hw via the interconnect BCM voter), wedging a core until
+# the hardware watchdog resets the phone (PORT-PLAN section 0, item 6).
+# Pinning the governor stops all transitions and with them the RPMh votes
+# from CPUFreq. Costs idle power; revisit with a kernel quirk around the
+# AMC vote on this TrustZone firmware.
+set -eu
+for p in /sys/devices/system/cpu/cpufreq/policy[0-9]*; do
+  if [ -w "$p/scaling_governor" ]; then
+    echo performance > "$p/scaling_governor"
+  fi
+done

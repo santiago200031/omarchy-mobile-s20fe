@@ -73,6 +73,12 @@ package() {
     "$pkgdir/usr/lib/omamobile/ufs-no-autohibern8"
   install -Dm644 "$startdir/omamobile-r8q-ufs.service" \
     "$pkgdir/usr/lib/systemd/system/omamobile-r8q-ufs.service"
+  # fbcon blanks the console after 10 minutes and the panel stays black: keep
+  # it unblanked (see the service for why the timer repeats it).
+  install -Dm644 "$startdir/omamobile-r8q-panel.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-panel.service"
+  install -Dm644 "$startdir/omamobile-r8q-panel.timer" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-panel.timer"
   install -d "$pkgdir/etc/systemd/system"
   for target in sleep suspend hibernate hybrid-sleep suspend-then-hibernate; do
     ln -s /dev/null "$pkgdir/etc/systemd/system/$target.target"
@@ -92,4 +98,5 @@ package() {
   ln -s ../sshd.service "$wants/sshd.service"
   ln -s ../serial-getty@.service "$wants/serial-getty@ttyGS0.service"
   ln -s ../omamobile-r8q-ufs.service "$wants/omamobile-r8q-ufs.service"
+  ln -s ../omamobile-r8q-panel.timer "$wants/omamobile-r8q-panel.timer"
 }

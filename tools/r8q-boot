@@ -120,7 +120,7 @@ cmd_pack() {
     --dtb_offset 0x01f00000 \
     --os_version 16.0.0 \
     --os_patch_level 2026-10 \
-    --cmdline "console=tty0 console=ttyGS0 systemd.unit=multi-user.target clk_ignore_unused pd_ignore_unused mem_sleep_default=s2idle systemd.mask=sleep.target systemd.mask=suspend.target systemd.mask=hibernate.target systemd.mask=hybrid-sleep.target panic=10 rdinit=/init omamobile.ufs-probe" \
+    --cmdline "console=tty0 console=ttyGS0 systemd.unit=multi-user.target consoleblank=0 clk_ignore_unused pd_ignore_unused mem_sleep_default=s2idle systemd.mask=sleep.target systemd.mask=suspend.target systemd.mask=hibernate.target systemd.mask=hybrid-sleep.target panic=10 rdinit=/init omamobile.ufs-probe" \
     --kernel "$kernel" \
     --ramdisk "$ramdisk" \
     --dtb "$dtb" \

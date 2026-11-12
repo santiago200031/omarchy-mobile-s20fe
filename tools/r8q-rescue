@@ -23,24 +23,18 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 REMOTE="${1:-root@172.16.42.1}"
-SSH=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
-     -o ConnectTimeout=6 -o ServerAliveInterval=5 -q)
+# shellcheck disable=SC1091
+. "$ROOT/tools/r8q-common"
 
-say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
-die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
 
 say "Waiting for $REMOTE ..."
-for _ in $(seq 1 40); do
-  "${SSH[@]}" "$REMOTE" true >/dev/null 2>&1 && break
-  sleep 3
-done
-"${SSH[@]}" "$REMOTE" true >/dev/null 2>&1 || die "$REMOTE did not answer"
+r8q_wait "$REMOTE" 40 3 || die "$REMOTE did not answer"
 
 say "Stopping the graphical session (sddm) before it can wedge userspace"
-"${SSH[@]}" "$REMOTE" 'systemctl stop sddm 2>/dev/null || true' || true
+"${R8Q_SSH[@]}" "$REMOTE" 'systemctl stop sddm 2>/dev/null || true' || true
 
 say "Disarming suspend at every layer"
-"${SSH[@]}" "$REMOTE" 'bash -s' <<'REMOTE_EOF'
+"${R8Q_SSH[@]}" "$REMOTE" 'bash -s' <<'REMOTE_EOF'
 set -u
 install -d /etc/systemd/sleep.conf.d
 cat > /etc/systemd/sleep.conf.d/10-r8q-no-suspend.conf <<'CONF'
@@ -76,7 +70,7 @@ REMOTE_EOF
 dir="$ROOT/logs/r8q-rescue-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$dir"
 say "Collecting state into $dir"
-"${SSH[@]}" "$REMOTE" 'bash -s' > "$dir/state.txt" 2>&1 <<'REMOTE_EOF' || true
+"${R8Q_SSH[@]}" "$REMOTE" 'bash -s' > "$dir/state.txt" 2>&1 <<'REMOTE_EOF' || true
 echo "== uname =="; uname -a
 echo "== uptime =="; cat /proc/uptime
 echo "== cmdline =="; cat /proc/cmdline
@@ -96,7 +90,7 @@ echo "== graphical =="; systemctl is-active sddm graphical.target 2>&1
 echo "== drm =="; ls -l /dev/dri 2>/dev/null; cat /sys/class/drm/card*/status 2>/dev/null
 echo "== pstore =="; ls -l /sys/fs/pstore/ 2>/dev/null
 REMOTE_EOF
-"${SSH[@]}" "$REMOTE" 'dmesg' > "$dir/dmesg.txt" 2>/dev/null || true
-"${SSH[@]}" "$REMOTE" 'journalctl -b --no-pager -p warning' > "$dir/journal-warn.txt" 2>/dev/null || true
+"${R8Q_SSH[@]}" "$REMOTE" 'dmesg' > "$dir/dmesg.txt" 2>/dev/null || true
+"${R8Q_SSH[@]}" "$REMOTE" 'journalctl -b --no-pager -p warning' > "$dir/journal-warn.txt" 2>/dev/null || true
 say "state: $dir/state.txt, dmesg: $dir/dmesg.txt"
 grep -E '^(== uname|== uptime|== graphical)' -A1 "$dir/state.txt" | head -8 || true

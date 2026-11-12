@@ -2,15 +2,17 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`) Port & Integration Plan
 
-**Status: M0-M4 bring-up on hardware; the desktop starts but the session still resets the phone (2026-11-12).**
+**Status: M0-M4 bring-up on hardware; the desktop is stable on simpledrm with the UFS/suspend/panel fixes live (2026-11-12).**
 - **Kernel branch (planned):** `omamobile-r8q` (worktree `~/omamobile-kernel/wt-r8q`, output `~/omamobile-kernel/out-r8q`)
 - **Reference upstream:** `sm8250-mainline` / postmarketOS `samsung-r8q` (`qcom/sm8250-samsung-r8q.dts`)
 
 ## 0. Current status and open work (2026-11-12)
 
 The phone boots Omarchy from the `recovery` partition, the USB link and SSH work, the
-touchscreen works, and Hyprland comes up on simpledrm. It is not yet usable day to
-day. This is what was found on hardware today and what is fixed or still open:
+touchscreen works on the desktop, and Hyprland comes up on simpledrm and stays up
+(load ~0.2 idle, no failed units). It is usable for testing but not yet day to day:
+Wi-Fi/audio/battery bring-up is staged, not live, and there is no GPU yet. This is
+what was found on hardware today and what is fixed or still open:
 
 ### Fixed in the tree (needs a flash to reach the phone)
 
@@ -23,29 +25,40 @@ day. This is what was found on hardware today and what is fixed or still open:
 | Boot never finished (`systemd` "starting", jobs queued) | `omamobile-bluetooth.service`, hand-installed during bring-up, hangs in `btmgmt config` and, being `WantedBy=multi-user.target`, blocks the target forever | unit disabled on the phone (it is not in any package yet); a fixed version needs a timeout, or Bluetooth support, before it ships |
 | `systemd-zram-setup@zram0` waited forever | `CONFIG_ZRAM=m`, no modules installed | `CONFIG_ZRAM=y`; the phone also has a 4 GiB `/swapfile` |
 | No way in when the network or the session wedges | no console on the USB serial port | `console=ttyGS0` on the command line and `serial-getty@ttyGS0` enabled by the device package |
+| The panel goes black after ~10 min of use and never comes back | fbcon blanks the console (`consoleblank=600`) and the compositor's DRM commits do not count as VT activity, so the panel powers down on a phone that is being used | `omamobile-r8q-panel.timer` re-unblanks `/sys/class/graphics/fb0/blank` every 4 min (package 0.1.3); `tools/r8q-boot` also passes `consoleblank=0` so the next flashed image never blanks |
+| The screen locks after 60 s and the lock surface ignores touch | Omarchy default `idle.lock=60` + the glance-view swipe handler does not take touch on this port | `idle.lock=0`, `screensaver=0` in the live `shell.json` until the lock touch path is fixed; recorded here so a package update does not re-lock the phone |
+| The shipped Hyprland profile contradicted the live performance fix | `hyprland-r8q.conf` enabled animations/bezels while `tools/r8q-optimize` disables them for llvmpipe | package 0.1.3 ships the performant baseline (animations/blur/shadow off); the fancy profile returns with the Adreno render path |
+| No modules for the running kernel, so Wi-Fi/BT/sound could not load | running kernel is `...-dirty` (UFS workaround uncommitted) while the tarballs were clean builds | `DEVICE=r8q bin/omamobile modules` rebuilt for the dirty release and `modules-push` installed 1818 modules under `/usr/lib/modules/<release>`; `depmod` clean |
 
 ### Open
 
-1. **Starting the graphical session resets the phone.** On a boot where the boot had
-   completed, `systemctl start sddm` ended in an unclean reset within seconds: the
-   journal's last line is seatd's "Opened client 1 on seat0" (it hands
-   `/dev/dri/card0` to Hyprland), pstore holds no panic, so it is a hard hang, not a
-   panic. The serial console (`console=ttyGS0`) is the instrument for this; it is in
-   the image now. Candidate causes: a simpledrm dumb-buffer/atomic-commit hang, a VT
-   switch deadlock between sddm and fbcon, or a hang in aquamarine's DRM setup.
-2. **sddm restarts the session in a tight loop** (`Relogin=true` and the session
-   exits within seconds), which spawns `gnome-keyring-daemon` and `uwsm` processes
-   many times per second and ends in an RCU stall (boot -3: `rcu_preempt detected
-   stalls`, CPU 6). Until the session is stable, `Relogin=false` is the safe setting.
+1. **Wi-Fi / Bluetooth / audio / battery are staged, not live.** The DTS enables
+   `qca6390-pmu`, `pcie0`+`wifi@0`, `bluetooth`, both CS35L41 amps and the
+   MAX77705 charger, and the modules are now on the phone (ath11k, btqca,
+   snd-soc-sm8250). Read-only dmesg today: PCIe enumerates (dummy regulators),
+   `hci0` QCA6390 sets up, both CS35L41 probe (`35a40 A0`), MAX77705 reports
+   `-EINVAL` on one setting. Next, one at a time with the serial console armed:
+   `modprobe ath11k_pci` + firmware check, `bluetoothctl` scan, `aplay -l`
+   after the sound card binds, and the charger/battery power-supply nodes.
+   M5/M6 stay unchecked until then.
+2. **The lock screen ignores touch.** The desktop takes touch; the glance view
+   (`LockGlance.qml` swipe-up) does not, so `idle.lock=0` is the workaround.
+   Fix the lock touch path (or the mapping), then re-enable the lock.
 3. **No GPU.** The display is simpledrm on the bootloader's live DSI scanout; upstream
    has no r8q mdss/DSI/panel nodes and no driver for this panel (only the Pixel 7
    `s6e3fc3-p10` variant exists). Hyprland therefore renders with llvmpipe, which is
    the performance ceiling. `sm8250.dtsi`'s `adreno_smmu` also fails to probe
    (`-110`: its `GPU_CX_GDSC` never comes up) because the GPU is not usable without
    the display path; the failure is harmless today.
-4. **The UFS WriteBooster queries fail every few seconds**
-   (`ufshcd_query_attr ... idn 31 ... -22`). No I/O errors follow; it is log noise
-   until the UFS driver learns this device does not support the attribute.
+4. **Device package 0.1.3 is built, not yet installed.** `omamobile-device-r8q`
+   0.1.3 carries the UFS, panel-timer, watchdog, sleep-gate and serial-getty
+   files (all currently hand-installed and active). On-phone build needs `gcc`,
+   and installing it wedged the phone twice (watchdog rebooted it clean both
+   times), so the install waits for a quiet window or a cross-built package.
+   Until then, `tools/r8q-stabilize` re-applies the same files.
+5. **Next flash picks up `consoleblank=0`.** The running image predates the
+   `tools/r8q-boot` cmdline change; the panel timer covers it until the next
+   `recovery`-partition flash (human-approved, as always).
 
 > [!IMPORTANT]
 > Every step below follows [AGENTS.md](../../AGENTS.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md).
@@ -229,21 +242,21 @@ Each milestone is gated. Complete them in order, one change per boot, recording 
   - **Expect/Pass:** Accelerometer, gyroscope, and ambient light report via `iio-sensor-proxy`.
 
 ### M5: Wi-Fi, Bluetooth & Audio
-- [x] **M5.1 — Wi-Fi & Bluetooth (Qualcomm QCA6390 / `ath11k`):**
-  - **Status:** Integrated & Staged (2026-11-11, Linux 7.3.0).
+- [ ] **M5.1 — Wi-Fi & Bluetooth (Qualcomm QCA6390 / `ath11k`):**
+  - **Status:** Staged, not live (2026-11-12): DTS nodes and modules exist, but no `wlan0`/scan yet. See §0 Open item 1.
   - **Hardware Bus:** Qualcomm QCA6390 2x2 Wi-Fi 6 / Bluetooth 5.2 on PCIe root complex 0 (`wlan-en-gpio = <&tlmm 90>`, `bt-en-gpio = <&tlmm 76>`).
   - **Microcode:** Staged firmware binaries in `~/.cache/omamobile/firmware/r8q/lib/firmware/qca6390/` (`amss20.bin`, `m3.bin`, `bdwlan.elf`, `regdb.bin`).
   - **Kernel Config:** Enabled modular `CONFIG_ATH11K_PCI=m` and `CONFIG_BT_QCA=m`.
   - **Pre-gate:** Verified NV checksums match M0.1 backup before starting `rmtfs` (in read-only `-r` mode).
   - **Expect/Pass:** `wlan0` connects to WPA2/WPA3 AP; `bluetoothctl` scans and pairs audio devices.
-- [x] **M5.2 — Audio (QDSP6 / ADSP + Speaker Amps):**
-  - **Status:** Complete & Integrated (2026-11-11).
+- [ ] **M5.2 — Audio (QDSP6 / ADSP + Speaker Amps):**
+  - **Status:** Staged, not live (2026-11-12): UCM profiles packaged and both CS35L41 probe, but no ALSA card yet. See §0 Open item 1.
   - **ALSA Card:** Sound card identified as `kona-mtp-snd-card` (`hw:0,0`).
   - **UCM Profiles:** Created and packaged UCM2 profiles `packages/omamobile-device-r8q/ucm2/Samsung/r8q/HiFi.conf` and `kona-mtp-snd-card.conf` configuring dual Cirrus CS35L40 amplifiers (18 dB PCM gain, 817 digital volume).
 
 ### M6: Battery, Charging & Thermal
-- [x] **M6.1 — Fuel Gauge & Charger (`pm8150b` / PCA9468 / MAX77705):**
-  - **Status:** Verified on hardware (2026-11-11).
+- [ ] **M6.1 — Fuel Gauge & Charger (`pm8150b` / PCA9468 / MAX77705):**
+  - **Status:** Staged, not live (2026-11-12): MAX77705 nodes exist; one `-EINVAL` on apply and no power-supply nodes yet. See §0 Open item 1.
   - **Telemetry:** Verified live battery state (4362 mV, 203 mA current, 25.7°C temperature, 100% capacity) via PCA9468 and MAX77705 sensors. Thermal throttling zones verified active.
 
 ### M7: Dual-Boot / Rootfs Integration (`omamobile-device-r8q`)

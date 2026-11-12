@@ -18,19 +18,15 @@
 #   tools/r8q-stabilize [user@host]
 set -euo pipefail
 
-REMOTE="${1:-root@172.16.42.1}"
-SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
-          -o ConnectTimeout=8 -q)
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+# shellcheck disable=SC1091
+. "$ROOT/tools/r8q-common"
 
-say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+REMOTE="${1:-root@172.16.42.1}"
+SSH_OPTS=("${R8Q_SSH[@]:1}")
 
 say "Waiting for $REMOTE (up to 240 s) ..."
-for _ in $(seq 1 60); do
-  if ssh "${SSH_OPTS[@]}" "$REMOTE" true >/dev/null 2>&1; then break; fi
-  sleep 4
-done
-ssh "${SSH_OPTS[@]}" "$REMOTE" true >/dev/null 2>&1 || {
-  echo "r8q-stabilize: $REMOTE did not answer" >&2; exit 1; }
+r8q_wait "$REMOTE" 60 4 || die "r8q-stabilize: $REMOTE did not answer"
 say "Connected."
 
 ssh "${SSH_OPTS[@]}" "$REMOTE" 'bash -s' <<'REMOTE_EOF'

@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# r8q: keep the console from powering the panel down.
+#
+# fbcon is bound to the same framebuffer simpledrm scans out of, and the
+# kernel blanks the console after 10 minutes without VT activity
+# (consoleblank=600). The compositor's DRM commits do not count as VT
+# activity, so the panel goes black on a phone that is being used, and the
+# compositor does not get it back. Unblanking the framebuffer keeps the panel
+# on; the timer repeats it because the kernel's blank timer starts again.
+[Unit]
+Description=Omarchy Mobile: r8q panel stays unblanked
+ConditionPathExists=/sys/class/graphics/fb0/blank
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 0 > /sys/class/graphics/fb0/blank'

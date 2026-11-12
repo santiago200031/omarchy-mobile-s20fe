@@ -9,7 +9,7 @@ grep -q "vm.swappiness = 150" 90-r8q-vm.conf
 grep -q "zram-size = ram / 2" 91-r8q-zram.conf
 grep -q "min_ttl_ms" 80-r8q-mglru.conf
 grep -q "simple_ondemand" 80-r8q-gpu.rules
-grep -q "mobileSpring" hyprland-r8q.conf
+grep -q "enabled = false" hyprland-r8q.conf
 test -f ucm2/conf.d/kona-mtp-snd-card/kona-mtp-snd-card.conf
 test -f ucm2/Samsung/r8q/HiFi.conf
 # Suspend never wakes on this port: the gate, the seat and the masks ship.
@@ -21,6 +21,8 @@ grep -q 'serial-getty@ttyGS0' PKGBUILD
 grep -qx 'RuntimeWatchdogSec=30s' 10-r8q-watchdog.conf
 grep -q 'auto_hibern8' ufs-no-autohibern8
 grep -q 'auto_hibern8' omamobile-r8q-ufs.service
+grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service
+grep -qx 'OnUnitActiveSec=4min' omamobile-r8q-panel.timer
 echo ok config
 echo ok wrapper
 echo ok sources

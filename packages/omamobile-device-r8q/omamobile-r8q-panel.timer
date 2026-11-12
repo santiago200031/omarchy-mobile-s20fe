@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# r8q: re-unblank the framebuffer before the kernel's 10 minute console
+# blank timer can power the panel down again (see the service).
+[Unit]
+Description=Omarchy Mobile: r8q panel unblank timer
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=4min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

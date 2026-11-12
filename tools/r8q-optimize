@@ -62,7 +62,7 @@ systemctl reload NetworkManager 2>/dev/null || systemctl restart NetworkManager 
 EOF
 ok "NetworkManager configured: usb0 is unmanaged (SSH link is protected)."
 
-say "3. Configuring hardware button modules and logind..."
+say "3. Configuring hardware button modules and logind (disabling broken s2idle sleep)..."
 ssh "${SSH_OPTS[@]}" "$REMOTE" 'bash -s' << 'EOF'
 mkdir -p /etc/modules-load.d /etc/systemd/logind.conf.d
 echo "qcom-pon" > /etc/modules-load.d/omamobile-buttons.conf
@@ -71,10 +71,22 @@ modprobe qcom-pon 2>/dev/null || true
 cat << 'LOGINDCONF' > /etc/systemd/logind.conf.d/10-omamobile-power-key.conf
 [Login]
 HandlePowerKey=ignore
+HandleSuspendKey=ignore
+HandleHibernateKey=ignore
+HandleLidSwitch=ignore
+IdleAction=ignore
 LOGINDCONF
+
+# Mask systemd sleep/suspend to prevent device freeze
+systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null || true
 systemctl restart systemd-logind 2>/dev/null || true
+
+# Disable mobile sleep daemon which freezes userspace on SM8250
+systemctl --user -M alarm@ mask omamobile-sleepd.service 2>/dev/null || true
+systemctl --user -M alarm@ stop omamobile-sleepd.service 2>/dev/null || true
+rm -f /home/alarm/.local/state/omarchy/toggles/omamobile-sleep
 EOF
-ok "Hardware keys (Power, Vol+, Vol-) enabled and protected from accidental poweroff."
+ok "Hardware keys enabled and broken s2idle sleep targets completely masked."
 
 say "4. Verifying CPU and memory state..."
 ssh "${SSH_OPTS[@]}" "$REMOTE" 'bash -s' << 'EOF'

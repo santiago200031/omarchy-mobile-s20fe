@@ -50,7 +50,10 @@ Include = /etc/pacman.d/mirrorlist
 Include = /etc/pacman.d/mirrorlist
 CONF
 
-pacman -Syu --noconfirm --needed base-devel arch-install-scripts git sudo e2fsprogs >/dev/null
+# rust: the device packages build their native helpers (e.g. r8q's ai-server)
+# from source inside this container; no host or on-phone toolchain needed.
+# (Part of the image hash via /setup, so this rebuilds the image once.)
+pacman -Syu --noconfirm --needed base-devel arch-install-scripts git sudo e2fsprogs rust >/dev/null
 # The tarball's own kernel and its "alarm" account are not needed to build
 pacman -Rns --noconfirm linux-aarch64 >/dev/null 2>&1 || true
 userdel -r alarm >/dev/null 2>&1 || true

@@ -15,21 +15,18 @@ build() {
     -fno-asynchronous-unwind-tables -Oz \
     -o "$srcdir/reboot-to" "$startdir/reboot-to.c"
 
-  # Build Rust native on-device AI server
-  if command -v cargo >/dev/null 2>&1; then
-    cargo build --manifest-path "$startdir/rust/ai-server/Cargo.toml" --release --target-dir "$srcdir/cargo-target"
-    cp "$srcdir/cargo-target/release/ai-server" "$srcdir/omamobile-ai-server"
-  fi
+  # Build the Rust native on-device AI server (the only implementation;
+  # the container image ships cargo via tools/lib/alarm-setup). Fail loudly
+  # rather than shipping a fallback, so a missing toolchain never goes quiet.
+  command -v cargo >/dev/null 2>&1 || { echo "PKGBUILD: cargo missing in build image" >&2; exit 1; }
+  cargo build --manifest-path "$startdir/rust/ai-server/Cargo.toml" --release --target-dir "$srcdir/cargo-target"
+  cp "$srcdir/cargo-target/release/ai-server" "$srcdir/omamobile-ai-server"
 }
 
 package() {
   install -Dm755 "$srcdir/reboot-to" "$pkgdir/usr/local/bin/reboot-to"
   install -Dm755 "$startdir/reboot" "$pkgdir/usr/local/bin/reboot"
-  if [[ -f "$srcdir/omamobile-ai-server" ]]; then
-    install -Dm755 "$srcdir/omamobile-ai-server" "$pkgdir/usr/local/bin/omamobile-ai-server"
-  else
-    install -Dm755 "$startdir/omamobile-ai-server.py" "$pkgdir/usr/local/bin/omamobile-ai-server"
-  fi
+  install -Dm755 "$srcdir/omamobile-ai-server" "$pkgdir/usr/local/bin/omamobile-ai-server"
   install -Dm644 "$startdir/20-usb-gadget.network" \
     "$pkgdir/usr/lib/systemd/network/20-usb-gadget.network"
   install -Dm644 "$startdir/10-omamobile-usb.conf" \

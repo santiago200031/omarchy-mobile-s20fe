@@ -2,7 +2,7 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`) Port & Integration Plan
 
-**Status: M0–M2 & M4.1 verified on hardware; `omamobile-device-r8q` 0.1.4 installed, 0.1.5 built (2026-11-12). Desktop runs stable on `simpledrm` + `llvmpipe` with UFS, suspend-block, watchdog, `cpuidle`, and `cpufreq` (`performance`) mitigations active. Wi-Fi associates; GPU/sound/modem still staged.**
+**Status: M0–M2, M4.1 & M5.1 (Wi-Fi) verified on hardware; `omamobile-device-r8q` 0.1.4 installed, 0.1.5 built (2026-11-12). Desktop runs stable on `simpledrm` + `llvmpipe` with UFS, suspend-block, watchdog, `cpuidle`, and `cpufreq` (`performance`) mitigations active. Wi-Fi associates; GPU/BT/audio/battery still staged.**
 - **Kernel branch:** `omamobile-r8q` (worktree `~/omamobile-kernel/wt-r8q`, output `~/omamobile-kernel/out-r8q`)
 - **Reference upstream:** `derekross/linux-omarchy-mobile` (`v7.3-rc6`), `sm8250-mainline` / postmarketOS `samsung-r8q` (`qcom/sm8250-samsung-r8q.dts`)
 
@@ -10,7 +10,7 @@
 
 ## 0. Current Status & Open Work (2026-11-12)
 
-The phone boots mainline Linux `7.3.0-rc6` from the `recovery` partition (`sda24`) while leaving LineageOS untouched on `boot` (`sda23`) + `super`. USB NCM networking (`172.16.42.1`), SSH, USB serial console (`ttyGS0`), UFS storage, touchscreen (`stmfts`), and Hyprland (`simpledrm` + `llvmpipe`) are live.
+The phone boots mainline Linux `7.3.0-rc6` from the `recovery` partition (`sda24`) while leaving LineageOS untouched on `boot` (`sda23`) + `super`. USB NCM networking (`172.16.42.1`), SSH, USB serial console (`ttyGS0`), UFS storage, touchscreen (`stmfts`), Wi-Fi (`wlp1s0` associated), and Hyprland (`simpledrm` + `llvmpipe`) are live. Bluetooth/audio/battery bring-up is staged, not live.
 
 ### Fixed in Tree / Active on Hardware
 
@@ -153,7 +153,7 @@ The phone boots mainline Linux `7.3.0-rc6` from the `recovery` partition (`sda24
 - [x] **M8.1 — RAM Compression (`zram`) & MGLRU Tuning (2026-11-11):** `CONFIG_ZRAM=y` + 4 GiB `/swapfile` + `min_ttl_ms=1000` + `swappiness=150`, `page-cluster=0`.
 - [ ] **M8.2 — 120 Hz Fluid Motion & Adreno 650 DVFS Profile [STAGED, BLOCKED ON M3.3]:** `80-r8q-gpu.rules` (150–587 MHz `simple_ondemand`) + `mobileSpring`/`mobileQuick` curves staged in the package, inactive on `simpledrm` + `llvmpipe` (animations/blur disabled in `0.1.4`). *Pass criteria:* re-enable 120 Hz Hyprland animations + GPU devfreq once M3.3 brings up `renderD128` and native `1080x2400@120` DSI.
 - [x] **M8.3 — Baseline CPU Inference Benchmark (2026-11-11):** LFM3-1.7B `Q4_K_M` at ~15.7 tok/s on Kryo 585 CPU cores (`tools/r8q-ai`).
-- [ ] **M8.4 — Rust-Only Edge Subagent Daemon:** `omamobile-ai-server` keeps **only the Rust implementation** (`rust/ai-server`, LFM3-1.7B default in `/v1/models`); the Python prototype is removed. Container has no `cargo`, so the aarch64 Rust binary must be built where a Rust toolchain exists (phone-native or cross) and the PKGBUILD must not silently fall back to Python — fail loudly instead.
+- [ ] **M8.4 — Rust-Only Edge Subagent Daemon:** `omamobile-ai-server` keeps **only the Rust implementation** (`rust/ai-server`, LFM3-1.7B default in `/v1/models`); the Python prototype is removed. The container image installs `rust` (`tools/lib/alarm-setup`), so the aarch64 binary builds natively in-container; the PKGBUILD fails loudly without `cargo` and the phone never compiles.
 - [ ] **M8.5 — Adreno 650 Vulkan (`llama.cpp` `GGML_VULKAN`) Acceleration:** after M3.3 (`renderD128` + Turnip) is live, benchmark LFM3-1.7B prompt-processing speedup on Adreno 650 Vulkan.
 
 Model policy: **LFM3-1.7B-`Q4_K_M` is the only default model** (`/v1/models` lists just it). No GGUFs are preinstalled (`/home/alarm/models/` empty 2026-11-12); extras arrive via `tools/r8q-ai push-model` and then appear in the list.
@@ -179,7 +179,7 @@ Model policy: **LFM3-1.7B-`Q4_K_M` is the only default model** (`/v1/models` lis
 ### 5.1 Maximal RAM & Compression Architecture (6 GB LPDDR5)
 
 1. **`zram-size = ram / 2` + UFS `/swapfile` overflow:** `zram` capped at `ram / 2` (never 100%: over-commit stalls starve DMA for `ath11k_pci`/`msm`). 4 GiB `/swapfile` at lower priority behind `zram0`.
-2. **Compression strategy (`zstd`):** `zstd` ~2.8–3.3:1 on anonymous pages, negligible latency on A77 cores. Optional later: `CONFIG_ZRAM_MULTI_COMP=y` (`lzw` hot + `zstd` recompress) and writeback for ice-cold LLM pages.
+2. **Compression strategy (`zstd`):** `zstd` ~2.8–3.3:1 on anonymous pages, negligible latency on A77 cores. Optional later: `CONFIG_ZRAM_MULTI_COMP=y` (`lz4` hot + `zstd` recompress) and writeback for ice-cold LLM pages.
 3. **MGLRU + VM sysctls (`90-r8q-vm.conf` / `80-r8q-mglru.conf`):** `min_ttl_ms=1000` shields Wayland surfaces + touch handlers; `swappiness=150`, `page-cluster=0`.
 
 ### 5.2 Display & CPU Scheduling Pipeline (Current vs. Post-M3.3)
@@ -198,7 +198,7 @@ Model policy: **LFM3-1.7B-`Q4_K_M` is the only default model** (`/v1/models` lis
   * ALSA UCM2 (`ucm2/Samsung/r8q/HiFi.conf`, `kona-mtp-snd-card.conf`)
 * **Firmware extraction (`tools/r8q-extract-firmware`):** never commit Qualcomm/Samsung blobs (`a650_zap.mbn`, `slpi/adsp/cdsp.mbn`, `qca6390`); extract locally to `~/.cache/omamobile/firmware/r8q/`; protect `a650_zap.mbn` via `NoUpgrade` in `pacman.conf`.
 * **Device descriptor (`device/r8q/device.conf`):** keep `BOOT_METHOD=ram-only`, `UFS_RW=""` so Pixel-oriented scripts and test suites (`tests/boot-method`, `tests/device-overlays`) enforce Samsung non-A/B safety.
-* **AI server (Rust-only):** `rust/ai-server` is the single implementation; the Python prototype is deleted. The container image has no `cargo`, so `0.1.6` must resolve the aarch64 Rust build (phone-native or cross) before the fallback can be removed.
+* **AI server (Rust-only):** `rust/ai-server` is the single implementation; the Python prototype is deleted and the PKGBUILD fails loudly without `cargo`. The container image installs `rust` via `tools/lib/alarm-setup` (part of the image hash), so the aarch64 binary builds natively in-container.
 
 ---
 
@@ -213,8 +213,8 @@ tests/packages
 
 ## 8. Recommended Next 5 Steps (Strict One-Change-Per-Boot Order)
 
-1. **Install `omamobile-device-r8q` 0.1.5 + 30-min soak:** install the built package, confirm all three policies stay `performance` after reboot, then idle-soak 30 min with zero `ramoops` reboots.
-2. **Resolve the Rust build, delete the Python server:** get an aarch64 `ai-server` binary (phone-native `cargo` if present, else laptop cross via `rust-lld`), wire it into the PKGBUILD without a silent Python fallback, ship `0.1.6`.
+1. **Install the already-built `omamobile-device-r8q` 0.1.5 + 30-min soak (isolates the RPMh fix):** install, confirm all three policies stay `performance` after reboot, then idle-soak 30 min with zero `ramoops` reboots. (`cpufreq-no-dvfs` only — no other change this boot.)
+2. **Rebuild for the Rust-only AI server, then verify `/v1/models`:** rebuild the container image with `rust` (`tools/lib/alarm-setup`) and repackage so `omamobile-ai-server` is the aarch64 Rust ELF (verified: LFM3-1.7B only, no Vision/Qwen strings); install (0.1.5 rebuild or 0.1.6) and check `/v1/models` lists only LFM3-1.7B.
 3. **Adreno 650 (`M3.3`):** stage v0x112 `a650_sqe.fw`, `modprobe msm`, verify `renderD128` + `vulkaninfo` (serial console armed).
 4. **Peripherals (`M5.2/M5.3/M6.1`), one per boot:** `bluetoothctl` scan → `kona-mtp-snd-card` playback → `MAX77705` power-supply telemetry.
 5. **Lock touch + native 120 Hz DSI (`M4.2/M3.3`):** fix `LockGlance.qml` wake/touch, transition off `simpledrm`, flash `consoleblank=0` recovery image once (human-approved).

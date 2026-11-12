@@ -54,15 +54,35 @@ package() {
     "$pkgdir/usr/lib/udev/rules.d/80-r8q-gpu.rules"
   install -Dm644 "$startdir/hyprland-r8q.conf" \
     "$pkgdir/usr/share/omamobile/hypr/r8q.conf"
+  # Suspend never wakes on this port: logind refuses it, the seat never idles
+  # into it, and the targets are masked for anything that calls them directly
+  # (README-suspend.md). The kernel command line masks them too, so even a
+  # broken userspace cannot reach the freezer.
+  install -Dm644 "$startdir/10-r8q-no-suspend.conf" \
+    "$pkgdir/usr/lib/systemd/sleep.conf.d/10-r8q-no-suspend.conf"
+  install -Dm644 "$startdir/10-r8q-no-idle.conf" \
+    "$pkgdir/usr/lib/systemd/logind.conf.d/10-r8q-no-idle.conf"
+  install -Dm644 "$startdir/README-suspend.md" \
+    "$pkgdir/usr/share/doc/$pkgname/README-suspend.md"
+  # A wedged userspace reboots the phone instead of needing a hard reset.
+  install -Dm644 "$startdir/10-r8q-watchdog.conf" \
+    "$pkgdir/usr/lib/systemd/system.conf.d/10-r8q-watchdog.conf"
+  install -d "$pkgdir/etc/systemd/system"
+  for target in sleep suspend hibernate hybrid-sleep suspend-then-hibernate; do
+    ln -s /dev/null "$pkgdir/etc/systemd/system/$target.target"
+  done
   install -Dm644 "$startdir/ucm2/conf.d/kona-mtp-snd-card/kona-mtp-snd-card.conf" \
     "$pkgdir/usr/share/alsa/ucm2/conf.d/kona-mtp-snd-card/kona-mtp-snd-card.conf"
   install -Dm644 "$startdir/ucm2/Samsung/r8q/HiFi.conf" \
     "$pkgdir/usr/share/alsa/ucm2/Samsung/r8q/HiFi.conf"
   install -Dm644 "$startdir/LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-  # Enable sshd and networkd. Nothing else starts.
+  # Enable sshd, networkd and a rescue shell on the USB serial port (ttyGS0).
+  # The serial getty is the way in when the USB network stack or the session is
+  # wedged; the kernel console is on the same port (console=ttyGS0).
   local wants="$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
   install -d "$wants"
   ln -s ../systemd-networkd.service "$wants/systemd-networkd.service"
   ln -s ../sshd.service "$wants/sshd.service"
+  ln -s ../serial-getty@.service "$wants/serial-getty@ttyGS0.service"
 }

@@ -1,0 +1,102 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-rescue: the first command on a freshly booted S20 FE, run before the
+# session can freeze the phone.
+#
+# This port has two ways to lose the phone within minutes of boot: the
+# graphical session can wedge userspace (sshd answers TCP but never sends its
+# banner), and a suspend freezes the kernel with no wake source. This script
+# removes both triggers in one shot:
+#
+#   1. stop the graphical session (sddm), so no compositor, idle daemon or
+#      renderer can wedge the box while we work;
+#   2. refuse suspend at the logind gate, the seat, and the masked targets;
+#   3. enable a rescue shell on the USB serial port (ttyGS0), which works when
+#      the network stack or the session does not;
+#   4. dump the state and the kernel ring buffer to logs/ for analysis.
+#
+#   tools/r8q-rescue [user@host]
+#
+# It only changes userspace config (all of it is what the device package
+# ships); nothing is written to a partition.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+REMOTE="${1:-root@172.16.42.1}"
+SSH=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+     -o ConnectTimeout=6 -o ServerAliveInterval=5 -q)
+
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+
+say "Waiting for $REMOTE ..."
+for _ in $(seq 1 40); do
+  "${SSH[@]}" "$REMOTE" true >/dev/null 2>&1 && break
+  sleep 3
+done
+"${SSH[@]}" "$REMOTE" true >/dev/null 2>&1 || die "$REMOTE did not answer"
+
+say "Stopping the graphical session (sddm) before it can wedge userspace"
+"${SSH[@]}" "$REMOTE" 'systemctl stop sddm 2>/dev/null || true' || true
+
+say "Disarming suspend at every layer"
+"${SSH[@]}" "$REMOTE" 'bash -s' <<'REMOTE_EOF'
+set -u
+install -d /etc/systemd/sleep.conf.d
+cat > /etc/systemd/sleep.conf.d/10-r8q-no-suspend.conf <<'CONF'
+# r8q: s2idle never wakes on this port; refuse it (README-suspend.md).
+[Sleep]
+AllowSuspend=no
+AllowHibernation=no
+AllowSuspendThenHibernate=no
+AllowHybridSleep=no
+CONF
+install -d /etc/systemd/logind.conf.d
+cat > /etc/systemd/logind.conf.d/10-r8q-no-idle.conf <<'CONF'
+# r8q: no seat idle action; the power key belongs to the shell.
+[Login]
+HandlePowerKey=ignore
+HandleSuspendKey=ignore
+HandleHibernateKey=ignore
+HandleLidSwitch=ignore
+IdleAction=ignore
+CONF
+systemctl mask --quiet sleep.target suspend.target hibernate.target \
+  hybrid-sleep.target suspend-then-hibernate.target 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
+systemctl restart systemd-logind 2>/dev/null || true
+# The screen-off sleep watcher is off by default; keep it off.
+mkdir -p /etc/systemd/user
+ln -sfn /dev/null /etc/systemd/user/omamobile-sleepd.service
+# Rescue shell on the USB serial port (the kernel console shares it).
+systemctl enable --quiet serial-getty@ttyGS0.service 2>/dev/null || true
+systemctl start --quiet serial-getty@ttyGS0.service 2>/dev/null || true
+REMOTE_EOF
+
+dir="$ROOT/logs/r8q-rescue-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$dir"
+say "Collecting state into $dir"
+"${SSH[@]}" "$REMOTE" 'bash -s' > "$dir/state.txt" 2>&1 <<'REMOTE_EOF' || true
+echo "== uname =="; uname -a
+echo "== uptime =="; cat /proc/uptime
+echo "== cmdline =="; cat /proc/cmdline
+echo "== input devices =="; grep -H . /sys/class/input/input*/name 2>/dev/null
+echo "== power key =="; ls -l /sys/class/input/input*/name 2>/dev/null; grep -i pwrkey /proc/bus/input/devices 2>/dev/null
+echo "== wakeup sources =="; cat /sys/kernel/debug/wakeup_sources 2>/dev/null | head -20
+echo "== sleep state =="; cat /sys/power/state; cat /sys/power/mem_sleep
+echo "== failed units =="; systemctl --failed --no-legend
+echo "== activating =="; systemctl list-units --state=activating --no-legend | head -10
+echo "== queued jobs =="; systemctl list-jobs --no-legend | head -10
+echo "== sessions =="; loginctl list-sessions --no-legend 2>/dev/null
+echo "== D-state =="; ps -eo pid,stat,comm | awk '$2 ~ /D/'
+echo "== hand-installed units =="; ls /etc/systemd/system/*.service /etc/systemd/system/*.target 2>/dev/null | head -20
+echo "== local bins =="; ls /usr/local/bin 2>/dev/null | head -20
+echo "== user units =="; systemctl --user -M alarm@ list-units --type=service --no-legend 2>/dev/null | head -20
+echo "== graphical =="; systemctl is-active sddm graphical.target 2>&1
+echo "== drm =="; ls -l /dev/dri 2>/dev/null; cat /sys/class/drm/card*/status 2>/dev/null
+echo "== pstore =="; ls -l /sys/fs/pstore/ 2>/dev/null
+REMOTE_EOF
+"${SSH[@]}" "$REMOTE" 'dmesg' > "$dir/dmesg.txt" 2>/dev/null || true
+"${SSH[@]}" "$REMOTE" 'journalctl -b --no-pager -p warning' > "$dir/journal-warn.txt" 2>/dev/null || true
+say "state: $dir/state.txt, dmesg: $dir/dmesg.txt"
+grep -E '^(== uname|== uptime|== graphical)' -A1 "$dir/state.txt" | head -8 || true

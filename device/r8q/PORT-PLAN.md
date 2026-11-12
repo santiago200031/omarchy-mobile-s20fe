@@ -2,9 +2,49 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`) Port & Integration Plan
 
-**Status: pre-M0 (captured baseline facts, guarded descriptor ready).**
+**Status: M0-M4 bring-up on hardware; the desktop starts but the session still resets the phone (2026-11-12).**
 - **Kernel branch (planned):** `omamobile-r8q` (worktree `~/omamobile-kernel/wt-r8q`, output `~/omamobile-kernel/out-r8q`)
 - **Reference upstream:** `sm8250-mainline` / postmarketOS `samsung-r8q` (`qcom/sm8250-samsung-r8q.dts`)
+
+## 0. Current status and open work (2026-11-12)
+
+The phone boots Omarchy from the `recovery` partition, the USB link and SSH work, the
+touchscreen works, and Hyprland comes up on simpledrm. It is not yet usable day to
+day. This is what was found on hardware today and what is fixed or still open:
+
+### Fixed in the tree (needs a flash to reach the phone)
+
+| Problem | Cause | Fix |
+| --- | --- | --- |
+| Power button does nothing; a suspended phone cannot be woken | `CONFIG_POWER_RESET_QCOM_PON=m` — the driver that creates the PMIC's pwrkey/resin children was a module, and no modules were installed for the running kernel, so no power-key input device and no wake source existed | `CONFIG_POWER_RESET_QCOM_PON=y` (`device/r8q/kernel.config`); the power key is the only wake source that matters for a suspend test |
+| The phone wedges minutes after boot (sshd answers TCP, never sends its banner) | s2idle entry freezes userspace and never comes back; `/sys/power/state` was still `freeze mem disk` | `# CONFIG_SUSPEND is not set` in the kernel, plus the logind gate, masked targets and `systemd.mask=` on the command line (`packages/omamobile-device-r8q`, `tools/r8q-rescue`, `tools/r8q-stabilize`) |
+| A hang needed a human with the power button | no watchdog was built (`CONFIG_QCOM_WDT=m`, `CONFIG_SOFT_WATCHDOG` unset) | `CONFIG_QCOM_WDT=y`, `CONFIG_SOFT_WATCHDOG=y` and systemd `RuntimeWatchdogSec=120s`: a wedged phone reboots itself |
+| Boot never finished (`systemd` "starting", jobs queued) | `omamobile-bluetooth.service`, hand-installed during bring-up, hangs in `btmgmt config` and, being `WantedBy=multi-user.target`, blocks the target forever | unit disabled on the phone (it is not in any package yet); a fixed version needs a timeout, or Bluetooth support, before it ships |
+| `systemd-zram-setup@zram0` waited forever | `CONFIG_ZRAM=m`, no modules installed | `CONFIG_ZRAM=y`; the phone also has a 4 GiB `/swapfile` |
+| No way in when the network or the session wedges | no console on the USB serial port | `console=ttyGS0` on the command line and `serial-getty@ttyGS0` enabled by the device package |
+
+### Open
+
+1. **Starting the graphical session resets the phone.** On a boot where the boot had
+   completed, `systemctl start sddm` ended in an unclean reset within seconds: the
+   journal's last line is seatd's "Opened client 1 on seat0" (it hands
+   `/dev/dri/card0` to Hyprland), pstore holds no panic, so it is a hard hang, not a
+   panic. The serial console (`console=ttyGS0`) is the instrument for this; it is in
+   the image now. Candidate causes: a simpledrm dumb-buffer/atomic-commit hang, a VT
+   switch deadlock between sddm and fbcon, or a hang in aquamarine's DRM setup.
+2. **sddm restarts the session in a tight loop** (`Relogin=true` and the session
+   exits within seconds), which spawns `gnome-keyring-daemon` and `uwsm` processes
+   many times per second and ends in an RCU stall (boot -3: `rcu_preempt detected
+   stalls`, CPU 6). Until the session is stable, `Relogin=false` is the safe setting.
+3. **No GPU.** The display is simpledrm on the bootloader's live DSI scanout; upstream
+   has no r8q mdss/DSI/panel nodes and no driver for this panel (only the Pixel 7
+   `s6e3fc3-p10` variant exists). Hyprland therefore renders with llvmpipe, which is
+   the performance ceiling. `sm8250.dtsi`'s `adreno_smmu` also fails to probe
+   (`-110`: its `GPU_CX_GDSC` never comes up) because the GPU is not usable without
+   the display path; the failure is harmless today.
+4. **The UFS WriteBooster queries fail every few seconds**
+   (`ufshcd_query_attr ... idn 31 ... -22`). No I/O errors follow; it is log noise
+   until the UFS driver learns this device does not support the attribute.
 
 > [!IMPORTANT]
 > Every step below follows [AGENTS.md](../../AGENTS.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md).

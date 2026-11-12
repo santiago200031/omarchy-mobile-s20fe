@@ -123,22 +123,46 @@ chown -R alarm:alarm /home/alarm/.config
 su - alarm -c 'omamobile-setup-user' || true
 EOF
 
-say "6. Configuring hardware buttons and networking protection..."
+say "6. Configuring hardware buttons, sleep gate, and networking protection..."
 ssh "$REMOTE" 'bash -s' << 'EOF'
-mkdir -p /etc/NetworkManager/conf.d /etc/modules-load.d /etc/systemd/logind.conf.d
+set -eu
+mkdir -p /etc/NetworkManager/conf.d /etc/systemd/logind.conf.d /etc/systemd/sleep.conf.d
 
 cat << 'NMCONF' > /etc/NetworkManager/conf.d/10-omamobile-usb.conf
 [keyfile]
 unmanaged-devices=interface-name:usb0
 NMCONF
 
+# The power key is a built-in driver on this port (CONFIG_POWER_RESET_QCOM_PON=y);
+# the module line stays for kernels built before that change.
+mkdir -p /etc/modules-load.d
 echo "qcom-pon" > /etc/modules-load.d/omamobile-buttons.conf
 modprobe qcom-pon 2>/dev/null || true
 
-cat << 'LOGINDCONF' > /etc/systemd/logind.conf.d/10-omamobile-power-key.conf
+# Suspend never wakes on this port: refuse it at the logind gate, keep the
+# seat out of idle actions, and mask the targets anything else might call.
+cat << 'SLEEPCONF' > /etc/systemd/sleep.conf.d/10-r8q-no-suspend.conf
+[Sleep]
+AllowSuspend=no
+AllowHibernation=no
+AllowSuspendThenHibernate=no
+AllowHybridSleep=no
+SLEEPCONF
+
+cat << 'LOGINDCONF' > /etc/systemd/logind.conf.d/10-r8q-no-idle.conf
 [Login]
 HandlePowerKey=ignore
+HandleSuspendKey=ignore
+HandleHibernateKey=ignore
+HandleLidSwitch=ignore
+IdleAction=ignore
 LOGINDCONF
+
+systemctl mask --quiet sleep.target suspend.target hibernate.target \
+  hybrid-sleep.target suspend-then-hibernate.target 2>/dev/null || true
+
+# Rescue shell on the USB serial port (the kernel console is on the same port).
+systemctl enable --quiet serial-getty@ttyGS0.service 2>/dev/null || true
 EOF
 
 say "7. Configuring SDDM autologin..."

@@ -1,0 +1,72 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-flash-recovery: write a packed header-v2 Omarchy image to the S20 FE's
+# recovery partition (sda24) over the USB SSH link, verify it, and hand the
+# partition back to the storage guard.
+#
+# The phone has no adb and no fastboot in Linux, so the boot image can only be
+# replaced by writing the partition the bootloader boots (recovery, sda24; the
+# bootloader sets androidboot.boot_recovery=1). The storage guard marks every
+# partition read-only at boot; this writes exactly one of them, on purpose, and
+# sets it back to read-only afterwards. boot (sda23, LineageOS) is never
+# touched, and the image is staged and checksummed before the write.
+#
+#   tools/r8q-flash-recovery [IMAGE]
+#
+# IMAGE defaults to $KERNEL_OUT/recovery-omamobile.img. The write is the
+# human's call (AGENTS.md section 1): run it only after a go.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
+IMG="${1:-$KERNEL_OUT/recovery-omamobile.img}"
+REMOTE="${REMOTE:-root@172.16.42.1}"
+PART=/dev/sda24
+
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+
+SSH=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+     -o ConnectTimeout=8 -o ServerAliveInterval=5 -q)
+
+[[ -f $IMG ]] || die "image not found: $IMG (run tools/r8q-boot pack)"
+sha=$(sha256sum "$IMG" | awk '{print $1}')
+bytes=$(stat -c%s "$IMG")
+say "image: $IMG"
+say "  $bytes bytes, sha256 $sha"
+
+say "Waiting for $REMOTE ..."
+for _ in $(seq 1 30); do
+  "${SSH[@]}" "$REMOTE" true >/dev/null 2>&1 && break
+  sleep 4
+done
+"${SSH[@]}" "$REMOTE" true >/dev/null 2>&1 || die "$REMOTE did not answer"
+
+say "Checking the target partition on the phone"
+read -r partsize curro cursha partname < <("${SSH[@]}" "$REMOTE" "
+  echo \$(blockdev --getsize64 $PART) \$(blockdev --getro $PART) \$(sha256sum $PART | cut -c1-64) \$(cat /sys/class/block/${PART##*/}/uevent 2>/dev/null | sed -n 's/^PARTNAME=//p')")
+[[ -n ${partsize:-} ]] || die "cannot read $PART on the phone"
+say "  $PART: $partsize bytes, ro=$curro, partname=${partname:-?}"
+[[ ${partname:-} == recovery ]] || die "$PART is not the recovery partition (PARTNAME=${partname:-none})"
+((partsize >= bytes)) || die "$PART ($partsize bytes) is smaller than the image ($bytes bytes)"
+[[ $curro == 1 ]] || say "  note: $PART was already writable"
+
+say "Staging the image on the phone (/tmp, RAM) and verifying it"
+"${SSH[@]}" "$REMOTE" "cat > /tmp/omamobile-recovery.img" < "$IMG"
+read -r pushed < <("${SSH[@]}" "$REMOTE" "sha256sum /tmp/omamobile-recovery.img | cut -c1-64")
+[[ $pushed == "$sha" ]] || die "staged image sha mismatch ($pushed != $sha)"
+
+say "Writing $PART (the phone must stay awake; this is ~80 MB)"
+"${SSH[@]}" "$REMOTE" "set -e
+  blockdev --setrw $PART
+  dd if=/tmp/omamobile-recovery.img of=$PART bs=4M conv=fsync 2>/dev/null
+  sync
+  blockdev --setro $PART
+  rm -f /tmp/omamobile-recovery.img
+  blockdev --getro $PART"
+
+say "Reading the partition back and verifying"
+read -r back < <("${SSH[@]}" "$REMOTE" "sha256sum $PART | cut -c1-64")
+[[ $back == "$sha" ]] || die "readback sha mismatch ($back != $sha)"
+say "Recovery partition now holds $sha"
+say "Reboot into it with: ssh $REMOTE reboot"

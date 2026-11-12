@@ -62,13 +62,22 @@ systemctl reload NetworkManager 2>/dev/null || systemctl restart NetworkManager 
 EOF
 ok "NetworkManager configured: usb0 is unmanaged (SSH link is protected)."
 
-say "3. Configuring hardware button modules and logind (disabling broken s2idle sleep)..."
+say "3. Disabling broken s2idle sleep (logind gate, seat idle, masked targets)..."
 ssh "${SSH_OPTS[@]}" "$REMOTE" 'bash -s' << 'EOF'
-mkdir -p /etc/modules-load.d /etc/systemd/logind.conf.d
-echo "qcom-pon" > /etc/modules-load.d/omamobile-buttons.conf
-modprobe qcom-pon 2>/dev/null || true
+set -eu
+# The one gate every suspend caller goes through. On this port s2idle never
+# wakes: the phone freezes until a PMIC hard reset.
+install -d /etc/systemd/sleep.conf.d
+cat > /etc/systemd/sleep.conf.d/10-r8q-no-suspend.conf << 'SLEEPCONF'
+[Sleep]
+AllowSuspend=no
+AllowHibernation=no
+AllowSuspendThenHibernate=no
+AllowHybridSleep=no
+SLEEPCONF
 
-cat << 'LOGINDCONF' > /etc/systemd/logind.conf.d/10-omamobile-power-key.conf
+install -d /etc/systemd/logind.conf.d
+cat > /etc/systemd/logind.conf.d/10-r8q-no-idle.conf << 'LOGINDCONF'
 [Login]
 HandlePowerKey=ignore
 HandleSuspendKey=ignore
@@ -77,18 +86,25 @@ HandleLidSwitch=ignore
 IdleAction=ignore
 LOGINDCONF
 
-# Mask systemd sleep/suspend to prevent device freeze
-systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null || true
+# Anything that calls the targets directly, plus the kernel command line's
+# systemd.mask=, are the other two layers.
+systemctl mask --quiet sleep.target suspend.target hibernate.target \
+  hybrid-sleep.target suspend-then-hibernate.target 2>/dev/null || true
+systemctl daemon-reload
 systemctl restart systemd-logind 2>/dev/null || true
 
-# Disable mobile sleep daemon which freezes userspace on SM8250
+# Omarchy Mobile's own screen-off sleep watcher: off by default, keep it off.
 mkdir -p /etc/systemd/user
 ln -sfn /dev/null /etc/systemd/user/omamobile-sleepd.service
-systemctl --user -M alarm@ mask omamobile-sleepd.service 2>/dev/null || true
-systemctl --user -M alarm@ stop omamobile-sleepd.service 2>/dev/null || true
+systemctl --user -M alarm@ mask --quiet omamobile-sleepd.service 2>/dev/null || true
+systemctl --user -M alarm@ stop --quiet omamobile-sleepd.service 2>/dev/null || true
 rm -f /home/alarm/.local/state/omarchy/toggles/omamobile-sleep
+
+# A rescue shell on the USB serial port, for when the network stack or the
+# session wedges (the kernel console is on the same port).
+systemctl enable --quiet serial-getty@ttyGS0.service 2>/dev/null || true
 EOF
-ok "Hardware keys enabled and broken s2idle sleep targets completely masked."
+ok "Suspend refused at every layer; serial rescue shell enabled."
 
 say "4. Verifying CPU and memory state..."
 ssh "${SSH_OPTS[@]}" "$REMOTE" 'bash -s' << 'EOF'

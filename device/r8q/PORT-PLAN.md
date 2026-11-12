@@ -2,7 +2,7 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`) Port & Integration Plan
 
-**Status: M0–M2, M4.1 & M5.1 (Wi-Fi) verified on hardware; `omamobile-device-r8q` 0.1.4 installed, 0.1.5 built (2026-11-12). Desktop runs stable on `simpledrm` + `llvmpipe` with UFS, suspend-block, watchdog, `cpuidle`, and `cpufreq` (`performance`) mitigations active. Wi-Fi associates; GPU/BT/audio/battery still staged.**
+**Status: M0–M2, M4.1 & M5.1 (Wi-Fi) verified on hardware; `omamobile-device-r8q` 0.1.4 installed, 0.1.6 queued (0.1.5 built with the Rust ELF but never installed — superseded for a clean `pacman -U` upgrade path). Desktop runs stable on `simpledrm` + `llvmpipe` with UFS, suspend-block, watchdog, `cpuidle`, and `cpufreq` (`performance`) mitigations active. Wi-Fi associates; GPU/BT/audio/battery still staged.**
 - **Kernel branch:** `omamobile-r8q` (worktree `~/omamobile-kernel/wt-r8q`, output `~/omamobile-kernel/out-r8q`)
 - **Reference upstream:** `derekross/linux-omarchy-mobile` (`v7.3-rc6`), `sm8250-mainline` / postmarketOS `samsung-r8q` (`qcom/sm8250-samsung-r8q.dts`)
 
@@ -121,7 +121,7 @@ The phone boots mainline Linux `7.3.0-rc6` from the `recovery` partition (`sda24
 - [x] **M2.1 — `tools/r8q-boot` & Header-v2 AVB Image (2026-11-11):** uncompressed `Image` + storage guard + `recovery_dtbo` + DTB with RSA4096 AVB footer (`recovery-omamobile.img`, `sda24`).
 - [x] **M2.2 — Bare-Metal First Boot & USB Networking (2026-11-11):** UFS LUNs, DWC3 `cdc_ncm` gadget (`172.16.42.1`), `ttyGS0` serial console, `sshd`. ([SUPERSEDED BRING-UP SCAFFOLD] Early bring-up used an Alpine/dropbear prototype before the persistent Arch rootfs in M7.)
 - [x] **M2.3 — Stability Mitigations (`omamobile-device-r8q` 0.1.4, 2026-11-12):** container-built, installed on phone. UFS `auto_hibern8=0`, 30 s watchdog, sleep targets masked, deep `cpuidle` disabled, panel timer, serial getty, `hyprland-r8q.conf` performance baseline.
-- [ ] **M2.4 — Persist `cpufreq` `performance` Governor (`omamobile-device-r8q` 0.1.5):** `cpufreq-no-dvfs` as second `ExecStart` in the already-enabled `omamobile-r8q-cpuidle.service`. Built 2026-11-12; install + 30-min soak next. Root-causes the `ramoops` RPMh-timeout reboots.
+- [ ] **M2.4 — Persist `cpufreq` `performance` Governor (`omamobile-device-r8q` 0.1.6):** `cpufreq-no-dvfs` as second `ExecStart` in the already-enabled `omamobile-r8q-cpuidle.service`. Rust-only LFM3-1.7B AI server included (aarch64 ELF verified). Install + 30-min soak next. Root-causes the `ramoops` RPMh-timeout reboots.
 
 ### M3: Display & Adreno 650 GPU Acceleration
 - [x] **M3.1 — `simpledrm` Framebuffer Baseline (2026-11-11):** bootloader-initialized DSI scanout claimed as continuous splash on `card0` / `/dev/fb0` (1080×2400 `a8r8g8b8`); stable Hyprland desktop on `llvmpipe`. No native `msm_drm`/DSI driver — that is M3.3.
@@ -211,10 +211,9 @@ tests/packages
 
 ---
 
-## 8. Recommended Next 5 Steps (Strict One-Change-Per-Boot Order)
+## 8. Recommended Next 4 Steps (Strict One-Change-Per-Boot Order)
 
-1. **Install the already-built `omamobile-device-r8q` 0.1.5 + 30-min soak (isolates the RPMh fix):** install, confirm all three policies stay `performance` after reboot, then idle-soak 30 min with zero `ramoops` reboots. (`cpufreq-no-dvfs` only — no other change this boot.)
-2. **Rebuild for the Rust-only AI server, then verify `/v1/models`:** rebuild the container image with `rust` (`tools/lib/alarm-setup`) and repackage so `omamobile-ai-server` is the aarch64 Rust ELF (verified: LFM3-1.7B only, no Vision/Qwen strings); install (0.1.5 rebuild or 0.1.6) and check `/v1/models` lists only LFM3-1.7B.
-3. **Adreno 650 (`M3.3`):** stage v0x112 `a650_sqe.fw`, `modprobe msm`, verify `renderD128` + `vulkaninfo` (serial console armed).
-4. **Peripherals (`M5.2/M5.3/M6.1`), one per boot:** `bluetoothctl` scan → `kona-mtp-snd-card` playback → `MAX77705` power-supply telemetry.
-5. **Lock touch + native 120 Hz DSI (`M4.2/M3.3`):** fix `LockGlance.qml` wake/touch, transition off `simpledrm`, flash `consoleblank=0` recovery image once (human-approved).
+1. **Install `omamobile-device-r8q` 0.1.6 + 30-min soak (isolates the RPMh fix):** install, confirm all three policies stay `performance` after reboot, verify `/v1/models` lists only LFM3-1.7B (Rust ELF), then idle-soak 30 min with zero `ramoops` reboots. (One change this boot — no GPU/peripheral probes until the soak passes.)
+2. **Adreno 650 (`M3.3`):** stage v0x112 `a650_sqe.fw`, `modprobe msm`, verify `renderD128` + `vulkaninfo` (serial console armed).
+3. **Peripherals (`M5.2/M5.3/M6.1`), one per boot:** `bluetoothctl` scan → `kona-mtp-snd-card` playback → `MAX77705` power-supply telemetry.
+4. **Lock touch + native 120 Hz DSI (`M4.2/M3.3`):** fix `LockGlance.qml` wake/touch, transition off `simpledrm`, flash `consoleblank=0` recovery image once (human-approved).

@@ -67,6 +67,9 @@ package() {
   # A wedged userspace reboots the phone instead of needing a hard reset.
   install -Dm644 "$startdir/10-r8q-watchdog.conf" \
     "$pkgdir/usr/lib/systemd/system.conf.d/10-r8q-watchdog.conf"
+  # msm stays unbound until the Adreno firmware/path is ready (see the file).
+  install -Dm644 "$startdir/50-r8q-gpu-blacklist.conf" \
+    "$pkgdir/usr/lib/modprobe.d/50-r8q-gpu-blacklist.conf"
   # The UFS link must not auto-hibernate: a failed hibern8 exit wedges every
   # process that touches the disk (README-suspend.md, "UFS").
   install -Dm755 "$startdir/ufs-no-autohibern8" \

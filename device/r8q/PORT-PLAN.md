@@ -44,10 +44,14 @@ what was found on hardware today and what is fixed or still open:
 2. **The lock screen ignores touch.** The desktop takes touch; the glance view
    (`LockGlance.qml` swipe-up) does not, so `idle.lock=0` is the workaround.
    Fix the lock touch path (or the mapping), then re-enable the lock.
-3. **No GPU.** The display is simpledrm on the bootloader's live DSI scanout; upstream
+3. **No GPU yet: msm deliberately blacklisted.** The display is simpledrm on the
+bootloader's live DSI scanout; upstream
    has no r8q mdss/DSI/panel nodes and no driver for this panel (only the Pixel 7
    `s6e3fc3-p10` variant exists). Hyprland therefore renders with llvmpipe, which is
-   the performance ceiling. `sm8250.dtsi`'s `adreno_smmu` also fails to probe
+   the performance ceiling. The extracted `a650_sqe.fw` is version 93 but this
+kernel needs >= 95, so a loaded msm makes Mesa fail and Hyprland abort at
+startup; the blacklist keeps msm unbound until newer firmware is staged.
+`sm8250.dtsi`'s `adreno_smmu` also fails to probe
    (`-110`: its `GPU_CX_GDSC` never comes up) because the GPU is not usable without
    the display path; the failure is harmless today.
 4. **Device package 0.1.3 is built, not yet installed.** `omamobile-device-r8q`

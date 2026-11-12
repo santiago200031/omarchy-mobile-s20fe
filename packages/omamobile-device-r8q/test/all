@@ -19,6 +19,7 @@ grep -qx 'IdleAction=ignore' 10-r8q-no-idle.conf
 grep -q 'suspend-then-hibernate' PKGBUILD
 grep -q 'serial-getty@ttyGS0' PKGBUILD
 grep -qx 'RuntimeWatchdogSec=30s' 10-r8q-watchdog.conf
+grep -qx 'blacklist msm' 50-r8q-gpu-blacklist.conf
 grep -q 'auto_hibern8' ufs-no-autohibern8
 grep -q 'auto_hibern8' omamobile-r8q-ufs.service
 grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service

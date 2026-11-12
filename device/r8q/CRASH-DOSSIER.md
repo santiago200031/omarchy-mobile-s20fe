@@ -45,6 +45,13 @@ controller), not the root cause. Proposed next experiment (ours, pending
 phone window): offline CPU 7 for one soak; if the ~11-min wall moves, the
 prime core's collapse/wake path is the quarry.
 
+## Firmware facts (own dmesg)
+
+- S-Boot PSCI: SMC Calling Convention v1.1, OSI mode supported, but
+  `failed to set PC mode: -3` — the kernel runs OSI (per-CPU suspend),
+  not platform-coordinated. Any prime-core collapse/wake quirk lives on
+  this path.
+
 ## Asks for the kernel side
 
 1. Why a CPU can go NMI-deaf on this SoC/firmware (GIC/FIQ reachability

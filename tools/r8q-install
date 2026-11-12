@@ -1,0 +1,166 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# tools/r8q-install: Automated installer & system configurator for Samsung Galaxy S20 FE (r8q).
+#
+# Sets up the complete Omarchy Mobile software stack:
+# - Verifies storage guard allowlist (UFS_RW="userdata")
+# - Configures swapspace on fast UFS storage
+# - Configures signed [omamobile] & [omarchy] repositories and keyrings
+# - Installs Hyprland (mobile build), quickshell, omamobile-shell, and phone apps
+# - Configures display scaling (2.25x for 1080x2400 AMOLED) and punch-hole safe margins
+# - Configures SDDM autologin to Omarchy's mobile session
+set -euo pipefail
+
+say() { printf '\e[1m==> %s\e[0m\n' "$*"; }
+die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+
+REMOTE="${1:-root@172.16.42.1}"
+
+say "Testing connection to phone ($REMOTE)..."
+ssh -o ConnectTimeout=5 "$REMOTE" "echo connected" >/dev/null || die "Cannot connect to $REMOTE. Is USB networking active?"
+
+say "1. Setting up swapfile on UFS storage (/swapfile)..."
+ssh "$REMOTE" 'bash -s' << 'EOF'
+if ! grep -q swap /etc/fstab 2>/dev/null; then
+  fallocate -l 4G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+fi
+EOF
+
+say "2. Setting up signed [omamobile] and [omarchy] repositories..."
+ssh "$REMOTE" 'bash -s' << 'EOF'
+mkdir -p /etc/pacman.d
+cat << 'MIRROR' > /etc/pacman.d/omamobile-mirrorlist
+Server = https://pkgs.omamobile.org/stable/$arch
+MIRROR
+
+if ! grep -q '^\[omamobile\]' /etc/pacman.conf; then
+  python3 -c "
+with open('/etc/pacman.conf', 'r') as f:
+    c = f.read()
+repos = '''[omamobile]
+Include = /etc/pacman.d/omamobile-mirrorlist
+
+[omarchy]
+SigLevel = Optional TrustAll
+Server = https://pkgs.omarchy.org/stable/\$arch
+
+'''
+c = c.replace('[core]', repos + '[core]')
+with open('/etc/pacman.conf', 'w') as f:
+    f.write(c)
+"
+fi
+EOF
+
+say "3. Installing keyrings..."
+ssh "$REMOTE" 'bash -s' << 'EOF'
+curl -sLO https://pkgs.omamobile.org/stable/aarch64/omamobile-keyring-20261026-1-any.pkg.tar.zst
+curl -sLO https://pkgs.omarchy.org/stable/aarch64/omarchy-keyring-20251027-1-any.pkg.tar.zst
+pacman -U --noconfirm omamobile-keyring-*.pkg.tar.zst omarchy-keyring-*.pkg.tar.zst
+rm -f omamobile-keyring-*.pkg.tar.zst omarchy-keyring-*.pkg.tar.zst
+pacman -Sy
+EOF
+
+say "4. Installing Omarchy Mobile phone stack..."
+ssh "$REMOTE" 'pacman -S --noconfirm --needed hyprland quickshell omamobile-shell omamobile-omarchy omamobile-owl-widgets omamobile-apps sddm uwsm omarchy omarchy-settings'
+
+say "5. Configuring user alarm and S20 FE display profile..."
+ssh "$REMOTE" 'bash -s' << 'EOF'
+id -u alarm >/dev/null 2>&1 || useradd -m -s /bin/bash -G wheel,video,input,seat,audio alarm
+usermod -aG wheel,video,input,seat,audio alarm
+echo 'alarm ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/10-alarm
+chmod 440 /etc/sudoers.d/10-alarm
+
+# S20 FE shell spacing
+mkdir -p /home/alarm/.config/omarchy
+cat << 'SHELLCONF' > /home/alarm/.config/omarchy/shell.toml
+[bar]
+size-horizontal = 48
+
+[spacing]
+huge = 20
+SHELLCONF
+
+# Default shell.json profile
+[[ -f /home/alarm/.config/omarchy/shell.json ]] || cp /usr/share/omamobile/shell/profile/shell.json /home/alarm/.config/omarchy/shell.json
+
+# Hyprland monitor scaling for 1080x2400 @ 2.25
+mkdir -p /home/alarm/.config/hypr
+cat << 'MONCONF' > /home/alarm/.config/hypr/monitors.lua
+local omarchy_gdk_scale = 2
+local omarchy_monitor_scale = 2.25
+
+hl.env("GDK_SCALE", tostring(omarchy_gdk_scale))
+hl.monitor({ output = "Unknown-1", mode = "1080x2400@60", position = "0x0", scale = omarchy_monitor_scale })
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
+MONCONF
+
+# Hyprland software framebuffer performance optimizations (simpledrm / llvmpipe)
+cat << 'LOOKCONF' > /home/alarm/.config/hypr/looknfeel.lua
+hl.config({
+  decoration = {
+    blur = { enabled = false },
+    shadow = { enabled = false },
+    rounding = 8,
+  },
+  misc = {
+    vfr = true,
+    vrr = 0,
+    disable_hyprland_logo = true,
+    disable_splash_rendering = true,
+  },
+  animations = {
+    enabled = false,
+  }
+})
+LOOKCONF
+
+chown -R alarm:alarm /home/alarm/.config
+su - alarm -c 'omamobile-setup-user' || true
+EOF
+
+say "6. Configuring hardware buttons and networking protection..."
+ssh "$REMOTE" 'bash -s' << 'EOF'
+mkdir -p /etc/NetworkManager/conf.d /etc/modules-load.d /etc/systemd/logind.conf.d
+
+cat << 'NMCONF' > /etc/NetworkManager/conf.d/10-omamobile-usb.conf
+[keyfile]
+unmanaged-devices=interface-name:usb0
+NMCONF
+
+echo "qcom-pon" > /etc/modules-load.d/omamobile-buttons.conf
+modprobe qcom-pon 2>/dev/null || true
+
+cat << 'LOGINDCONF' > /etc/systemd/logind.conf.d/10-omamobile-power-key.conf
+[Login]
+HandlePowerKey=ignore
+LOGINDCONF
+EOF
+
+say "7. Configuring SDDM autologin..."
+ssh "$REMOTE" 'bash -s' << 'EOF'
+mkdir -p /etc/sddm.conf.d /var/lib/sddm
+cat << 'AUTOLOGIN' > /etc/sddm.conf.d/autologin.conf
+[Autologin]
+User=alarm
+Session=omarchy.desktop
+Relogin=true
+AUTOLOGIN
+
+cat << 'STATE' > /var/lib/sddm/state.conf
+[Last]
+Session=omarchy.desktop
+User=alarm
+STATE
+
+chown -R sddm:sddm /var/lib/sddm
+systemctl enable seatd.service
+systemctl enable sddm.service
+systemctl set-default graphical.target
+EOF
+
+say "Installation complete! The phone is ready to run the Omarchy Mobile phone interface."

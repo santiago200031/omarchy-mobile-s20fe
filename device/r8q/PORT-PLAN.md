@@ -104,7 +104,8 @@ The phone boots mainline Linux `7.3.0-rc6` from the `recovery` partition (`sda24
 
 1. **`device/r8q/device.conf` Guard:** `BOOT_METHOD=ram-only` + `UFS_RW=""` so generic Pixel scripts (`tools/install-phone`) refuse to overwrite `boot` or `super`; only guarded `tools/r8q-boot` touches `recovery`.
 2. **Instant Android Fallback:** normal reboot lands on `sda23` (LineageOS); `adb reboot recovery` (or VolUp+Power) boots Omarchy on `sda24`.
-3. **Coexistent Rootfs:** Arch Linux ARM `aarch64` lives on `userdata`; managed via `omamobile-device-r8q` (0.1.4 installed, 0.1.5 built) and `tools/r8q-stabilize`.
+3. **Coexistent Rootfs:** Arch Linux ARM `aarch64` lives on `userdata`; managed via `omamobile-device-r8q` (0.1.4 installed, 0.1.6 queued) and `tools/r8q-stabilize`.
+4. **Scope:** this port boots mainline Linux from the `recovery` slot with LineageOS intact. Mu-Silicium/UEFI/ESP, Odin/Heimdall flashing flows, and `r8q-arch`-style `r8q_*` kernel parameters belong to a different stack and do not apply here; never flash `boot`/`super`/bootloader partitions.
 
 ---
 
@@ -213,7 +214,7 @@ tests/packages
 
 ## 8. Recommended Next 4 Steps (Strict One-Change-Per-Boot Order)
 
-1. **Install `omamobile-device-r8q` 0.1.6 + 30-min soak (isolates the RPMh fix):** install, confirm all three policies stay `performance` after reboot, verify `/v1/models` lists only LFM3-1.7B (Rust ELF), then idle-soak 30 min with zero `ramoops` reboots. (One change this boot — no GPU/peripheral probes until the soak passes.)
+1. **Install `omamobile-device-r8q` 0.1.6 + 30-min soak (isolates the RPMh fix):** needs SSH first — the phone trusts the other laptop's key; this laptop's key (`~/.ssh/omamobile-r8q`, `OMAMOBILE_SSH_KEY=~/.ssh/omamobile-r8q`) must be appended to the phone's `/root/.ssh/authorized_keys` via serial console or the other laptop. Then install, confirm all three policies stay `performance` after reboot, verify `/v1/models` lists only LFM3-1.7B (Rust ELF), then idle-soak 30 min with zero `ramoops` reboots. (One change this boot — no GPU/peripheral probes until the soak passes.)
 2. **Adreno 650 (`M3.3`):** stage v0x112 `a650_sqe.fw`, `modprobe msm`, verify `renderD128` + `vulkaninfo` (serial console armed).
 3. **Peripherals (`M5.2/M5.3/M6.1`), one per boot:** `bluetoothctl` scan → `kona-mtp-snd-card` playback → `MAX77705` power-supply telemetry.
 4. **Lock touch + native 120 Hz DSI (`M4.2/M3.3`):** fix `LockGlance.qml` wake/touch, transition off `simpledrm`, flash `consoleblank=0` recovery image once (human-approved).

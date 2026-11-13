@@ -8,6 +8,7 @@ arch=(aarch64)
 url="https://github.com/derekross/omarchy-mobile"
 license=(MIT)
 depends=(bash systemd)
+backup=(etc/pacman.d/omamobile-mirrorlist)
 
 build() {
   # Same syscall as device/r8q/initramfs/reboot-to.c. No libc.

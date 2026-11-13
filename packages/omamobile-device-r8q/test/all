@@ -6,6 +6,9 @@ cmp reboot-to.c ../../device/r8q/initramfs/reboot-to.c
 cmp reboot ../../device/r8q/reboot
 sh -n reboot
 grep -q "vm.swappiness = 150" 90-r8q-vm.conf
+grep -q "vm.dirty_background_bytes = 16777216" 90-r8q-vm.conf
+grep -q "vm.dirty_bytes = 67108864" 90-r8q-vm.conf
+grep -q "backup=(etc/pacman.d/omamobile-mirrorlist)" PKGBUILD
 grep -q "zram-size = ram / 2" 91-r8q-zram.conf
 grep -q "min_ttl_ms" 80-r8q-mglru.conf
 grep -q "simple_ondemand" 80-r8q-gpu.rules
@@ -44,6 +47,7 @@ grep -q 'r8q-rtc-epoch restore' omamobile-r8q-rtc.service
 grep -q 'r8q-rtc-epoch save' omamobile-r8q-rtc.service
 grep -q 'omamobile-r8q-rtc.service' PKGBUILD
 grep -q '18081' rust/ai-server/src/main.rs
+grep -q 'max77705-charger' rust/ai-server/src/main.rs
 grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service
 grep -qx 'OnUnitActiveSec=4min' omamobile-r8q-panel.timer
 echo ok config

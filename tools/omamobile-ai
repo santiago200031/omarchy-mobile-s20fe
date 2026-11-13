@@ -149,17 +149,33 @@ cmd_install_runtime() {
   ok "Startup services: NONE (strictly on-demand)."
 }
 
+# Pick online Kryo 585 performance cores (Gold 4-6 + Prime 7) so inference
+# stays off Silver A55 cores (0-3) and leaves them for UI, IRQs and watchdogs.
+_perf_cpu_list() {
+  local cpus=() c
+  for c in 4 5 6 7; do
+    if [[ -r /sys/devices/system/cpu/cpu${c}/online ]]; then
+      [[ $(<"/sys/devices/system/cpu/cpu${c}/online") == 1 ]] && cpus+=("$c")
+    fi
+  done
+  if [[ ${#cpus[@]} -eq 0 ]]; then
+    echo ""
+    return 0
+  fi
+  local IFS=,
+  echo "${cpus[*]}"
+}
+
 # Watchdog function to shut down server after idle timeout
 _watchdog() {
   local timeout="$1"
   local idle_count=0
-  local last_active=0
 
   while is_running; do
     sleep 5
-    # Check if any active connections on port 8080
+    # Count only established TCP clients on :8080 (ignore LISTEN/TIME-WAIT)
     local conns
-    conns=$(ss -tn '( sport = :8080 )' 2>/dev/null | grep -v 'State' | wc -l || echo 0)
+    conns=$(ss -Htn state established '( sport = :8080 )' 2>/dev/null | wc -l)
     if [[ "$conns" -gt 0 ]]; then
       idle_count=0
     else
@@ -176,6 +192,7 @@ _watchdog() {
 
 cmd_serve() {
   local timeout="${1:-$DEFAULT_TIMEOUT}"
+  local host="${OMAMOBILE_AI_HOST:-127.0.0.1}"
   local model_name
   model_name=$(get_default_model)
   [[ -n "$model_name" ]] || die "No model selected. Use 'omamobile-ai select <model.gguf>' first."
@@ -189,13 +206,21 @@ cmd_serve() {
 
   which llama-server >/dev/null 2>&1 || die "llama-server not found. Run 'omamobile-ai install-runtime' first."
 
-  say "Starting on-demand llama-server with model $model_name (idle timeout: ${timeout}s)..."
-  # SM8250 Kryo 585: 4 big cores (1 Prime + 3 Gold), threads=4
-  nohup llama-server \
+  local perf_cpus threads=4
+  local run_prefix=()
+  perf_cpus=$(_perf_cpu_list)
+  if [[ -n "$perf_cpus" ]] && command -v taskset >/dev/null 2>&1; then
+    run_prefix=(taskset -c "$perf_cpus")
+    threads=$(awk -F, '{print NF}' <<<"$perf_cpus")
+  fi
+
+  say "Starting on-demand llama-server with model $model_name (cores: ${perf_cpus:-auto}, threads: $threads, idle timeout: ${timeout}s)..."
+  # SM8250 Kryo 585: pin to online A77 performance cores (Gold 4-6 + Prime 7)
+  nohup "${run_prefix[@]}" llama-server \
     -m "$model_path" \
-    --host 0.0.0.0 \
+    --host "$host" \
     --port 8080 \
-    -t 4 \
+    -t "$threads" \
     -c 2048 \
     --timeout "$timeout" > /tmp/llama-server.log 2>&1 &
   local s_pid=$!
@@ -209,7 +234,7 @@ cmd_serve() {
   local attempts=0
   while [[ $attempts -lt 30 ]]; do
     if curl -s http://127.0.0.1:8080/health >/dev/null 2>&1; then
-      ok "llama-server is ready on http://127.0.0.1:8080 (will terminate after ${timeout}s idle)"
+      ok "llama-server is ready on http://${host}:8080 (will terminate after ${timeout}s idle)"
       return 0
     fi
     sleep 1
@@ -232,11 +257,19 @@ cmd_ask() {
   local bin="llama-cli"
   which llama-cli >/dev/null 2>&1 || bin="llama"
 
-  say "Running one-shot CLI inference with $model_name (process terminates immediately when done)..."
-  "$bin" \
+  local perf_cpus threads=4
+  local run_prefix=()
+  perf_cpus=$(_perf_cpu_list)
+  if [[ -n "$perf_cpus" ]] && command -v taskset >/dev/null 2>&1; then
+    run_prefix=(taskset -c "$perf_cpus")
+    threads=$(awk -F, '{print NF}' <<<"$perf_cpus")
+  fi
+
+  say "Running one-shot CLI inference with $model_name (cores: ${perf_cpus:-auto}, threads: $threads)..."
+  "${run_prefix[@]}" "$bin" \
     -m "$model_path" \
     -p "$prompt" \
-    -t 4 \
+    -t "$threads" \
     -c 2048 \
     --temp 0.7 \
     -n 256

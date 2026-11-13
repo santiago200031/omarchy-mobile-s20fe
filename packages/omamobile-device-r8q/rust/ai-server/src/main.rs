@@ -52,6 +52,21 @@ fn get_system_stats() -> SystemStats {
 
     if let Ok(cap) = fs::read_to_string("/sys/class/power_supply/battery/capacity") {
         stats.battery = format!("{}%", cap.trim());
+    } else if let Ok(status) = fs::read_to_string("/sys/class/power_supply/max77705-charger/status") {
+        let online = fs::read_to_string("/sys/class/power_supply/max77705-charger/online")
+            .map(|s| s.trim() == "1")
+            .unwrap_or(false);
+        let mv = fs::read_to_string("/sys/class/power_supply/max77705-charger/constant_charge_voltage")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .map(|uv| format!(" {:.2}V", uv as f64 / 1_000_000.0))
+            .unwrap_or_default();
+        stats.battery = format!(
+            "{} (USB {}{})",
+            status.trim(),
+            if online { "online" } else { "offline" },
+            mv
+        );
     } else {
         stats.battery = "Charging / Host Powered".to_string();
     }

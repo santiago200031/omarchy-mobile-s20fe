@@ -41,28 +41,35 @@ live reads — no other source.
 
 ## The decisive experiment (2026-11-13, boot `6e38eaed`)
 
-CPU 7 (prime) offlined at **637 s** uptime on an already-running boot; dead-man
+CPU 7 (prime) offlined at **635 s** uptime on an already-running boot; dead-man
 timer armed then removed (verified no unit/timer survived, `cpu7=0` held).
 
-- Survived to **1726 s (28.8 min) with zero RCU stalls**, still healthy when
-the watch was stopped on purpose.
-- The 12-crash baseline has first stalls between **552 s and 1070 s**; this
-  run passed the previous record's first stall (1070 s) by **656 s**.
-- CPU 7 was NOT the victim in the last two crashes (CPUs 4/5 died, CPU 7
-  stayed alive and detected). So CPU 7 is implicated as a **trigger**, not as
-  the casualty: removing it from the scheduler and from the per-CPU PSCI
-  power-state pool removes the wedge.
-- Caveat kept honest: the boot had 637 s of pre-test uptime, and the CPU
-  hotplug is itself a PSCI transition, so this is strong but not perfectly
-  clean. A from-boot confirmation was deliberately not run.
+- Survived **idle** to **1726 s (28.8 min)** and **1757 s** with zero RCU
+  stalls — 656+ s past the previous baseline record's first stall (1070 s).
+- **Then crashed under heavy UFS + USB NCM write I/O (`1758-1780 s`):** as soon
+  as an `scp` push of `LFM3-1.7B-Q4_K_M.gguf` began writing to `sda36` (156 MiB
+  written before reset), `console-ramoops-0` (read on boot `bd4fac14`)
+  recorded:
+  - `[  635.226882] psci: CPU7 killed (polled 0 ms)`
+  - `[ 1768.090086] watchdog0: pretimeout event`
+  - `[ 1780.137259] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks: 1-...0, 4-...0, 6-...0 (detected by 2, t=5252 jiffies, g=65833, q=31 ncpus=7)`
+- What this proves: **offlining CPU 7 does NOT make the kernel immune.**
+  Under idle load the wall moved past 1757 s, but sustained UFS + USB NCM write
+  I/O still wedged **three cores simultaneously (`1, 4, 6`)** in non-idle
+  kernel context (`idle=.../1/...`) with `cpu7=0` (`ncpus=7`), and `watchdog0`
+  pretimed out 12 s before the RCU stall report. Userspace mitigations are
+  exhausted.
 
 ## Lead hypothesis for the kernel handoff
 
-A core wedges in/after a power state where even FIQ/NMI cannot reach it;
-the `-110`s read as symptoms (TCS commit timing out against a wedged power
-controller), not the root cause. The CPU-7-offline run above moved the
-wall decisively (552-1070 s baseline -> 1726 s clean), so the prime-core /
-shared PSCI OSI transition path is the quarry.
+A core (or multiple cores simultaneously, as in crash #13 on `6e38eaed`)
+wedges inside the kernel without prior error lines and stops answering
+interrupts/NMIs; the earlier `-110`s read as symptoms (TCS commit timing out
+against a wedged power controller), not the root cause. The CPU-7-offline
+soak moved the idle wall (552-1070 s baseline -> 1757 s idle), yet sustained
+UFS+USB writeback (`scp`, 156 MiB) immediately triggered a multi-core (`1, 4, 6`)
+stall with `ncpus=7`. Both the shared PSCI/RPMh power path and sustained UFS
+writeback/DMA/IOMMU bursts are now implicated.
 
 ## Firmware facts (own dmesg)
 

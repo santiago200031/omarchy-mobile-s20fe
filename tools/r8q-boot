@@ -21,9 +21,9 @@ usage() {
 Usage: tools/r8q-boot <command> [args]
 
 Commands:
-  pack [output_img]    Pack header-v2 image (defaults to \$KERNEL_OUT/recovery-omamobile.img)
-  verify [img]         Inspect header, offsets, and sha256 of a packed image
-  info                 Show target hardware offsets and live boot parameters
+  pack [--dual-boot] [output_img]  Pack header-v2 image (defaults to \$KERNEL_OUT/recovery-omamobile.img)
+  verify [img]                     Inspect header, offsets, and sha256 of a packed image
+  info                             Show target hardware offsets and live boot parameters
 EOF
 }
 
@@ -44,6 +44,11 @@ EOF
 }
 
 cmd_pack() {
+  local dual_boot=0
+  if [[ "${1:-}" == "--dual-boot" ]]; then
+    dual_boot=1
+    shift
+  fi
   local out_img="${1:-$KERNEL_OUT/recovery-omamobile.img}"
   local kernel="$KERNEL_OUT/arch/arm64/boot/Image"
   local dtb="$KERNEL_OUT/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb"
@@ -74,8 +79,13 @@ cmd_pack() {
   cp "$ROOT/initramfs/init" "$stage/root/init"
   chmod 755 "$stage/root/init"
 
-  # Storage guard allowlist: allow writing userdata (sda36) for Omarchy rootfs
-  echo "userdata" > "$stage/root/etc/omamobile-ufs-rw"
+  # Storage guard allowlist: leave empty for --dual-boot (all UFS stays read-only),
+  # or allow only userdata (sda36) for native install.
+  if [[ $dual_boot -eq 1 ]]; then
+    : > "$stage/root/etc/omamobile-ufs-rw"
+  else
+    echo "userdata" > "$stage/root/etc/omamobile-ufs-rw"
+  fi
   chmod 644 "$stage/root/etc/omamobile-ufs-rw"
   echo "Samsung Galaxy S20 FE (r8q)" > "$stage/root/etc/omamobile-usb-product"
 
@@ -110,6 +120,14 @@ cmd_pack() {
     dtbo_arg=(--recovery_dtbo "$KERNEL_OUT/recovery_dtbo.img")
   fi
 
+  local cmdline="console=tty0 console=ttyGS0 systemd.unit=multi-user.target consoleblank=0 clk_ignore_unused pd_ignore_unused mem_sleep_default=s2idle systemd.mask=sleep.target systemd.mask=suspend.target systemd.mask=hibernate.target systemd.mask=hybrid-sleep.target panic=10 rdinit=/init omamobile.ufs-probe"
+  if [[ $dual_boot -eq 1 ]]; then
+    cmdline="$cmdline omamobile.loop=${OMAMOBILE_LOOP:-/omarchy-r8q.img}"
+  fi
+  if [[ -n "${OMAMOBILE_CMDLINE_EXTRA:-}" ]]; then
+    cmdline="$cmdline $OMAMOBILE_CMDLINE_EXTRA"
+  fi
+
   python3 "$MKBOOTIMG" \
     --header_version 2 \
     --pagesize 4096 \
@@ -120,7 +138,7 @@ cmd_pack() {
     --dtb_offset 0x01f00000 \
     --os_version 16.0.0 \
     --os_patch_level 2026-10 \
-    --cmdline "console=tty0 console=ttyGS0 systemd.unit=multi-user.target consoleblank=0 clk_ignore_unused pd_ignore_unused mem_sleep_default=s2idle systemd.mask=sleep.target systemd.mask=suspend.target systemd.mask=hibernate.target systemd.mask=hybrid-sleep.target panic=10 rdinit=/init omamobile.ufs-probe" \
+    --cmdline "$cmdline" \
     --kernel "$kernel" \
     --ramdisk "$ramdisk" \
     --dtb "$dtb" \

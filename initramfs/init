@@ -61,12 +61,16 @@ ufs_ro_log() { echo "omamobile: ufs-ro: $*" > /dev/kmsg; }
 # only slot B's boot images and userdata can be named.
 UFS_RW=""
 UFS_RW_LUNS=""
+is_non_ufs_root() {
+  [ -s /etc/omamobile-nfsroot ] && return 0
+  grep -qE '(^| )omamobile\.loop=' /proc/cmdline
+}
 # Is $1 a disk that holds allowlisted partitions? sda always.
 ufs_rw_disk() { case " sda $UFS_RW_LUNS " in *" $1 "*) true ;; *) false ;; esac; }
 ufs_rw_load() {
   local list p
-  if [ -s /etc/omamobile-nfsroot ]; then
-    ufs_ro_log "NFS root requested: every UFS partition read-only"
+  if is_non_ufs_root; then
+    ufs_ro_log "non-UFS root requested: every UFS partition read-only"
     return 0
   fi
   if [ ! -s /etc/omamobile-ufs-rw ]; then
@@ -125,15 +129,15 @@ ufs_ro_pass() {
     [ -e "/run/ufs-ro/$name" ] && continue
     [ -b "/dev/$name" ] || continue  # devtmpfs node not there yet: next pass
     if ufs_rw_disk "$name"; then
-      if [ -s /etc/omamobile-nfsroot ]; then
+      if is_non_ufs_root; then
         blockdev --setro "/dev/$name"
         read -r ro < "$s/ro"
         if [ "$ro" = 1 ]; then
           : > "/run/ufs-ro/$name"
-          ufs_ro_log "/dev/$name set read-only for NFS root"
+          ufs_ro_log "/dev/$name set read-only for non-UFS root"
           continue
         fi
-        ufs_ro_log "FAILED to set /dev/$name read-only for NFS root"
+        ufs_ro_log "FAILED to set /dev/$name read-only for non-UFS root"
         echo "omamobile: WARNING: /dev/$name is NOT read-only" > /dev/tty0 2>/dev/null
         continue
       fi
@@ -168,7 +172,7 @@ ufs_unguarded() {
   for s in /sys/block/sd* /sys/block/sd*/sd*; do
     [ -r "$s/ro" ] || continue
     name=${s##*/}
-    ufs_rw_disk "$name" && [ ! -s /etc/omamobile-nfsroot ] && continue
+    ufs_rw_disk "$name" && ! is_non_ufs_root && continue
     read -r ro < "$s/ro"
     [ "$ro" = 0 ] || continue
     part=$(ufs_partname "$s")
@@ -460,6 +464,29 @@ grow_root() {
 # /etc/omamobile-nfsroot, holding one line, "<host>:<path>" -- no file, no change.
 # The USB gadget and its address are already up by the time this runs, and the
 # kernel keeps them across the switch, so the mount survives switch_root.
+switch_to_arch() {
+  local label=$1
+  local open
+  ufs_ro_pass
+  open=$(ufs_unguarded)
+  if [ -n "$open" ]; then
+    say "$label: writable outside allowlist: $(echo "$open" | tr "\n" " ")(staying in the initramfs)"
+    [ -d /mnt-host ] && mountpoint -q /mnt-host && umount /mnt-host 2>/dev/null
+    umount /newroot
+    return 1
+  fi
+  say "$label: switching to Arch Linux"
+  kill -9 -1 2>/dev/null
+  sleep 1
+  for m in /dev /proc /sys /run; do
+    mkdir -p "/newroot$m" && mount --move "$m" "/newroot$m"
+  done
+  if [ -d /mnt-host ] && mountpoint -q /mnt-host; then
+    mkdir -p /newroot/.omamobile-host && mount --move /mnt-host /newroot/.omamobile-host
+  fi
+  exec switch_root /newroot /usr/lib/systemd/systemd
+}
+
 boot_nfs() {
   local spec
   grep -q omamobile.initramfs /proc/cmdline && return 1
@@ -482,22 +509,45 @@ boot_nfs() {
   if [ ! -x /newroot/usr/lib/systemd/systemd ]; then
     say "nfsroot: no systemd on $spec"; umount /newroot; return 1
   fi
-  # The first guard pass already used an empty allowlist in NFS mode.
-  local open
-  open=$(ufs_unguarded)
-  if [ -n "$open" ]; then
-    say "nfsroot: UFS remains writable: $(echo "$open" | tr "\n" " " ); staying in the initramfs"
-    umount /newroot
-    return 1
-  fi
-  say "nfsroot: switching to Arch Linux on $spec"
-  # kill -9 -1 also stops the feeder; systemd takes over if the new root enables its watchdog.
-  kill -9 -1 2>/dev/null
-  sleep 1
-  for m in /dev /proc /sys /run; do
-    mkdir -p "/newroot$m" && mount --move "$m" "/newroot$m"
+  switch_to_arch "nfsroot ($spec)"
+}
+
+# Boot an Arch root image stored on unencrypted removable media (e.g. microSD
+# mmcblk0p1) so internal UFS (LineageOS boot + encrypted userdata) stays untouched.
+boot_loop() {
+  grep -q omamobile.initramfs /proc/cmdline && return 1
+  local img="" tok loopdev i=0
+  for tok in $(cat /proc/cmdline); do
+    case "$tok" in
+      omamobile.loop=*) img=${tok#omamobile.loop=} ;;
+    esac
   done
-  exec switch_root /newroot /usr/lib/systemd/systemd
+  [ -n "$img" ] || return 1
+  case "$img" in
+    *[!A-Za-z0-9_./-]*|*..*|/*[!A-Za-z0-9_./-]*)
+      say "loop: invalid image path $img"; return 1 ;;
+  esac
+  img="/${img#/}"
+  while [ ! -b /dev/mmcblk0p1 ] && [ "$i" -lt 20 ]; do
+    i=$((i + 1)); sleep 0.5 2>/dev/null || sleep 1
+  done
+  [ -b /dev/mmcblk0p1 ] || { say "loop: /dev/mmcblk0p1 not present"; return 1; }
+  mkdir -p /mnt-host /newroot
+  mount -t exfat -o rw,noatime /dev/mmcblk0p1 /mnt-host 2>/dev/null || \
+    mount -o rw,noatime /dev/mmcblk0p1 /mnt-host || { say "loop: cannot mount /dev/mmcblk0p1"; return 1; }
+  if [ ! -f "/mnt-host$img" ]; then
+    say "loop: $img not found on /dev/mmcblk0p1"; umount /mnt-host; return 1
+  fi
+  loopdev=$(losetup -f 2>/dev/null) || loopdev=/dev/loop0
+  losetup "$loopdev" "/mnt-host$img" || { say "loop: losetup failed"; umount /mnt-host; return 1; }
+  e2fsck -p "$loopdev" >/dev/null 2>&1
+  mount -t ext4 -o rw,relatime "$loopdev" /newroot || {
+    say "loop: cannot mount $loopdev"; losetup -d "$loopdev" 2>/dev/null; umount /mnt-host; return 1
+  }
+  if [ ! -x /newroot/usr/lib/systemd/systemd ]; then
+    say "loop: no systemd in $img"; umount /newroot; losetup -d "$loopdev" 2>/dev/null; umount /mnt-host; return 1
+  fi
+  switch_to_arch "loop ($img)"
 }
 
 # Keep a shell on the screen too
@@ -519,33 +569,15 @@ boot_arch() {
   if [ ! -x /newroot/usr/lib/systemd/systemd ]; then
     say "arch: no systemd on $dev"; umount /newroot; return 1
   fi
-  # The guard loop dies below and nothing in Arch sets a partition read-only,
-  # so make one last pass and check, while SSH still runs: anything outside
-  # the allowlist still writable (a late partition, a failed setro) keeps
-  # the phone here.
-  local open
-  ufs_ro_pass
-  open=$(ufs_unguarded)
-  if [ -n "$open" ]; then
-    say "arch: writable outside the allowlist: $(echo "$open" | tr "\n" " ")(staying in the initramfs)"
-    umount /newroot
-    return 1
-  fi
-  say "arch: switching to Arch Linux on $dev"
-  # Stop the initramfs helpers (dropbear, getty, guards); the kernel keeps
-  # the USB gadget and the partition read-only flags across the switch
-  # systemd takes over the hardware watchdog here if the new root enables it.
-  kill -9 -1 2>/dev/null
-  sleep 1
-  for m in /dev /proc /sys /run; do
-    mkdir -p "/newroot$m" && mount --move "$m" "/newroot$m"
-  done
-  exec switch_root /newroot /usr/lib/systemd/systemd
+  switch_to_arch "arch ($dev)"
 }
-# A requested NFS root must not silently fall through to a writable UFS root.
+# Non-UFS roots must never silently fall through to a writable UFS root.
 if [ -s /etc/omamobile-nfsroot ]; then
   boot_nfs
   say "nfsroot: requested root unavailable (staying in the initramfs)"
+elif grep -qE '(^| )omamobile\.loop=' /proc/cmdline; then
+  boot_loop
+  say "loop: requested root unavailable (staying in the initramfs)"
 else
   boot_arch
 fi

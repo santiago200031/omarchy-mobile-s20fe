@@ -14,8 +14,10 @@ live reads — no other source.
 - Crash #8 (our clearest capture): first stall at 700 s uptime, repeated
   stalls past 919 s; **CPU 7 NMI-dead three times while CPUs 0 and 2
   answered their NMIs**; zero `rpmh`/oops/watchdog-bark lines throughout.
-- Victim cores vary across crashes (1, 0, 7, 6, 4) but CPU 7 recurs; CPU 7
-  is the prime core.
+- Victim cores span both clusters — little (1), big (4, 6), prime (7) —
+  and the NMI-dead core varies crash to crash (crash #11: CPU 4 dead
+  while CPU 1 answered; crash #8: CPU 7 dead three times). The quarry
+  is the shared power-state path, not one core.
 
 ## Two crashes WITH a first cause (both `rpmh_write_batch -110`)
 
@@ -43,13 +45,13 @@ A core wedges in/after a power state where even FIQ/NMI cannot reach it;
 the `-110`s read as symptoms (TCS commit timing out against a wedged power
 controller), not the root cause. Proposed next experiment (ours, pending
 phone window): offline CPU 7 for one soak; if the ~11-min wall moves, the
-prime core's collapse/wake path is the quarry.
+shared power-state collapse/wake path is the quarry.
 
 ## Firmware facts (own dmesg)
 
 - S-Boot PSCI: SMC Calling Convention v1.1, OSI mode supported, but
   `failed to set PC mode: -3` — the kernel runs OSI (per-CPU suspend),
-  not platform-coordinated. Any prime-core collapse/wake quirk lives on
+  not platform-coordinated. Any collapse/wake quirk lives on
   this path.
 
 ## Asks for the kernel side

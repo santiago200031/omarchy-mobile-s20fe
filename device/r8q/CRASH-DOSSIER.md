@@ -44,8 +44,9 @@ live reads — no other source.
 A core wedges in/after a power state where even FIQ/NMI cannot reach it;
 the `-110`s read as symptoms (TCS commit timing out against a wedged power
 controller), not the root cause. Proposed next experiment (ours, pending
-phone window): offline CPU 7 for one soak; if the ~11-min wall moves, the
-shared power-state collapse/wake path is the quarry.
+phone window): offline CPU 7 for one soak; if the wall moves, the
+shared power-state collapse/wake path is the quarry (an unmoved wall is
+inconclusive, since the NMI-dead core varies — crash #12 took CPU 4).
 
 ## Firmware facts (own dmesg)
 
@@ -56,8 +57,9 @@ shared power-state collapse/wake path is the quarry.
 
 ## Asks for the kernel side
 
-1. Why a CPU can go NMI-deaf on this SoC/firmware (GIC/FIQ reachability
-   across PSCI states), and how to instrument the CPU7 collapse/wake path.
+1. Why any CPU can go NMI-deaf on this SoC/firmware (GIC/FIQ reachability
+   across PSCI states; victims span little/big/prime), and how to
+   instrument the collapse/wake path.
 2. Whether the AMC TCS bank can report which bank stalls (`tcs-in-use` /
    state at `-110`) on this tree.
 3. Later (M3.3, separate): Adreno probe ordering (`gpucc` + `rpmhpd`

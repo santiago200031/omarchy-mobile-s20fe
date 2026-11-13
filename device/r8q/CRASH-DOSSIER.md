@@ -65,3 +65,20 @@ inconclusive, since the NMI-dead core varies — crash #12 took CPU 4).
 3. Later (M3.3, separate): Adreno probe ordering (`gpucc` + `rpmhpd`
    before `msm`) and a DT-described way to skip `SECVID` register writes
    the TrustZone traps.
+
+## Second defect: `MAX77705` probe `-EINVAL` (own dmesg)
+
+A DT pinctrl conflict, not a silicon or regulator problem. Live log:
+
+    qcom-spmi-gpio c440000.spmi:pmic@4:gpio@c000: pin gpio11 already
+      requested by 0-0069; cannot claim for 0-0066
+    qcom-spmi-gpio ...: error -EINVAL: pin-10 (0-0066)
+    max77705 0-0066: error -EINVAL: Error applying setting, reverse things back
+
+- `charger@69` (`maxim,max77705-charger`) is bound and reports telemetry
+  (Charging/Fast/Good, 4.4 V, 900 mA) and holds SPMI PMIC `gpio11`.
+- `pmic@66` (the MFD parent) cannot claim the same pin, so its probe dies
+  and the fuel gauge never registers.
+- Chip revision is irrelevant: PMICREV (`0x01`) reads `0x02` = PASS2.
+- Ask: one owner for `gpio11` in the DTB (kernel tree); the MFD and charger
+  nodes must not both request it.

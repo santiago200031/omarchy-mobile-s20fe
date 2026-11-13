@@ -39,14 +39,30 @@ live reads — no other source.
 - UFS vote silencing (`clkscale`/`clkgate=0`) did not move the wall —
   crashes #7/#8/#9 all landed with every knob at 0.
 
+## The decisive experiment (2026-11-13, boot `6e38eaed`)
+
+CPU 7 (prime) offlined at **637 s** uptime on an already-running boot; dead-man
+timer armed then removed (verified no unit/timer survived, `cpu7=0` held).
+
+- Survived to **1726 s (28.8 min) with zero RCU stalls**, still healthy when
+the watch was stopped on purpose.
+- The 12-crash baseline has first stalls between **552 s and 1070 s**; this
+  run passed the previous record's first stall (1070 s) by **656 s**.
+- CPU 7 was NOT the victim in the last two crashes (CPUs 4/5 died, CPU 7
+  stayed alive and detected). So CPU 7 is implicated as a **trigger**, not as
+  the casualty: removing it from the scheduler and from the per-CPU PSCI
+  power-state pool removes the wedge.
+- Caveat kept honest: the boot had 637 s of pre-test uptime, and the CPU
+  hotplug is itself a PSCI transition, so this is strong but not perfectly
+  clean. A from-boot confirmation was deliberately not run.
+
 ## Lead hypothesis for the kernel handoff
 
 A core wedges in/after a power state where even FIQ/NMI cannot reach it;
 the `-110`s read as symptoms (TCS commit timing out against a wedged power
-controller), not the root cause. Proposed next experiment (ours, pending
-phone window): offline CPU 7 for one soak; if the wall moves, the
-shared power-state collapse/wake path is the quarry (an unmoved wall is
-inconclusive, since the NMI-dead core varies — crash #12 took CPU 4).
+controller), not the root cause. The CPU-7-offline run above moved the
+wall decisively (552-1070 s baseline -> 1726 s clean), so the prime-core /
+shared PSCI OSI transition path is the quarry.
 
 ## Firmware facts (own dmesg)
 

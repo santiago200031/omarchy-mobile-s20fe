@@ -50,8 +50,19 @@ fn get_system_stats() -> SystemStats {
         }
     }
 
-    if let Ok(cap) = fs::read_to_string("/sys/class/power_supply/battery/capacity") {
-        stats.battery = format!("{}%", cap.trim());
+    if let Ok(cap) = fs::read_to_string("/sys/class/power_supply/max170xx_battery/capacity")
+        .or_else(|_| fs::read_to_string("/sys/class/power_supply/battery/capacity"))
+    {
+        let status = fs::read_to_string("/sys/class/power_supply/max170xx_battery/status")
+            .ok()
+            .map(|s| format!(" ({})", s.trim()))
+            .unwrap_or_default();
+        let mv = fs::read_to_string("/sys/class/power_supply/max170xx_battery/voltage_now")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .map(|uv| format!(" {:.2}V", uv as f64 / 1_000_000.0))
+            .unwrap_or_default();
+        stats.battery = format!("{}%{}{}", cap.trim(), status, mv);
     } else if let Ok(status) = fs::read_to_string("/sys/class/power_supply/max77705-charger/status") {
         let online = fs::read_to_string("/sys/class/power_supply/max77705-charger/online")
             .map(|s| s.trim() == "1")

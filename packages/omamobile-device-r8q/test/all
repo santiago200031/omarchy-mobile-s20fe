@@ -47,6 +47,7 @@ grep -q 'r8q-rtc-epoch restore' omamobile-r8q-rtc.service
 grep -q 'r8q-rtc-epoch save' omamobile-r8q-rtc.service
 grep -q 'omamobile-r8q-rtc.service' PKGBUILD
 grep -q '18081' rust/ai-server/src/main.rs
+grep -q 'max170xx_battery' rust/ai-server/src/main.rs
 grep -q 'max77705-charger' rust/ai-server/src/main.rs
 grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service
 grep -qx 'OnUnitActiveSec=4min' omamobile-r8q-panel.timer

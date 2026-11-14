@@ -5,6 +5,9 @@ out/
 keys/
 logs/
 
+# Local staging of chunked transfers (tools/r8q-push), several GiB each
+*.parts/
+
 # Python bytecode from running package code in place
 __pycache__/
 *.pyc

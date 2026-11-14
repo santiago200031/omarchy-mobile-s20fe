@@ -1,0 +1,156 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# tools/r8q-push: chunked, resumable file push to the r8q over USB NCM.
+#
+# Why: sustained USB NCM -> storage writeback wedges the phone (the RPMh/RCU
+# crash wall, device/r8q/PORT-PLAN.md blocker 1: crashes #3-#6 from
+# ufshcd_ungate_work -> icc_set_bw -> rpmh_write_batch(-110), crash #13 during
+# a 12 GiB scp). A plain scp/rsync of a large file keeps the writeback queue
+# full for minutes. This tool writes in bounded chunks with a forced idle
+# gap between them (writeback drains, no sustained DMA), verifies each chunk
+# by sha256 before moving on, and resumes cleanly after a crash: a chunk that
+# already exists on the phone with the right sha256 is skipped, and the
+# transfer can be re-run any number of times.
+#
+#   tools/r8q-push [OPTIONS] LOCAL_FILE REMOTE_PATH
+#
+# Options:
+#   --chunk 512M        per-chunk size (default 512M; 64M for long soaks)
+#   --sleep 15          idle seconds between chunks (default 15)
+#   --decompress        the local file is zstd; concat+decompress on the phone
+#                       to REMOTE_PATH (the parts stay compressed in transit)
+#   --sha HEX           expected sha256 of the final REMOTE_PATH (otherwise
+#                       it is computed on the phone)
+#   --parts DIR         phone-side parts dir (default /.omamobile-host/.r8q-push/<name>)
+#   --keep-parts        do not delete the parts after success
+#   --remote USER@HOST  (default root@172.16.42.1)
+#   --identity FILE     ssh identity file (default ~/.ssh/omamobile-r8q)
+#   --dry-run           show the plan, touch nothing
+#
+# The phone's clock may be wrong (its RTC is not synced), so nothing here
+# relies on timestamps, only on sizes and sha256.
+set -euo pipefail
+
+CHUNK=512M
+SLEEP=15
+DECOMPRESS=0
+EXPECTED_SHA=""
+PARTS=""
+KEEP_PARTS=0
+REMOTE=root@172.16.42.1
+IDENTITY=${HOME}/.ssh/omamobile-r8q
+DRY=0
+
+while (($#)); do
+  case $1 in
+    --chunk)    CHUNK=${2:?}; shift 2 ;;
+    --sleep)    SLEEP=${2:?}; shift 2 ;;
+    --decompress) DECOMPRESS=1; shift ;;
+    --sha)      EXPECTED_SHA=${2:?}; shift 2 ;;
+    --parts)    PARTS=${2:?}; shift 2 ;;
+    --keep-parts) KEEP_PARTS=1; shift ;;
+    --remote)   REMOTE=${2:?}; shift 2 ;;
+    --identity) IDENTITY=${2:?}; shift 2 ;;
+    --dry-run)  DRY=1; shift ;;
+    -h|--help)  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*)         echo "unknown option: $1" >&2; exit 2 ;;
+    *)          break ;;
+  esac
+done
+
+LOCAL=${1:?usage: tools/r8q-push [OPTIONS] LOCAL_FILE REMOTE_PATH}
+RPATH=${2:?usage: tools/r8q-push [OPTIONS] LOCAL_FILE REMOTE_PATH}
+[[ -f $LOCAL ]] || { echo "no such file: $LOCAL" >&2; exit 2; }
+
+SSH=(ssh -i "$IDENTITY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$REMOTE")
+RSCP=(scp -i "$IDENTITY" -o StrictHostKeyChecking=no -C)
+
+BASE=${LOCAL##*/}
+NAME=${BASE%.zst}
+[[ -n $PARTS ]] || PARTS="/.omamobile-host/.r8q-push/$NAME"
+LDIR="${BASE}.parts"
+
+say() { printf '==> %s\n' "$*"; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+LOCAL_SIZE=$(stat -c %s "$LOCAL")
+LOCAL_SHA=$(sha256sum "$LOCAL" | cut -d' ' -f1)
+
+say "local:  $LOCAL ($LOCAL_SIZE bytes, sha256 ${LOCAL_SHA:0:12}...)"
+say "remote: $REMOTE:$RPATH"
+say "chunk:  $CHUNK, gap: ${SLEEP}s, decompress: $DECOMPRESS"
+
+if ((DRY)); then
+  say "dry run: would push in $(( (LOCAL_SIZE + $(numfmt --from=iec "$CHUNK") - 1 ) / $(numfmt --from=iec "$CHUNK") )) chunks"
+  exit 0
+fi
+
+rm -rf "$LDIR"
+mkdir -p "$LDIR"
+# split -b takes a plain byte count; numfmt handles 512M-style suffixes
+CHUNK_B=$(numfmt --from=iec "$CHUNK")
+split -b "$CHUNK_B" -d -a 5 --numeric-suffixes=0 "$LOCAL" "$LDIR/chunk-" || die "split failed"
+CHUNKS=("$LDIR"/chunk-*)
+say "chunks: ${#CHUNKS[@]}"
+
+"${SSH[@]}" "mkdir -p '$PARTS'"
+
+for c in "${CHUNKS[@]}"; do
+  cname=${c##*/}
+  csize=$(stat -c %s "$c")
+  csha=$(sha256sum "$c" | cut -d' ' -f1)
+  rsha=$("${SSH[@]}" "test -f '$PARTS/$cname' && sha256sum '$PARTS/$cname' | cut -d' ' -f1" 2>/dev/null || true)
+  if [[ $rsha == "$csha" ]]; then
+    say "skip   $cname ($csize bytes, sha ok)"
+    continue
+  fi
+  say "pushing $cname ($csize bytes)..."
+  ok=0
+  for try in 1 2 3; do
+    if "${RSCP[@]}" "$c" "$REMOTE:$PARTS/$cname"; then
+      rsha=$("${SSH[@]}" "sha256sum '$PARTS/$cname' | cut -d' ' -f1")
+      [[ $rsha == "$csha" ]] && { ok=1; break; }
+      say "sha mismatch on try $try, re-pushing..."
+    else
+      say "rsync/scp failed on try $try, retrying..."
+    fi
+    sleep 5
+  done
+  ((ok)) || die "chunk $cname failed after 3 tries (re-run to resume)"
+  # let the phone's writeback drain before the next chunk: this is the
+  # whole point of the chunking (no sustained USB NCM -> storage DMA)
+  if ((SLEEP > 0)); then
+    say "idle ${SLEEP}s..."
+    sleep "$SLEEP"
+  fi
+done
+
+FINAL_SHA="$EXPECTED_SHA"
+if ((DECOMPRESS)); then
+  say "concat+decompress on phone -> $RPATH"
+  "${SSH[@]}" "cat '$PARTS'/chunk-* | zstd -d -q -f -o '$RPATH.part' && mv -f '$RPATH.part' '$RPATH' && sync"
+else
+  say "concat on phone -> $RPATH"
+  "${SSH[@]}" "cat '$PARTS'/chunk-* > '$RPATH.part' && mv -f '$RPATH.part' '$RPATH' && sync"
+fi
+
+REMOTE_SIZE=$("${SSH[@]}" "stat -c %s '$RPATH'")
+say "remote size: $REMOTE_SIZE (local: $LOCAL_SIZE)"
+[[ $REMOTE_SIZE == "$LOCAL_SIZE" ]] || die "size mismatch after concat"
+
+REMOTE_SHA=$("${SSH[@]}" "sha256sum '$RPATH' | cut -d' ' -f1")
+if [[ -n $FINAL_SHA ]]; then
+  [[ $REMOTE_SHA == "$FINAL_SHA" ]] || die "sha mismatch: want $FINAL_SHA got $REMOTE_SHA"
+  say "sha256 ok: $REMOTE_SHA"
+else
+  say "remote sha256: $REMOTE_SHA (not verified against a known value)"
+fi
+
+if ((KEEP_PARTS)); then
+  say "parts kept in $PARTS (--keep-parts)"
+else
+  "${SSH[@]}" "rm -rf '$PARTS'"
+  say "parts removed"
+fi
+rm -rf "$LDIR"
+say "done: $RPATH"

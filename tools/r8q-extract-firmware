@@ -168,8 +168,10 @@ def main():
     run(f"adb pull /vendor/firmware/qca6390/amss20.bin {ath_dir}/amss.bin >/dev/null 2>&1 || true")
     run(f"adb pull /vendor/firmware/qca6390/m3.bin {ath_dir}/m3.bin >/dev/null 2>&1 || true")
     run(f"adb pull /vendor/firmware/qca6390/regdb.bin {ath_dir}/regdb.bin >/dev/null 2>&1 || true")
-    run(f"adb pull /vendor/firmware/qca6390/bdwlan.elf {ath_dir}/board-2.bin >/dev/null 2>&1 || true")
+    run(f"adb pull /vendor/firmware/qca6390/bdwlan.elf {ath_dir}/board.bin >/dev/null 2>&1 || true")
     run(f"adb pull /vendor/firmware/qca6390/bdwlan.elf {ath_dir}/bdwlan.bin >/dev/null 2>&1 || true")
+    if os.path.exists(f"{ath_dir}/board-2.bin"):
+        os.remove(f"{ath_dir}/board-2.bin")
 
     # 6. Modem: SDX55 / r8q CP firmware
     say("Pulling modem firmware from /vendor/firmware-modem...")

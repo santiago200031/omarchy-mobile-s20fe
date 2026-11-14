@@ -21,7 +21,9 @@ usage() {
 Usage: tools/r8q-boot <command> [args]
 
 Commands:
-  pack [--dual-boot] [output_img]  Pack header-v2 image (defaults to \$KERNEL_OUT/recovery-omamobile.img)
+  pack [--dual-boot] [--overlay NAME]... [output_img]
+                                   Pack header-v2 image (defaults to \$KERNEL_OUT/recovery-omamobile.img)
+                                   Overlays come from device/r8q/overlays/<NAME>.dtso or R8Q_OVERLAYS=
   verify [img]                     Inspect header, offsets, and sha256 of a packed image
   info                             Show target hardware offsets and live boot parameters
 EOF
@@ -45,10 +47,38 @@ EOF
 
 cmd_pack() {
   local dual_boot=0
-  if [[ "${1:-}" == "--dual-boot" ]]; then
-    dual_boot=1
-    shift
-  fi
+  local -a overlays=()
+  local ov
+  for ov in ${R8Q_OVERLAYS:-}; do
+    overlays+=("$ov")
+  done
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dual-boot)
+        dual_boot=1
+        shift
+        ;;
+      --overlay)
+        [[ -n "${2:-}" ]] || die "--overlay requires an overlay name"
+        overlays+=("$2")
+        shift 2
+        ;;
+      --overlay=*)
+        overlays+=("${1#--overlay=}")
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        die "Unknown pack option: $1"
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
   local out_img="${1:-$KERNEL_OUT/recovery-omamobile.img}"
   local kernel="$KERNEL_OUT/arch/arm64/boot/Image"
   local dtb="$KERNEL_OUT/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb"
@@ -59,6 +89,12 @@ cmd_pack() {
   [[ -f $kernel ]] || die "Kernel not found at $kernel (run bin/omamobile kernel first)"
   [[ -f $dtb ]] || die "DTB not found at $dtb (run bin/omamobile kernel first)"
   [[ -f $MKBOOTIMG ]] || die "mkbootimg tool not found at $MKBOOTIMG"
+
+  local pack_dtb="$dtb"
+  local dtc_bin="$KERNEL_OUT/scripts/dtc/dtc"
+  local fdtoverlay_bin="$KERNEL_OUT/scripts/dtc/fdtoverlay"
+  [[ -x $dtc_bin ]] || dtc_bin="$(command -v dtc || true)"
+  [[ -x $fdtoverlay_bin ]] || fdtoverlay_bin="$(command -v fdtoverlay || true)"
 
   local stage
   stage=$(mktemp -d)
@@ -110,6 +146,25 @@ cmd_pack() {
     find . -mindepth 1 | cpio -H newc -o 2>/dev/null | gzip -9 -n > "$ramdisk"
   )
 
+  if [[ ${#overlays[@]} -gt 0 ]]; then
+    [[ -x $dtc_bin ]] || die "dtc binary not found (run bin/omamobile kernel first)"
+    [[ -x $fdtoverlay_bin ]] || die "fdtoverlay binary not found (run bin/omamobile kernel first)"
+    mkdir -p "$stage/overlays"
+    local -a ov_dtbos=()
+    local dtso dtbo
+    for ov in "${overlays[@]}"; do
+      [[ $ov =~ ^[a-z0-9-]+$ ]] || die "Invalid overlay name: '$ov'"
+      dtso="$ROOT/device/r8q/overlays/$ov.dtso"
+      [[ -f $dtso ]] || die "Overlay not found: $dtso"
+      dtbo="$stage/overlays/$ov.dtbo"
+      "$dtc_bin" -q -@ -I dts -O dtb -o "$dtbo" "$dtso" || die "Failed to compile overlay: $dtso"
+      ov_dtbos+=("$dtbo")
+    done
+    pack_dtb="$stage/r8q-overlaid.dtb"
+    "$fdtoverlay_bin" -i "$dtb" -o "$pack_dtb" "${ov_dtbos[@]}" || die "Failed to apply overlays: ${overlays[*]}"
+    say "Applied DTB overlays: ${overlays[*]}"
+  fi
+
   say "Packing Android header-v2 image: $out_img"
   mkdir -p "$(dirname "$out_img")"
 
@@ -141,7 +196,7 @@ cmd_pack() {
     --cmdline "$cmdline" \
     --kernel "$kernel" \
     --ramdisk "$ramdisk" \
-    --dtb "$dtb" \
+    --dtb "$pack_dtb" \
     "${dtbo_arg[@]}" \
     --output "$out_img"
 

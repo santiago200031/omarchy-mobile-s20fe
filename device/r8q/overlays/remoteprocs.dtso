@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay (PORT-PLAN M7): enable ADSP, CDSP, and SLPI remoteprocs
+ * once qcom/sm8250/samsung/r8q/{adsp,cdsp,slpi}.mbn are staged in rootfs.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/remoteproc@17300000} {
+	status = "okay";
+};
+
+&{/soc@0/remoteproc@8300000} {
+	status = "okay";
+};
+
+&{/soc@0/remoteproc@5c00000} {
+	status = "okay";
+};

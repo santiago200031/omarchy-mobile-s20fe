@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay (PORT-PLAN M7): enable the SM8250 ASoC sound card
+ * linking ADSP Q6AFE TERTIARY_TDM_RX_0 to CS35L41 Left/Right amps.
+ * Requires remoteprocs.dtso and audio-amps.dtso.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/sound} {
+	status = "okay";
+};

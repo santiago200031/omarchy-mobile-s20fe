@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up bisect overlay (PORT-PLAN M3): release dispcc protected-clocks
+ * alone while keeping MDSS, DSI0, and panel disabled so display clock
+ * unprotection can be tested independently of MDSS/IOMMU activation.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/clock-controller@af00000} {
+	protected-clocks = [];
+};

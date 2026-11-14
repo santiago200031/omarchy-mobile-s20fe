@@ -9,6 +9,7 @@ url="https://github.com/derekross/omarchy-mobile"
 license=(MIT)
 depends=(bash systemd)
 backup=(etc/pacman.d/omamobile-mirrorlist)
+install=omamobile-device-r8q.install
 
 build() {
   # Same syscall as device/r8q/initramfs/reboot-to.c. No libc.
@@ -28,12 +29,15 @@ build() {
   command -v cargo >/dev/null 2>&1 || { echo "PKGBUILD: cargo missing in build image" >&2; exit 1; }
   cargo build --manifest-path "$startdir/rust/ai-server/Cargo.toml" --release --target-dir "$srcdir/cargo-target"
   cp "$srcdir/cargo-target/release/ai-server" "$srcdir/omamobile-ai-server"
+  cargo build --manifest-path "$startdir/rust/r8q-preflight/Cargo.toml" --release --target-dir "$srcdir/cargo-target"
+  cp "$srcdir/cargo-target/release/r8q-preflight" "$srcdir/r8q-preflight"
 }
 
 package() {
   install -Dm755 "$srcdir/reboot-to" "$pkgdir/usr/local/bin/reboot-to"
   install -Dm755 "$startdir/reboot" "$pkgdir/usr/local/bin/reboot"
   install -Dm755 "$srcdir/omamobile-ai-server" "$pkgdir/usr/local/bin/omamobile-ai-server"
+  install -Dm755 "$srcdir/r8q-preflight" "$pkgdir/usr/local/bin/r8q-preflight"
   # The per-CPU liveness net: a wedged core stops ticking and no kernel
   # watchdog can fire on it (bus-level hang, the r8q crash class); the
   # monitor reboots the phone from a live core (see the monitor).
@@ -125,6 +129,8 @@ package() {
   done
   install -Dm644 "$startdir/ucm2/conf.d/kona-mtp-snd-card/kona-mtp-snd-card.conf" \
     "$pkgdir/usr/share/alsa/ucm2/conf.d/kona-mtp-snd-card/kona-mtp-snd-card.conf"
+  install -Dm644 "$startdir/ucm2/conf.d/sm8250/Samsung-Galaxy-S20-FE.conf" \
+    "$pkgdir/usr/share/alsa/ucm2/conf.d/sm8250/Samsung-Galaxy-S20-FE.conf"
   install -Dm644 "$startdir/ucm2/Samsung/r8q/HiFi.conf" \
     "$pkgdir/usr/share/alsa/ucm2/Samsung/r8q/HiFi.conf"
   install -Dm644 "$startdir/LICENSE" \

@@ -1,3 +1,8 @@
 # SPDX-License-Identifier: MIT
-# [omamobile] in pacman.conf. The repository is on the phone.
-Server = file:///var/lib/omamobile/repo/$arch
+# Where pacman gets Omarchy Mobile's packages ([omamobile] in /etc/pacman.conf).
+#
+# Switch with:   sudo omamobile-update channel development   (or stable, local)
+# See which:     omamobile-update check
+Server = https://pkgs.omamobile.org/stable/$arch
+#Server = https://pkgs.omamobile.org/development/$arch
+#Server = file:///var/lib/omamobile/repo/$arch

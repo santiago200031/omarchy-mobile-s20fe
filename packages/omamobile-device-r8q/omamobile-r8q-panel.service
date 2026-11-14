@@ -13,4 +13,5 @@ ConditionPathExists=/sys/class/graphics/fb0/blank
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'echo 0 > /sys/class/graphics/fb0/blank'
+# Only keep simpledrm's framebuffer unblanked when no hardware backlight driver (msm/s6e3fc3) is bound.
+ExecStart=/bin/sh -c 'for b in /sys/class/backlight/*; do [ -e "$b" ] && exit 0; done; echo 0 > /sys/class/graphics/fb0/blank'

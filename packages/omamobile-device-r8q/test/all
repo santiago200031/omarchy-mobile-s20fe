@@ -105,8 +105,23 @@ sh -n r8q-battery-modprobe
 grep -q 'max77705_charger' r8q-battery-modprobe
 grep -q 'max17042_battery' r8q-battery-modprobe
 grep -q 'omamobile-r8q-battery.service' PKGBUILD
+# Networking, mirrorlist, GPU udev, UCM2, panel-unblank guard, and Rust r8q-preflight (0.1.14)
+grep -q 'Metric=2000' 20-usb-gadget.network
+grep -q 'DNS=9.9.9.9' 20-usb-gadget.network
+grep -q 'https://pkgs.omamobile.org/stable/\$arch' omamobile-mirrorlist
+grep -q 'KERNEL=="3d00000.gpu"' 80-r8q-gpu.rules
+grep -q '305000000' 80-r8q-gpu.rules
+grep -q '/sys/class/backlight' omamobile-r8q-panel.service
+test -f omamobile-device-r8q.install
+grep -q 'Samsung-Galaxy-S20-FE.conf' PKGBUILD
+test -f ucm2/conf.d/sm8250/Samsung-Galaxy-S20-FE.conf
+grep -q 'r8q-preflight' PKGBUILD
+if command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]; then
+  PATH="$HOME/.cargo/bin:$PATH" cargo test --manifest-path rust/r8q-preflight/Cargo.toml --quiet
+fi
 echo ok config
 echo ok wrapper
 echo ok sources
 echo ok liveness
 echo ok battery
+echo ok preflight

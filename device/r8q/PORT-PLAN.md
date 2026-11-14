@@ -214,6 +214,19 @@ Model policy: **LFM3-1.7B-`Q4_K_M` is the sole default** (`/v1/models` lists jus
 ### Gate B — M3 Display & Adreno 650 (`display.dtso`)
 
 - **Risk:** Medium-High (enables `mdss` + `dsi0` + `s6e3fc3-r8q`, then unblacklists `msm`; keep USB SSH + `ttyGS0` log stream open).
+- **2026-11-15 offline diagnosis:** the failed `msm separate_gpu_kms=1` probe used
+  `display-mdss.dtso`, which intentionally leaves `dispcc` protected clocks
+  unchanged. In the 7nm PHY implementation, `-EINVAL` from the timing
+  calculator is returned when either the DSI bit-clock or escape-clock request
+  is zero; the staged `display.dtso` overlay is therefore the correct next
+  isolation step because it releases `dispcc` protected clocks while keeping
+  the GPU blacklist active. The staged kernel is
+  `7.3.0-rc6-omamobile-push1-gd469bd3bf2a9` from `omamobile-r8q` at
+  `d469bd3bf`, and the offline image
+  `~/omamobile-kernel/out-r8q/recovery-r8q-display-gpu.img` is header-verified,
+  AVB-signed, dual-boot packed, and has SHA256
+  `0cbb2048c3678fbd997720193ca52b5751317f0ff794a0eeb167b6c17aec1d88`.
+  No phone write has been performed for this image.
 - **2026-11-14 test result:** `display-clocks.dtso` (only `protected-clocks = []`) was packed and flashed to `RECOVERY` (`sda24`) after LineageOS was restored. That run produced no USB-SSH connection; the host observed Download Mode, then a short LineageOS enumeration, followed by Download Mode again. No kernel log was captured, so it remains inconclusive rather than proof of a display-clock fault. The follow-up `display-mdss.dtso` overlay enables only MDSS/DSI0/panel and leaves `dispcc` protected clocks unchanged. It booted successfully from `RECOVERY`: `r8q-preflight --json` reported `gpu_ready=true`, `ufs_guard.ok=true` with 77 UFS partitions read-only, and `mdss=okay`/`panel=okay`; `/dev/dri/card0` is present while `msm` remains blacklisted. This records the MDSS/panel milestone; GPU unblacklisting and `renderD128` validation remain a separate branch-gated step.
 - **2026-11-15 branch test:** explicitly loading `msm separate_gpu_kms=1` created `/dev/dri/renderD128`, but KMS takeover failed at `dsi_7nm_phy_enable` with `-22` (`PHY timing calculation failed`). The panel then reported DCS failures and repeated DPU vblank timeouts, including a panel-dead event; USB SSH later recovered. Stop here: do not unblacklist `msm` at boot or flash this probe as a default. The next branch change must reconcile the mainline DSI mode/PHY timing with the captured vendor panel timings before another hardware load.
 

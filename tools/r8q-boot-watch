@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# r8q-boot-watch: watch Galaxy S20 FE (r8q) USB transitions and stream live
+# kernel/journal logs to logs/ as soon as SSH answers over USB NCM.
+"""Host-side boot and kernel stream watcher for Galaxy S20 FE (r8q)."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import select
+import socket
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PHONE_SSH = ROOT / "tools" / "phone-ssh"
+DEFAULT_KEY = Path.home() / ".ssh" / "omamobile-r8q"
+USB_SYSFS = Path("/sys/bus/usb/devices")
+
+KNOWN_USB = {
+    ("1d6b", "0104"): "omarchy-gadget",
+    ("04e8", "685d"): "samsung-download",
+    ("04e8", "6860"): "samsung-mtp-adb",
+    ("18d1", "4ee7"): "adb",
+    ("18d1", "d001"): "fastboot",
+}
+
+
+def scan_usb_states() -> dict[str, str]:
+    """Return a map of sysfs USB node name -> known phone mode label."""
+    found: dict[str, str] = {}
+    if not USB_SYSFS.is_dir():
+        return found
+    for dev in sorted(USB_SYSFS.iterdir()):
+        vid_file = dev / "idVendor"
+        pid_file = dev / "idProduct"
+        if not (vid_file.is_file() and pid_file.is_file()):
+            continue
+        try:
+            vid = vid_file.read_text(encoding="utf-8").strip().lower()
+            pid = pid_file.read_text(encoding="utf-8").strip().lower()
+        except OSError:
+            continue
+        label = KNOWN_USB.get((vid, pid))
+        if label:
+            found[dev.name] = f"{label} ({vid}:{pid})"
+    return found
+
+
+def ssh_port_open(host: str, port: int = 22, timeout: float = 0.25) -> bool:
+    """Return True if TCP host:port accepts a connection."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def stream_remote_logs(
+    host_target: str, key_path: Path, emit, deadline: float | None = None
+) -> int:
+    """Stream existing dmesg + live dmesg over SSH; return exit code."""
+    env = os.environ.copy()
+    if key_path.exists():
+        env.setdefault("OMAMOBILE_SSH_KEY", str(key_path))
+    env["OMAMOBILE_SSH_HOST"] = host_target
+    env["OMAMOBILE_SSH_CONNECT_TIMEOUT"] = "3"
+
+    remote_cmd = (
+        "echo '=== R8Q CONNECTED ==='; "
+        "uname -r; cat /proc/cmdline; "
+        "for f in /sys/fs/pstore/*; do "
+        "[ -e \"$f\" ] && echo \"=== PSTORE $f ===\" && head -n 40 \"$f\"; "
+        "done; "
+        "echo '=== DMESG LIVE ==='; "
+        "exec stdbuf -oL dmesg -T -w"
+    )
+    proc = subprocess.Popen(
+        [str(PHONE_SSH), "--fresh", remote_cmd],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=env,
+    )
+    assert proc.stdout is not None
+    try:
+        while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                emit("timeout reached during stream")
+                proc.terminate()
+                break
+            rlist, _, _ = select.select([proc.stdout], [], [], 0.25)
+            if rlist:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                emit(line.rstrip("\r\n"))
+            elif proc.poll() is not None:
+                for rem in proc.stdout:
+                    emit(rem.rstrip("\r\n"))
+                break
+    except KeyboardInterrupt:
+        proc.terminate()
+    return proc.wait()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("OMAMOBILE_SSH_HOST", "root@172.16.42.1"),
+        help="Target user@host (default: root@172.16.42.1)",
+    )
+    parser.add_argument(
+        "--key",
+        type=Path,
+        default=Path(os.environ.get("OMAMOBILE_SSH_KEY", str(DEFAULT_KEY))),
+        help="SSH private key path",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="Watch timeout in seconds (0 = unlimited, default: 120)",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Exit after the first SSH stream session closes",
+    )
+    parser.add_argument(
+        "--log",
+        type=Path,
+        help="Log file path (default: logs/r8q-boot-watch-<timestamp>.log)",
+    )
+    args = parser.parse_args(argv)
+
+    ip_host = args.host.split("@")[-1]
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    log_path = args.log or (ROOT / "logs" / f"r8q-boot-watch-{stamp}.log")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    t0 = time.monotonic()
+    last_usb: dict[str, str] = {}
+
+    with log_path.open("a", encoding="utf-8") as log_fp:
+        def emit(msg: str) -> None:
+            dt = time.monotonic() - t0
+            line = f"[+{dt:7.3f}s] {msg}"
+            print(line, flush=True)
+            log_fp.write(line + "\n")
+            log_fp.flush()
+
+        emit(f"watching {args.host} (log={log_path})")
+        try:
+            while True:
+                if args.timeout > 0 and (time.monotonic() - t0) >= args.timeout:
+                    emit("timeout reached")
+                    return 0
+
+                cur_usb = scan_usb_states()
+                if cur_usb != last_usb:
+                    summary = ", ".join(f"{k}:{v}" for k, v in cur_usb.items()) or "none"
+                    emit(f"usb: {summary}")
+                    last_usb = cur_usb
+
+                if ssh_port_open(ip_host):
+                    emit("ssh port reachable; starting stream")
+                    deadline = (t0 + args.timeout) if args.timeout > 0 else None
+                    rc = stream_remote_logs(args.host, args.key, emit, deadline)
+                    emit(f"ssh stream ended (rc={rc})")
+                    if args.once:
+                        return rc
+
+                time.sleep(0.15)
+        except KeyboardInterrupt:
+            emit("interrupted")
+            return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

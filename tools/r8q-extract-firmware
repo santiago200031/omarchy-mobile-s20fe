@@ -1,13 +1,58 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # tools/r8q-extract-firmware: extract and squash Qualcomm SM8250 firmware from running Galaxy S20 FE
-import os, struct, subprocess, sys
+import hashlib, os, shutil, struct, subprocess, sys, urllib.request
 
 say = lambda msg: print(f"\033[1;34m==>\033[0m {msg}")
 die = lambda msg: (print(f"\033[1;31mERROR:\033[0m {msg}", file=sys.stderr), sys.exit(1))
 
 OUT_DIR = os.path.expanduser("~/.cache/omamobile/firmware/r8q/lib/firmware")
 STAGE_DIR = "/tmp/r8q-fw-stage"
+MIN_SQE_VERSION = 0x095
+UPSTREAM_SQE_URL = "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/qcom/a650_sqe.fw"
+UPSTREAM_SQE_SHA256 = "c863ceac3a823af215205d7803776bfdc68098c2c2a5d2fd05b4aa77cd336b4b"
+
+def sqe_version(path):
+    with open(path, "rb") as f:
+        hdr = f.read(8)
+    if len(hdr) < 8:
+        return None
+    return struct.unpack("<I", hdr[4:8])[0] & 0xfff
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def ensure_upstream_sqe(dest_path):
+    candidates = [
+        os.environ.get("OMAMOBILE_SQE_FW", ""),
+        "/usr/lib/firmware/qcom/a650_sqe.fw",
+        "/tmp/upstream-a650_sqe.fw",
+    ]
+    for cand in candidates:
+        if cand and os.path.isfile(cand):
+            ver = sqe_version(cand)
+            if ver is not None and ver >= MIN_SQE_VERSION:
+                shutil.copy2(cand, dest_path)
+                say(f"Using local upstream a650_sqe.fw ({cand}, fw 0x{ver:03x})")
+                return
+    say("Vendor a650_sqe.fw is too old (< 0x095); fetching verified upstream linux-firmware...")
+    tmp_dl = os.path.join(STAGE_DIR, "upstream-a650_sqe.fw")
+    try:
+        urllib.request.urlretrieve(UPSTREAM_SQE_URL, tmp_dl)
+    except Exception as exc:
+        die(f"Cannot fetch upstream a650_sqe.fw ({exc}); pass OMAMOBILE_SQE_FW=...")
+    got_sha = sha256_file(tmp_dl)
+    if got_sha != UPSTREAM_SQE_SHA256:
+        die(f"Upstream a650_sqe.fw sha256 mismatch: got {got_sha}, expected {UPSTREAM_SQE_SHA256}")
+    ver = sqe_version(tmp_dl)
+    if ver is None or ver < MIN_SQE_VERSION:
+        die(f"Upstream a650_sqe.fw version 0x{ver or 0:03x} < 0x{MIN_SQE_VERSION:03x}")
+    shutil.copy2(tmp_dl, dest_path)
+    say(f"Verified upstream a650_sqe.fw (fw 0x{ver:03x}, sha256 {got_sha[:12]}...)")
 
 def run(cmd, capture=False):
     res = subprocess.run(cmd, shell=True, text=True, stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE if capture else None)
@@ -68,22 +113,40 @@ def main():
 
     # 1. GPU Firmware: Adreno 650
     qcom_dir = os.path.join(OUT_DIR, "qcom")
+    sm8250_dir = os.path.join(OUT_DIR, "qcom/sm8250")
+    dsp_target_dir = os.path.join(OUT_DIR, "qcom/sm8250/samsung/r8q")
     os.makedirs(qcom_dir, exist_ok=True)
+    os.makedirs(sm8250_dir, exist_ok=True)
+    os.makedirs(dsp_target_dir, exist_ok=True)
+
     say("Pulling Adreno 650 GMU and SQE microcode...")
     run(f"adb pull /vendor/firmware/a650_gmu.bin {qcom_dir}/a650_gmu.bin >/dev/null")
     run(f"adb pull /vendor/firmware/a650_sqe.fw {qcom_dir}/a650_sqe.fw >/dev/null")
+    ver = sqe_version(f"{qcom_dir}/a650_sqe.fw")
+    if ver is None or ver < MIN_SQE_VERSION:
+        say(f"Vendor a650_sqe.fw version 0x{ver or 0:03x} < 0x{MIN_SQE_VERSION:03x} (mainline a650 requires >= 0x095)")
+        ensure_upstream_sqe(f"{qcom_dir}/a650_sqe.fw")
+    # Also stage in sm8250 dir for different driver lookup conventions
+    run(f"cp {qcom_dir}/a650_gmu.bin {sm8250_dir}/a650_gmu.bin")
+    run(f"cp {qcom_dir}/a650_sqe.fw {sm8250_dir}/a650_sqe.fw")
 
     say("Pulling and squashing a650_zap shader firmware...")
     run(f"adb shell \"sh -c 'cd /vendor/firmware_mnt/image && tar -cf - a650_zap.*'\" | tar -C {STAGE_DIR}/ -xf -")
-    squash_mdt(f"{STAGE_DIR}/a650_zap.mdt", f"{qcom_dir}/a650_zap.mbn")
+    squash_mdt(f"{STAGE_DIR}/a650_zap.mdt", f"{dsp_target_dir}/a650_zap.mbn")
+    run(f"cp {dsp_target_dir}/a650_zap.mbn {qcom_dir}/a650_zap.mbn")
+    run(f"cp {dsp_target_dir}/a650_zap.mbn {sm8250_dir}/a650_zap.mbn")
 
-    # 2. Subsystem DSPs: ADSP, CDSP, SLPI
-    dsp_target_dir = os.path.join(OUT_DIR, "qcom/sm8250/Samsung/r8q")
-    os.makedirs(dsp_target_dir, exist_ok=True)
-    for dsp in ["adsp", "cdsp", "slpi"]:
+    # 2. Subsystem DSPs: ADSP, CDSP, SLPI, VENUS
+    for dsp in ["adsp", "cdsp", "slpi", "venus"]:
         say(f"Pulling and squashing {dsp} firmware...")
-        run(f"adb shell \"sh -c 'cd /vendor/firmware_mnt/image && tar -cf - {dsp}.*'\" | tar -C {STAGE_DIR}/ -xf -")
-        squash_mdt(f"{STAGE_DIR}/{dsp}.mdt", f"{dsp_target_dir}/{dsp}.mbn")
+        run(f"adb shell \"sh -c 'cd /vendor/firmware_mnt/image && tar -cf - {dsp}.*'\" | tar -C {STAGE_DIR}/ -xf - 2>/dev/null || true")
+        if os.path.exists(f"{STAGE_DIR}/{dsp}.mdt"):
+            squash_mdt(f"{STAGE_DIR}/{dsp}.mdt", f"{dsp_target_dir}/{dsp}.mbn")
+            run(f"cp {dsp_target_dir}/{dsp}.mbn {sm8250_dir}/{dsp}.mbn")
+
+    say("Pulling DSP JSON descriptor configs...")
+    run(f"adb shell \"sh -c 'cd /vendor/firmware_mnt/image && tar -cf - *.jsn'\" | tar -C {dsp_target_dir}/ -xf - 2>/dev/null || true")
+    run(f"cp {dsp_target_dir}/*.jsn {sm8250_dir}/ 2>/dev/null || true")
 
     # 3. Audio Amplifiers: Cirrus CS35L40
     cirrus_dir = os.path.join(OUT_DIR, "cirrus")
@@ -91,11 +154,29 @@ def main():
     say("Pulling Cirrus CS35L40 speaker amplifier firmware...")
     run(f"adb shell \"sh -c 'cd /vendor/firmware && tar -cf - cs35l40-*'\" | tar -C {cirrus_dir}/ -xf -")
 
-    # 4. Wi-Fi: QCA6390
-    wlan_dir = os.path.join(OUT_DIR, "qca6390")
-    os.makedirs(wlan_dir, exist_ok=True)
-    say("Pulling QCA6390 Wi-Fi 6 board configuration...")
-    run(f"adb pull /vendor/firmware/qca6390/ {OUT_DIR}/ >/dev/null 2>&1 || true")
+    # 4. Bluetooth: QCA (WCN685x / QCA6390)
+    qca_dir = os.path.join(OUT_DIR, "qca")
+    os.makedirs(qca_dir, exist_ok=True)
+    say("Pulling Bluetooth QCA firmware (htbtfw20.tlv, htnv20.bin)...")
+    run(f"adb pull /vendor/firmware/htbtfw20.tlv {qca_dir}/htbtfw20.tlv >/dev/null 2>&1 || true")
+    run(f"adb pull /vendor/firmware/htnv20.bin {qca_dir}/htnv20.bin >/dev/null 2>&1 || true")
+
+    # 5. Wi-Fi: QCA6390 ath11k
+    ath_dir = os.path.join(OUT_DIR, "ath11k/QCA6390/hw2.0")
+    os.makedirs(ath_dir, exist_ok=True)
+    say("Pulling and staging QCA6390 Wi-Fi 6 ath11k firmware...")
+    run(f"adb pull /vendor/firmware/qca6390/amss20.bin {ath_dir}/amss.bin >/dev/null 2>&1 || true")
+    run(f"adb pull /vendor/firmware/qca6390/m3.bin {ath_dir}/m3.bin >/dev/null 2>&1 || true")
+    run(f"adb pull /vendor/firmware/qca6390/regdb.bin {ath_dir}/regdb.bin >/dev/null 2>&1 || true")
+    run(f"adb pull /vendor/firmware/qca6390/bdwlan.elf {ath_dir}/board-2.bin >/dev/null 2>&1 || true")
+    run(f"adb pull /vendor/firmware/qca6390/bdwlan.elf {ath_dir}/bdwlan.bin >/dev/null 2>&1 || true")
+
+    # 6. Modem: SDX55 / r8q CP firmware
+    say("Pulling modem firmware from /vendor/firmware-modem...")
+    run(f"adb pull /vendor/firmware-modem/image/sdx55m/qdsp6sw.mbn {dsp_target_dir}/modem.mbn >/dev/null 2>&1 || true")
+    run(f"adb pull /vendor/firmware-modem/image/sdx55m/modemr.jsn {dsp_target_dir}/modemr.jsn >/dev/null 2>&1 || true")
+    run(f"cp {dsp_target_dir}/modem.mbn {sm8250_dir}/modem.mbn 2>/dev/null || true")
+    run(f"cp {dsp_target_dir}/modemr.jsn {sm8250_dir}/modemr.jsn 2>/dev/null || true")
 
     say(f"All firmware successfully extracted and squashed into {OUT_DIR}!")
     run(f"rm -rf {STAGE_DIR}")

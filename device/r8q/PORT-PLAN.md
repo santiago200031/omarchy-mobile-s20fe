@@ -227,8 +227,24 @@ Model policy: **LFM3-1.7B-`Q4_K_M` is the sole default** (`/v1/models` lists jus
   AVB-signed, dual-boot packed, and has SHA256
   `0cbb2048c3678fbd997720193ca52b5751317f0ff794a0eeb167b6c17aec1d88`.
   No phone write has been performed for this image.
+- **2026-11-15 offline research:** traced the `-22` path through the kernel
+  source. In `dsi_phy_7nm.c:dsi_7nm_phy_enable()`, the call to
+  `msm_dsi_dphy_timing_calc_v4()` (in `dsi_phy.c:373`) returns `-EINVAL` at
+  line 391 when `clk_req->bitclk_rate` or `clk_req->escclk_rate` is zero.
+  Those rates come from `msm_dsi_host_get_phy_clk_req()` (`dsi_host.c:2398`),
+  which derives `bitclk_rate` from `msm_host->byte_clk_rate * 8` and
+  `escclk_rate` from `msm_host->esc_clk_rate`. The `esc_clk_rate` is set by
+  `dsi_calc_clk_rate_6g()` (`dsi_host.c:694`) via `clk_get_rate(msm_host->esc_clk)`.
+  When `dispcc` clocks are protected, the escape clock cannot be enabled, so
+  `clk_get_rate()` returns zero. The `display.dtso` overlay (which sets
+  `protected-clocks = [];` on `&dispcc`) is the correct fix. Panel timings
+  were verified against the captured vendor DTB (`live.dts`): the r8q
+  `s6e3fc3-r8q` modes (120 Hz preferred, 60 Hz) match the vendor
+  `ss_dsi_panel_S6E3FC3_AMS646YD01_FHD` timings exactly
+  (hfp=80, hsw=84, hbp=88; vfp=15/16, vsw=2, vbp=2). No timing correction
+  is needed.
 - **2026-11-14 test result:** `display-clocks.dtso` (only `protected-clocks = []`) was packed and flashed to `RECOVERY` (`sda24`) after LineageOS was restored. That run produced no USB-SSH connection; the host observed Download Mode, then a short LineageOS enumeration, followed by Download Mode again. No kernel log was captured, so it remains inconclusive rather than proof of a display-clock fault. The follow-up `display-mdss.dtso` overlay enables only MDSS/DSI0/panel and leaves `dispcc` protected clocks unchanged. It booted successfully from `RECOVERY`: `r8q-preflight --json` reported `gpu_ready=true`, `ufs_guard.ok=true` with 77 UFS partitions read-only, and `mdss=okay`/`panel=okay`; `/dev/dri/card0` is present while `msm` remains blacklisted. This records the MDSS/panel milestone; GPU unblacklisting and `renderD128` validation remain a separate branch-gated step.
-- **2026-11-15 branch test:** explicitly loading `msm separate_gpu_kms=1` created `/dev/dri/renderD128`, but KMS takeover failed at `dsi_7nm_phy_enable` with `-22` (`PHY timing calculation failed`). The panel then reported DCS failures and repeated DPU vblank timeouts, including a panel-dead event; USB SSH later recovered. Stop here: do not unblacklist `msm` at boot or flash this probe as a default. The next branch change must reconcile the mainline DSI mode/PHY timing with the captured vendor panel timings before another hardware load.
+- **2026-11-15 branch test:** explicitly loading `msm separate_gpu_kms=1` created `/dev/dri/renderD128`, but KMS takeover failed at `dsi_7nm_phy_enable` with `-22` (`PHY timing calculation failed`). The panel then reported DCS failures and repeated DPU vblank timeouts, including a panel-dead event; USB SSH later recovered. Stop here: do not unblacklist `msm` at boot or flash this probe as a default. The `display.dtso` overlay with `protected-clocks = []` is the correct fix — panel timings are verified correct against the vendor DTB.
 
 - **Commands (human-approved only):**
   1. Pack & flash `display` overlay only (`50-r8q-gpu-blacklist.conf` still active on first boot):

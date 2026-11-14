@@ -214,6 +214,8 @@ Model policy: **LFM3-1.7B-`Q4_K_M` is the sole default** (`/v1/models` lists jus
 ### Gate B — M3 Display & Adreno 650 (`display.dtso`)
 
 - **Risk:** Medium-High (enables `mdss` + `dsi0` + `s6e3fc3-r8q`, then unblacklists `msm`; keep USB SSH + `ttyGS0` log stream open).
+- **2026-11-14 test result:** `display-clocks.dtso` (only `protected-clocks = []`) was packed and flashed to `RECOVERY` (`sda24`) after LineageOS was restored. That run produced no USB-SSH connection; the host observed Download Mode, then a short LineageOS enumeration, followed by Download Mode again. No kernel log was captured, so it remains inconclusive rather than proof of a display-clock fault. The follow-up `display-mdss.dtso` overlay enables only MDSS/DSI0/panel and leaves `dispcc` protected clocks unchanged. It booted successfully from `RECOVERY`: `r8q-preflight --json` reported `gpu_ready=true`, `ufs_guard.ok=true` with 77 UFS partitions read-only, and `mdss=okay`/`panel=okay`; `/dev/dri/card0` is present while `msm` remains blacklisted. This records the MDSS/panel milestone; GPU unblacklisting and `renderD128` validation remain a separate branch-gated step.
+
 - **Commands (human-approved only):**
   1. Pack & flash `display` overlay only (`50-r8q-gpu-blacklist.conf` still active on first boot):
      `KERNEL_OUT=~/omamobile-kernel/out-r8q tools/r8q-boot pack --dual-boot --overlay display ~/omamobile-kernel/out-r8q/recovery-display.img`

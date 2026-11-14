@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up bisect overlay (PORT-PLAN M3): enable MDSS, DSI0, DSI0 PHY, and
+ * the Samsung S6E3FC3 (AMS646YD01) command-mode panel without changing
+ * dispcc protected-clocks.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/display-subsystem@ae00000} {
+	status = "okay";
+};
+
+&{/soc@0/display-subsystem@ae00000/dsi@ae94000} {
+	status = "okay";
+};
+
+&{/soc@0/display-subsystem@ae00000/dsi@ae94000/panel@0} {
+	status = "okay";
+};
+
+&{/soc@0/display-subsystem@ae00000/phy@ae94400} {
+	status = "okay";
+};

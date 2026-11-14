@@ -87,6 +87,17 @@ out=$(R8Q_LIVENESS_SYS="$sys" R8Q_LIVENESS_RUN="$run" \
   timeout 60 ./r8q-liveness-monitor --check-only 2>&1) || true
 printf '%s' "$out" | grep -q 'stale 1'
 ! printf '%s' "$out" | grep -q 'stale 0'
+# Case C: an appended heartbeat file with a stale FIRST line and a fresh
+# LAST line must not fire. The heartbeat once opened its file with "w" and
+# never seeked back, so it appended: the monitor then compared the oldest
+# timestamp and would have rebooted a healthy phone every 15 s.
+awk '{ printf "%.0f", $1 * 1000000000 }' /proc/uptime > "$run/cpu0"
+awk '{ printf "%.0f\n", ($1 - 3600) * 1000000000 }' /proc/uptime > "$run/cpu1"
+awk '{ printf "%.0f\n", $1 * 1000000000 }' /proc/uptime >> "$run/cpu1"
+out=$(R8Q_LIVENESS_SYS="$sys" R8Q_LIVENESS_RUN="$run" \
+  R8Q_LIVENESS_STALE_NS=10000000000 \
+  timeout 8 ./r8q-liveness-monitor --check-only 2>&1) || true
+! printf '%s' "$out" | grep -q 'stale'
 rm -rf "$sys" "$run"
 # Battery & charger (M6.1): the modular MAX77705/MAX17042 stack loads
 # after early boot and its unit ships enabled.

@@ -63,7 +63,15 @@ int main(int argc, char **argv)
 			perror("clock_gettime");
 			return 1;
 		}
-		fprintf(f, "%lld\n",
+		// Rewrite in place at offset 0, at a fixed width. The file must
+		// stay ONE line: /run is RAM, and a reader that gets several
+		// lines (an append, or "w" opened once) would compare against
+		// the oldest timestamp it holds and call a live core wedged.
+		if (fseek(f, 0, SEEK_SET)) {
+			perror("fseek");
+			return 1;
+		}
+		fprintf(f, "%-20lld\n",
 			(long long)(ts.tv_sec * 1000000000LL + ts.tv_nsec));
 		fflush(f);
 		nanosleep(&(struct timespec){ .tv_sec = 1, .tv_nsec = 0 }, NULL);

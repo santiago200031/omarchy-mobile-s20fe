@@ -73,7 +73,10 @@ start_heartbeats() {
 stale_cpus() {
     now=$(now_ns)
     for c in $(online_cpus); do
-        ts=$(cat "$RUN/cpu$c" 2>/dev/null) || continue
+        # Last line only: the heartbeat rewrites offset 0 every second, so
+        # the file holds one line, but an older or hand-made file may hold
+        # several and awk would silently use the oldest.
+        ts=$(tail -n 1 "$RUN/cpu$c" 2>/dev/null) || continue
         [ -n "$ts" ] || continue
         awk -v n="$now" -v t="$ts" -v s="$STALE_NS" \
             'BEGIN { exit !(n - t > s) }' && printf '%s\n' "$c"

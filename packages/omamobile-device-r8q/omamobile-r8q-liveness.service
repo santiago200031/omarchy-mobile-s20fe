@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# r8q: per-CPU liveness net (see r8q-liveness-monitor for the design).
+#
+# A wedged core (bus-level hang in the RPMh/RCU crash class) stops ticking;
+# no kernel watchdog can fire on it, and the phone otherwise stays dark
+# until a 30 s power hold. The monitor publishes one FIFO-99 heartbeat per
+# online CPU and reboots the phone (PSCI, from a live core) when an online
+# core's heartbeat goes stale.
+[Unit]
+Description=Omarchy Mobile: r8q per-CPU liveness net (auto-reboot on wedged core)
+After=local-fs.target
+ConditionPathExists=/sys/devices/system/cpu/cpu0/cpuidle
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStart=/usr/lib/omamobile/r8q-liveness-monitor
+
+[Install]
+WantedBy=multi-user.target

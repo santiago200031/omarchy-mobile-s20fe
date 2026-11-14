@@ -16,6 +16,12 @@ build() {
     -fno-asynchronous-unwind-tables -Oz \
     -o "$srcdir/reboot-to" "$startdir/reboot-to.c"
 
+  # Per-CPU liveness heartbeat (see r8q-liveness-monitor for the design):
+  # static so the monitor does not add dynamic-loader dependencies to the
+  # thing that reboots the phone.
+  gcc -static -O2 -o "$srcdir/r8q-liveness-heartbeat" \
+    "$startdir/r8q-liveness-heartbeat.c"
+
   # Build the Rust native on-device AI server (the only implementation;
   # the container image ships cargo via tools/lib/alarm-setup). Fail loudly
   # rather than shipping a fallback, so a missing toolchain never goes quiet.
@@ -28,6 +34,21 @@ package() {
   install -Dm755 "$srcdir/reboot-to" "$pkgdir/usr/local/bin/reboot-to"
   install -Dm755 "$startdir/reboot" "$pkgdir/usr/local/bin/reboot"
   install -Dm755 "$srcdir/omamobile-ai-server" "$pkgdir/usr/local/bin/omamobile-ai-server"
+  # The per-CPU liveness net: a wedged core stops ticking and no kernel
+  # watchdog can fire on it (bus-level hang, the r8q crash class); the
+  # monitor reboots the phone from a live core (see the monitor).
+  install -Dm755 "$srcdir/r8q-liveness-heartbeat" \
+    "$pkgdir/usr/lib/omamobile/r8q-liveness-heartbeat"
+  install -Dm755 "$startdir/r8q-liveness-monitor" \
+    "$pkgdir/usr/lib/omamobile/r8q-liveness-monitor"
+  install -Dm644 "$startdir/omamobile-r8q-liveness.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-liveness.service"
+  # Battery & charger telemetry (M6.1): the MAX77705/MAX17042 drivers stay
+  # modules (built-in freezes early boot); this loads them after early boot.
+  install -Dm755 "$startdir/r8q-battery-modprobe" \
+    "$pkgdir/usr/lib/omamobile/r8q-battery-modprobe"
+  install -Dm644 "$startdir/omamobile-r8q-battery.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-battery.service"
   install -Dm644 "$startdir/20-usb-gadget.network" \
     "$pkgdir/usr/lib/systemd/network/20-usb-gadget.network"
   install -Dm644 "$startdir/10-omamobile-usb.conf" \
@@ -121,4 +142,6 @@ package() {
   ln -s ../omamobile-r8q-panel.timer "$wants/omamobile-r8q-panel.timer"
   ln -s ../omamobile-r8q-rtc.service "$wants/omamobile-r8q-rtc.service"
   ln -s ../omamobile-r8q-wifi.service "$wants/omamobile-r8q-wifi.service"
+  ln -s ../omamobile-r8q-liveness.service "$wants/omamobile-r8q-liveness.service"
+  ln -s ../omamobile-r8q-battery.service "$wants/omamobile-r8q-battery.service"
 }

@@ -1,0 +1,133 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# omamobile-r8q-liveness-monitor: reboot the phone when a core stops living.
+#
+# The RPMh/RCU crash class on this phone (device/r8q/PORT-PLAN.md blocker 1)
+# wedges a single core -- most often in a bus-level hang where the core
+# never ticks again and no kernel detector can fire on it. The kernel
+# watchdogs and the softlockup detector only see spinning cores; a core
+# stuck in an unreachable register read stops publishing ticks entirely.
+#
+# This monitor runs one SCHED_FIFO heartbeat per online CPU (r8q-liveness-
+# heartbeat) and watches their monotonic timestamps. An online core whose
+# heartbeat is stale for STALE_NS is wedged: the monitor crashes the kernel
+# (sysrq c -> panic -> panic=10 -> PSCI reset from a live core), falling
+# back to the package's reboot-to (LINUX_REBOOT_CMD_RESTART2) when sysrq is
+# unavailable. The pstore console of the crashed boot survives the reset.
+#
+# --check-only judges heartbeats without spawning its own and without
+# rebooting (it prints "stale <cpu>" and exits): used by the package test
+# with a fake sysfs tree.
+#
+# Environment (tests):
+#   R8Q_LIVENESS_SYS     sysfs root          (default /sys)
+#   R8Q_LIVENESS_RUN     heartbeat dir       (default /run/omamobile-liveness)
+#   R8Q_LIVENESS_STALE_NS   staleness threshold (default 10 s)
+#   R8Q_LIVENESS_HEARTBEAT  heartbeat binary  (default /usr/lib/omamobile/...)
+set -u
+
+SYS=${R8Q_LIVENESS_SYS:-/sys}
+RUN=${R8Q_LIVENESS_RUN:-/run/omamobile-liveness}
+STALE_NS=${R8Q_LIVENESS_STALE_NS:-10000000000}
+HEARTBEAT=${R8Q_LIVENESS_HEARTBEAT:-/usr/lib/omamobile/r8q-liveness-heartbeat}
+CHECK_ONLY=0
+[ "${1:-}" = "--check-only" ] && CHECK_ONLY=1
+
+PIDDIR="$RUN/pids"
+
+log() {
+    printf 'r8q-liveness: %s\n' "$*"
+    [ -w /dev/kmsg ] && printf 'r8q-liveness: %s\n' "$*" > /dev/kmsg
+}
+
+now_ns() {
+    # /proc/uptime (seconds since boot) is the same clock the heartbeats
+    # use (CLOCK_MONOTONIC). 0.01 s resolution, 10 s threshold: plenty.
+    awk '{ printf "%.0f", $1 * 1000000000 }' /proc/uptime
+}
+
+online_cpus() {
+    # The cpuN sysfs dirs exist for possible CPUs; "1" in online means up.
+    for d in "$SYS/devices/system/cpu"/cpu[0-9]*; do
+        [ -d "$d" ] || continue
+        [ "$(cat "$d/online" 2>/dev/null)" = "1" ] || continue
+        printf '%s\n' "${d##*/cpu}"
+    done
+}
+
+start_heartbeats() {
+    for c in $(online_cpus); do
+        f="$PIDDIR/$c"
+        [ -f "$f" ] && kill -0 "$(cat "$f")" 2>/dev/null && continue
+        "$HEARTBEAT" "$c" "$RUN" &
+        echo $! > "$f"
+    done
+    # Drop heartbeats of CPUs that went offline.
+    for p in "$PIDDIR"/*; do
+        [ -f "$p" ] || continue
+        c=${p##*/}
+        online_cpus | grep -qx "$c" || { kill "$(cat "$p")" 2>/dev/null; rm -f "$p"; }
+    done
+}
+
+stale_cpus() {
+    now=$(now_ns)
+    for c in $(online_cpus); do
+        ts=$(cat "$RUN/cpu$c" 2>/dev/null) || continue
+        [ -n "$ts" ] || continue
+        awk -v n="$now" -v t="$ts" -v s="$STALE_NS" \
+            'BEGIN { exit !(n - t > s) }' && printf '%s\n' "$c"
+    done
+}
+
+reboot_phone() {
+    log "rebooting: crashing the kernel (sysrq c, then reboot-to)"
+    echo c > /proc/sysrq-trigger 2>/dev/null
+    sleep 30
+    # Still alive (sysrq unavailable or refused): raw PSCI reset syscall.
+    /usr/local/bin/reboot-to 2>/dev/null
+    # Should never be reached: keep the unit alive until the reset lands.
+    while :; do sleep 30; done
+}
+
+main() {
+    mkdir -p "$RUN" "$PIDDIR"
+    if ((CHECK_ONLY)); then
+        log "check-only: judging existing heartbeats, no heartbeats spawned"
+    else
+        start_heartbeats
+        # Give the heartbeats their first tick before judging anything.
+        sleep 5
+    fi
+
+    while :; do
+        stale=$(stale_cpus)
+        if [ -n "$stale" ]; then
+            # Confirm once more after 5 s: a load burst or a CPU coming
+            # online must not cost a reboot. Newlines to spaces so the
+            # membership test below cannot miss on a multi-CPU list.
+            sleep 5
+            stale2=$(stale_cpus | tr '\n' ' ')
+            for c in $stale; do
+                case " $stale2 " in
+                    *" $c "*)
+                        log "CPU $c online but its heartbeat is stale: core wedged"
+                        if ((CHECK_ONLY)); then
+                            printf 'stale %s\n' "$c"
+                            exit 0
+                        fi
+                        reboot_phone
+                        ;;
+                esac
+            done
+        fi
+        if ((CHECK_ONLY)); then
+            sleep 1
+            continue
+        fi
+        start_heartbeats
+        sleep 2
+    done
+}
+
+main "$@"

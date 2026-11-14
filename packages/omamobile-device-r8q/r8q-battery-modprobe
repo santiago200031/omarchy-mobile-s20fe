@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# omamobile-r8q-battery-modprobe: load the MAX77705/MAX17042 battery stack.
+#
+# The DT (sm8250-samsung-r8q.dts) carries pmic@66 (maxim,max77705),
+# charger@69 (maxim,max77705-charger) and fuel-gauge@36 (maxim,max17040,
+# probed by the max17042 driver) on i2c-0. The drivers are =m: built-in
+# they froze early boot at the UFS probe (2026-11-13), while loading them
+# after early boot probes cleanly (verified on-device: charger online,
+# max170xx_battery reporting capacity/voltage/temp).
+#
+# Once bound, /sys/class/power_supply/max170xx_battery and
+# max77705-charger appear; upower and the AI server's telemetry read them.
+set -eu
+for m in max77705 max77705_charger max17042_battery; do
+  modprobe "$m" || echo "r8q-battery: modprobe $m failed" >&2
+done
+sleep 1
+ls /sys/class/power_supply/ 2>/dev/null || true

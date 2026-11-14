@@ -51,6 +51,51 @@ grep -q 'max170xx_battery' rust/ai-server/src/main.rs
 grep -q 'max77705-charger' rust/ai-server/src/main.rs
 grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service
 grep -qx 'OnUnitActiveSec=4min' omamobile-r8q-panel.timer
+# Liveness net: a wedged core stops ticking and no kernel detector can fire
+# on it (the r8q crash class); the monitor must ship with its unit, the
+# heartbeat must be FIFO on the pinned CPU, and the decision logic must
+# flag exactly the stale online CPU.
+sh -n r8q-liveness-monitor
+test -f r8q-liveness-heartbeat.c
+grep -q 'SCHED_FIFO' r8q-liveness-heartbeat.c
+grep -q 'CLOCK_MONOTONIC' r8q-liveness-heartbeat.c
+grep -q 'sched_getcpu' r8q-liveness-heartbeat.c
+grep -q 'sysrq-trigger' r8q-liveness-monitor
+grep -q 'reboot-to' r8q-liveness-monitor
+grep -q 'omamobile-r8q-liveness.service' PKGBUILD
+grep -q 'Restart=always' omamobile-r8q-liveness.service
+sys=$(mktemp -d) run=$(mktemp -d)
+trap 'rm -rf "$sys" "$run"' EXIT
+for c in 0 1; do
+  mkdir -p "$sys/devices/system/cpu/cpu$c"
+  echo 1 > "$sys/devices/system/cpu/cpu$c/online"
+done
+# Case A: both heartbeats fresh -> no "stale" output (timeout kills it).
+awk '{ printf "%.0f", $1 * 1000000000 }' /proc/uptime > "$run/cpu0"
+cp "$run/cpu0" "$run/cpu1"
+out=$(R8Q_LIVENESS_SYS="$sys" R8Q_LIVENESS_RUN="$run" \
+  R8Q_LIVENESS_STALE_NS=10000000000 \
+  timeout 8 ./r8q-liveness-monitor --check-only 2>&1) || true
+! printf '%s' "$out" | grep -q 'stale'
+# Case B: cpu1 one hour stale -> "stale 1" and only that. Refresh cpu0
+# right before the run: case A's timeout has already elapsed, and on a
+# slow machine its timestamp would itself be past the 10 s threshold.
+awk '{ printf "%.0f", $1 * 1000000000 }' /proc/uptime > "$run/cpu0"
+awk '{ printf "%.0f", ($1 - 3600) * 1000000000 }' /proc/uptime > "$run/cpu1"
+out=$(R8Q_LIVENESS_SYS="$sys" R8Q_LIVENESS_RUN="$run" \
+  R8Q_LIVENESS_STALE_NS=10000000000 \
+  timeout 60 ./r8q-liveness-monitor --check-only 2>&1) || true
+printf '%s' "$out" | grep -q 'stale 1'
+! printf '%s' "$out" | grep -q 'stale 0'
+rm -rf "$sys" "$run"
+# Battery & charger (M6.1): the modular MAX77705/MAX17042 stack loads
+# after early boot and its unit ships enabled.
+sh -n r8q-battery-modprobe
+grep -q 'max77705_charger' r8q-battery-modprobe
+grep -q 'max17042_battery' r8q-battery-modprobe
+grep -q 'omamobile-r8q-battery.service' PKGBUILD
 echo ok config
 echo ok wrapper
 echo ok sources
+echo ok liveness
+echo ok battery

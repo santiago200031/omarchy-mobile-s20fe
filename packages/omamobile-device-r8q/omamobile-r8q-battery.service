@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# r8q: battery & charger telemetry (M6.1). The drivers stay modules
+# (built-in freezes early boot); loading them after early boot probes
+# the DT nodes cleanly. See r8q-battery-modprobe.
+[Unit]
+Description=Omarchy Mobile: r8q battery & charger (MAX77705/MAX17042)
+After=local-fs.target
+ConditionPathExists=/sys/bus/i2c/devices/i2c-0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/omamobile/r8q-battery-modprobe
+
+[Install]
+WantedBy=multi-user.target

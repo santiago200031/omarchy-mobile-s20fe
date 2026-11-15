@@ -203,27 +203,45 @@ shows an image. That is the camera working on this port. The pipeline's exact
 video node number comes from `media-ctl -p`; link the graph step by step
 (`media-ctl -l`) if the pipeline handler has not linked it.
 
-## 6. Next experiments for the QUP10 I2C timeout
+## 6. The QUP10 I2C timeout: what was tested and what is left
 
-The bus controller, not the sensor, is where the work is. In order of cost:
+Every transfer on `i2c@a88000` (QUP10, vendor `qupv3_se10`, GPIO129/130) ends
+in `geni_i2c a88000.i2c: Timeout cancel_m_cmd`, so `hi847` cannot read its chip
+ID (`failed to find sensor: -5`). Ruled out, each verified on the phone:
 
-1. **GPI EE offset for `gpi_dma1` (0xa00000).** The port patches the GPI driver
-   to set `ee_offset` per QUP (`00cfa5c21`): 0x1000 for 0x900000 and 0x6000 for
-   0x800000/0xa00000. The working touch bus is on the 0x900000 instance; the
-   camera bus is on 0xa00000, the one value that has never been validated by a
-   working peripheral. Try 0x1000 there (one kernel rebuild + flash), and if
-   that works, keep it.
-2. **FIFO vs GPI.** `geni_i2c` only uses GPI DMA when the hardware says the
-   FIFO interface is disabled (`GENI_IF_DISABLE_RO`), which TrustZone can set
-   per SE. If the FIFO is usable, dropping `dmas`/`dma-names` from `&i2c10`
-   leaves the driver on the FIFO path and tells us whether the fault is the
-   GPI channel or the wire.
-3. **Electrical check.** With a scope or a GPIO-mode test: pull-ups on SDA/SCL
-   and whether the sensor drives them; the 1.8 V CAM_VIO rail is up, so a dead
-   bus would mean the pull-ups sit on a different rail or the bus is held low.
-4. Only then go back to the sensor driver. The HI-847 driver changes are
-   already in (`hynix,hi847`, regulators, reset/LDO GPIOs, runtime PM,
-   one-link-frequency DT, TITAN_TOP power domain).
+| Test | Result |
+| --- | --- |
+| Pin mux | `a88000.i2c` claims GPIO129/130 with function `qup10`, exactly the stock DT's `qupv3_se10_i2c_active` (drive 2, `bias-disable`) |
+| CAM_VIO rail | `vreg_l7a_1p8` enabled, 1800 mV, 1 consumer; PM8150A LDO7, from the stock `cam_vio-supply` |
+| MCLK3 | `cam_cc_mclk3_clk` enable_count 1, 19.2 MHz (after the `TITAN_TOP_GDSC` power-domain fix) |
+| Reset / LDO-enable polarity | all four combinations, via module parameters: identical `-EIO` |
+| I2C address | `i2cdetect` on the powered bus: no ACK at any address; the stock DT's `slave-addr = 0x42` is the 8-bit form of 0x21 |
+| Interrupt | the SE IRQ does fire (409 → 411 per probe), so it is not a missing/routed-wrong IRQ; the stock DT's SPI 355 is what mainline uses |
+| GPI EE offset | the port sets 0x6000 for the 0xa00000 GPI instance (`00cfa5c21`); testing 0x1000 changed nothing |
+| Bench bus | `i2c5` (touch, QUP0, GPI instance 0x900000) works, so GENI I2C and GPI DMA work in general on this port |
+
+Left, in order of cost:
+
+1. **FIFO vs GPI.** `geni_i2c` reads `GENI_IF_DISABLE_RO` and only uses GPI DMA
+   when the FIFO interface is disabled (TrustZone can set that per SE). Removing
+   `dmas`/`dma-names` from `&i2c10` makes probe fail if the FIFO is disabled (we
+   learn the state) or run on FIFO (we learn whether GPI is the fault).
+2. **Electrical.** With a scope on GPIO129/130: are the pull-ups present and on
+   which rail, and does the sensor drive SDA low (a powered sensor holding SCL
+   low indefinitely shows exactly this timeout). The tele camera is behind the
+   back glass; a loose connector would look like this too.
+3. **A second QUP1 bus as a control.** Enable `&i2c11` (the CS35L41 amplifiers,
+   vendor `qupv3_se11`) on the same QUP1 block: if it also times out, the fault
+   is the QUP1 block/GPI pair rather than the camera wiring.
+
+The current state on the phone: the clean camera image is flashed
+(`out-r8q/recovery-omamobile.img`, sha256 `5fe3a273…`, release
+`7.3.0-rc6-omamobile-push1-g0a1227989083`) and the camera modules are held off
+with `/etc/modprobe.d/zz-camera-hold.conf`, so the phone runs at normal speed
+with `camcc` at 0 references. Remove that file (and reboot) to bring the stack
+back for the next test. The previous boot partition is backed up byte-for-byte
+in `backup/r8q-camera/recovery-before-camera.img`
+(sha256 `ebac7774…`).
 
 ## 7. Follow-ups for the other three sensors
 

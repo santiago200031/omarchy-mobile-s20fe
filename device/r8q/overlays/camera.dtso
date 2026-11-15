@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay (CAMERA-PLAN step 2): enable the SM8250 camera stack and
+ * the rear telephoto camera (SK Hynix HI-847, 8 MP).
+ *
+ * The base device tree ships these nodes disabled, so the phone boots the same
+ * way without this overlay. Boot it with `tools/r8q-boot --overlay camera`,
+ * and only after the camera modules are installed (camcc-sm8250, qcom-camss,
+ * hi847) and `camcc_sm8250` is no longer blacklisted: CAMSS and the sensor get
+ * their clocks and their CSIPHY rails from CAMCC.
+ */
+/dts-v1/;
+/plugin/;
+
+/* CAMSS: the CSI decoder/ISP, its CSIPHY2 rails come from PM8150A. */
+&{/soc@0/camss@ac6a000} {
+	status = "okay";
+};
+
+/* QUP I2C10 is the sensor control bus (vendor "qupv3_se10", GPIO129/130). */
+&{/soc@0/geniqup@ac0000/i2c@a88000} {
+	status = "okay";
+};
+
+/* Rear telephoto: HI-847 at 7-bit 0x21, MCLK3 19.2 MHz, CSIPHY2. */
+&{/soc@0/geniqup@ac0000/i2c@a88000/camera@21} {
+	status = "okay";
+};

@@ -5,6 +5,8 @@ ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{min_freq
 ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{max_freq}="305000000"
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="3d00000.gpu", ATTR{power/control}="on"
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="3d6a000.gmu", ATTR{power/control}="on"
-# Keep I2C1 (max77705/max17042) and its GENI QUP wrapper awake: runtime PM suspends trigger RPMh BCM/QUP0 churn.
+# Keep I2C1 (max77705/max17042), I2C5 (stmfts touchscreen), and their GENI QUP wrapper awake: runtime PM suspends trigger RPMh BCM/QUP churn.
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="9c0000.geniqup", ATTR{power/control}="on"
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="980000.i2c", ATTR{power/control}="on"
+ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="994000.i2c", ATTR{power/control}="on"
+ACTION=="add|change", SUBSYSTEM=="i2c", KERNEL=="5-0049", ATTR{power/control}="on"

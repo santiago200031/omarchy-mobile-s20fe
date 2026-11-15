@@ -12,4 +12,4 @@
 
 ## Permanent Rule
 - Install Arch Linux ARM `extra/mesa`, `extra/vulkan-mesa-implicit-layers`, and `extra/vulkan-freedreno` (sync RTC via `date -u -s @$(date +%s)` before `pacman-key` if clock is behind).
-- Remove `vfr` from `misc`; use `misc.vrr = 0` and `DSI-1` `1080x2400@60` (`hyprland-r8q.conf`; also update `tools/r8q-install` when touched).
+- Remove `vfr` from `misc`; use `misc.vrr = 0` and `DSI-1` `1080x2400@60` (`hyprland-r8q.conf` and `tools/r8q-install` updated on `r8q-touch-and-fixes`).

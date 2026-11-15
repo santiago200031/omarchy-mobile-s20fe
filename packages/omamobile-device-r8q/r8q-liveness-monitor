@@ -122,12 +122,54 @@ offline_unreserved_xpu_pages() {
     log "offlined unreserved XPU/TZ/Knox pages via hard_offline_page"
 }
 
+pin_r8q_power_control() {
+    [ "$SYS" = "/sys" ] || return 0
+    for ctl in \
+        "$SYS/devices/platform/soc@0/3d00000.gpu/power/control" \
+        "$SYS/devices/platform/soc@0/3d6a000.gmu/power/control" \
+        "$SYS/devices/platform/soc@0/9c0000.geniqup/power/control" \
+        "$SYS/devices/platform/soc@0/9c0000.geniqup/980000.i2c/power/control" \
+        "$SYS/devices/platform/soc@0/9c0000.geniqup/994000.i2c/power/control" \
+        "$SYS/bus/i2c/devices/5-0049/power/control"
+    do
+        [ -w "$ctl" ] || continue
+        state=""
+        read -r state < "$ctl" 2>/dev/null || true
+        [ "$state" = "on" ] || echo on > "$ctl" 2>/dev/null || true
+    done
+}
+
+ensure_r8q_touch_driver() {
+    [ "$SYS" = "/sys" ] || return 0
+    kver=$(uname -r 2>/dev/null) || return 0
+    ko="/usr/lib/modules/$kver/extra/stmfts-r8q.ko"
+    dev="$SYS/bus/i2c/devices/5-0049"
+    [ -f "$ko" ] && [ -d "$dev" ] || return 0
+    cur=""
+    if [ -L "$dev/driver" ]; then
+        cur=$(basename "$(readlink "$dev/driver" 2>/dev/null)" 2>/dev/null) || cur=""
+    fi
+    [ "$cur" = "stmfts-r8q" ] && return 0
+    if [ ! -d "$SYS/bus/i2c/drivers/stmfts-r8q" ]; then
+        insmod "$ko" 2>/dev/null || modprobe stmfts-r8q 2>/dev/null || return 0
+    fi
+    if [ "$cur" = "stmfts" ] && [ -w "$SYS/bus/i2c/drivers/stmfts/unbind" ]; then
+        echo 5-0049 > "$SYS/bus/i2c/drivers/stmfts/unbind" 2>/dev/null || true
+    fi
+    if [ -w "$SYS/bus/i2c/drivers/stmfts-r8q/bind" ] && [ ! -e "$dev/driver" ]; then
+        echo 5-0049 > "$SYS/bus/i2c/drivers/stmfts-r8q/bind" 2>/dev/null || true
+    fi
+    log "rebound 5-0049 from ${cur:-unbound} to stmfts-r8q"
+}
+
 main() {
     mkdir -p "$RUN" "$PIDDIR"
     if ((CHECK_ONLY)); then
         log "check-only: judging existing heartbeats, no heartbeats spawned"
     else
         offline_unreserved_xpu_pages
+        pin_r8q_power_control
+        ensure_r8q_touch_driver
         start_heartbeats
         # Give the heartbeats their first tick before judging anything.
         sleep 5
@@ -158,6 +200,7 @@ main() {
             sleep 1
             continue
         fi
+        pin_r8q_power_control
         start_heartbeats
         sleep 2
     done

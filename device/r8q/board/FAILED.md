@@ -12,5 +12,6 @@ Every failed approach, root cause, and permanent mitigation learned during `r8q`
 | [04 Protected DISPCC Clocks & White Flash](failed/04-display-protected-clocks-and-white-flash.md) | `display-mdss.dtso` gave `ESC0_CLK=0` (`-22`); unclocked FB caused white flash | Clear `&dispcc` `protected-clocks` (`display.dtso`) and hold 9 clocks + `MDSS_GDSC` on FB |
 | [05 `[omamobile]/mesa`, `misc.vfr` & `@120`](failed/05-omamobile-mesa-and-hyprland-vfr.md) | Mali Mesa lacked `msm_dri.so`; `misc.vfr` threw `looknfeel.lua:1` error | Use `extra/mesa` + `extra/vulkan-freedreno`, `misc.vrr = 0`, `1080x2400@60` |
 | [06 Boot & Session Hazards](failed/06-boot-and-session-hazards.md) | `serial0=&uart6`, monitor `SIGPIPE` loop, `udisks2`/`voxtype`/`icc_bwmon`/`camcc_sm8250`, `bt-agent`, `scp` | Avoid alias, read sysfs directly, mask/blacklist unported units, use `tools/r8q-push` |
+| [07 `stmfts5` 8-Byte vs `fts5cu56a` 16-Byte Events](failed/07-stmfts5-8byte-vs-samsung-16byte-events.md) | `stmfts5` split 16-byte Samsung Type-B touch events -> `unknown FTS5 event 0x80`/`0x1` | Parse `0x60`/`0x61` 16-byte Type-B packets (`5866f774c` / `stmfts-r8q.ko`) and pin `994000.i2c` `power/control="on"` |
 
 Back to [Board Overview](README.md).

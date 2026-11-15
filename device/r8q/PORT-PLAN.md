@@ -17,7 +17,7 @@
 | **Early FB -> MSM Display** | `framebuffer@9c000000` (9 clocks + `MDSS_GDSC`), `display.dtso` (`&dispcc` unprotected), `panel-samsung-s6e3fc3`, `ae94000.dsi.0` backlight | Zero white flash; `modprobe msm` = `0`, DPU `0x60000000`, `DSI-1` `1080x2400@120` |
 | **Touch & Keys** | `stmfts` (`i2c5@49`), `gpio_keys` (`VolUp`/`VolDown`), `qpnp_pon` (Power built-in) | Touchscreen + hardware volume/power keys verified on live system |
 | **Adreno 650 & Desktop Launch** | `a650_sqe.fw` (`0x112 >= 0x095`) + `a650_gmu.bin` (v2.1.8) -> `/dev/dri/card1` + `renderD128`; `extra/mesa` + `extra/vulkan-freedreno` (`1:26.2.7-1`) | `seatd` + `sddm` + `Hyprland` + `quickshell` (`omamobile-shell`) + `squeekboard` launched under `alarm`; hit `t+14s` hang under 3D load (offline fixes staged, §3) |
-| **Memory & Swap** | `CONFIG_ZRAM=y` (`ram/2`, `zstd`), 4 GiB `/swapfile`, MGLRU, writeback caps | `omamobile-device-r8q` `0.1.14` VM tuning |
+| **Memory & Swap** | `CONFIG_ZRAM=y` (`ram/2`, `zstd`), 4 GiB `/swapfile`, MGLRU, writeback caps | `omamobile-device-r8q` `0.1.15` VM tuning |
 
 ---
 

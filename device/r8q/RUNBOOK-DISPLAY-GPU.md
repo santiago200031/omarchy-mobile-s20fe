@@ -13,11 +13,11 @@ All artifacts have been compiled, AVB-signed, and verified offline:
 
 | Artifact | Location | Details |
 |---|---|---|
-| Recovery Image | `/home/amd-omarchy/omamobile-kernel/out-r8q/recovery-r8q-display-gpu.img` | Header v2, 82,694,144 B (fits `sda24`), AVB RSA4096 signed |
+| Recovery Image | `/home/amd-omarchy/omamobile-kernel/out-r8q/recovery-r8q-display-gpu.img` | Header v2, 82,694,144 B (fits `sda24`), AVB RSA4096 signed, SHA256 `62d2b0ad1fc6dfa684e2c81c076219ecb66b5d287ed75c6ac8ea247de9ccbd4a` |
 | Odin / Heimdall TAR | `/home/amd-omarchy/omamobile-kernel/out-r8q/recovery-r8q-display-gpu.tar.md5` | Samsung flashable tar package containing `recovery.img` |
-| Compiled DTB | `/home/amd-omarchy/omamobile-kernel/out-r8q/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb` | 9 display clocks + `MDSS_GDSC` on `simple-framebuffer`, `gpu_mem` at `0x9031a000`, no `protected-clocks` |
+| Compiled DTB | `/home/amd-omarchy/omamobile-kernel/out-r8q/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb` | 9 display clocks + `MDSS_GDSC` on `simple-framebuffer`, `gpu_mem` at `0x9031a000`, zero reserved-memory overlaps, no `protected-clocks` |
 | Display Overlay | `device/r8q/overlays/display.dtso` | Enables `display-subsystem@ae00000`, `dsi@ae94000`, `panel@0`, `phy@ae94400` |
-| Kernel Modules | `/home/amd-omarchy/omamobile-kernel/out-r8q/modules-*.tar.zst` | Linux 7.3.0-rc6 modules |
+| Kernel Modules | `/home/amd-omarchy/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-gd2ace27726e3.tar.zst` | Clean non-`-dirty` build (`d2ace2772`), 1818 stripped modules (`7.3.0-rc6-omamobile-push1-gd2ace27726e3`) |
 | Staged Firmware | `~/.cache/omamobile/firmware/r8q/lib/firmware/` | `a650_sqe.fw` (v0x112), `a650_zap.mbn`, `a650_gmu.bin`, `ipa_fws.mbn`, `cs40l*`, `a96t356*` |
 
 ---
@@ -271,6 +271,6 @@ All artifacts have been compiled, AVB-signed, and verified offline:
   - Un-blacklisted `msm`, provisioned user `alarm` (`uid=1000`) + `DSI-1` `1080x2400@120` config, and installed Arch Linux ARM `extra/mesa 1:26.2.7-1`, `extra/vulkan-mesa-implicit-layers 1:26.2.7-1`, and `extra/vulkan-freedreno 1:26.2.7-1` (`msm_dri.so`, `kgsl_dri.so`, `libvulkan_freedreno.so`).
   - Restarting `seatd` + `sddm` launched `Hyprland --watchdog-fd 4`, `quickshell -n -p /usr/share/omarchy/shell`, `squeekboard`, and `Xwayland` cleanly (`t+8s`), then SSH stalled during 3D startup (`t+14s`) before the phone powered off (`multi-user.target` on cmdline keeps next boot safe).
 - **Next Recovery Boot & Re-Flash Actions (human-approved):**
-  1. Boot into existing `RECOVERY` (`multi-user.target`) and read `/sys/fs/pstore/console-ramoops-0` to inspect the `t+14s` hang.
-  2. Re-flash repacked `recovery-r8q-display-gpu.img` containing the `sm8250-samsung-common.dtsi` reserved-memory fix (resolving the `0x8bf00000` vs `gpu_mem` `0x9031a000` overlap) and deploy `80-r8q-gpu.rules` (`max_freq="305000000"`).
-  3. Test `sddm.service` launch under watchdog with `max_freq=305000000` (and `AQ_NO_MODIFIERS=1` if needed for Adreno UBWC triage).
+  1. Boot into existing `RECOVERY` (`gd469bd3bf2a9`, `multi-user.target`) via `VolUp + Power`, connect to `root@172.16.42.1`, and inspect `/sys/fs/pstore/console-ramoops-0` + `journalctl -b -1` to capture the exact cause of the `t+14s` hang.
+  2. Before rebooting into the new kernel, deploy `/usr/lib/udev/rules.d/80-r8q-gpu.rules` (`max_freq="305000000"`), unpack `modules-7.3.0-rc6-omamobile-push1-gd2ace27726e3.tar.zst` into `/usr/lib/modules/` (`depmod -a 7.3.0-rc6-omamobile-push1-gd2ace27726e3`), and test `sddm.service` under a 120 s dead-man timer (`max_freq=305000000`, plus `AQ_NO_MODIFIERS=1` if needed for Adreno UBWC triage).
+  3. With human approval, flash the clean `gd2ace27726e3` `recovery-r8q-display-gpu.img` (SHA256 `62d2b0ad1fc6dfa684e2c81c076219ecb66b5d287ed75c6ac8ea247de9ccbd4a`, fixing the `0x8bf00000` vs `gpu_mem` `0x9031a000` reserved-memory overlap) and verify `uname -r` matches `7.3.0-rc6-omamobile-push1-gd2ace27726e3`.

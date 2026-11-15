@@ -57,13 +57,20 @@ read -r pushed < <("${SSH[@]}" "$REMOTE" "sha256sum /tmp/omamobile-recovery.img 
 [[ $pushed == "$sha" ]] || die "staged image sha mismatch ($pushed != $sha)"
 
 say "Writing $PART (the phone must stay awake; this is ~80 MB)"
+# The storage guard leaves the whole UFS LUN read-only, not only its
+# partitions, so clearing the partition flag alone leaves $PART writable
+# looking but every write dropped (dd "succeeds" with 0 bytes). Clear the LUN
+# flag too, and set both back afterwards.
+DISK="${PART%[0-9]*}"
 "${SSH[@]}" "$REMOTE" "set -e
+  blockdev --setrw $DISK
   blockdev --setrw $PART
-  dd if=/tmp/omamobile-recovery.img of=$PART bs=4M conv=fsync 2>/dev/null
+  dd if=/tmp/omamobile-recovery.img of=$PART bs=4M conv=fsync
   sync
   blockdev --setro $PART
+  blockdev --setro $DISK
   rm -f /tmp/omamobile-recovery.img
-  blockdev --getro $PART"
+  echo \"ro: $DISK=\$(cat /sys/block/${DISK##*/}/ro) $PART=\$(cat /sys/block/${PART##*/}/ro)\""
 
 say "Reading the partition back and verifying"
 read -r back < <("${SSH[@]}" "$REMOTE" "sha256sum $PART | cut -c1-64")

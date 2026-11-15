@@ -1,30 +1,44 @@
 # Camera plan (r8q / SM8250): the mainline V4L2 stack, telephoto first
 
-- **Status (2026-11-15, evening):** diagnosis done; the kernel side is
-  committed, built and staged, and the CAMCC probe has been verified on the
-  phone. What is left is one flash of the recovery image and the live camera
-  checks (§5). Kernel `omamobile-r8q` worktree `~/omamobile-kernel/wt-r8q`
-  (HEAD `bd65a535b`), output `~/omamobile-kernel/out-r8q`, build with
-  `DEVICE=r8q`. Release `7.3.0-rc6-omamobile-push1-gbd65a535b90b`.
+- **Status (2026-11-15, night):** the camera **stack** is up on the phone and
+  the sensor is the last blocker. Kernel worktree `~/omamobile-kernel/wt-r8q`
+  (HEAD `0a1227989`), out `~/omamobile-kernel/out-r8q`, release
+  `7.3.0-rc6-omamobile-push1-g0a1227989083`, flashed into `sda24` and booted.
 
-  Staged artifacts:
+  Working, verified on the phone:
 
-  | Artifact | Value |
-  | --- | --- |
-  | `out-r8q/recovery-omamobile.img` (camera overlay applied) | sha256 `a858c7a85ccdb7cda6978a8c908270a0db0907026674b9546b14b94d6b6f1b19` |
-  | `out-r8q/modules-7.3.0-rc6-omamobile-push1-gbd65a535b90b.tar.zst` | installed on the phone under `/usr/lib/modules/` (depmod run) |
-  | Kernel commits | `4824e58ad` (hi847 DT support), `bd65a535b` (r8q camera DT) |
+  - `qcom-camss` probes: `/dev/media0`, `/dev/video0..13`, all six CSIPHYs, the
+    four CSIDs and the VFE RDI/pix entities are in the media graph;
+  - `camcc-sm8250` is no longer blacklisted (111 `cam_cc_*` clocks, clean probe);
+  - the HI-847's CAM_VIO rail is modelled (PM8150A LDO7, 1.8 V) and enabled
+    (`vreg_l7a_1p8`: 1 in use, 1800 mV) and its MCLK3 runs at 19.2 MHz
+    (`cam_cc_mclk3_clk` enable_count 1) — after giving the sensor
+    `power-domains = <&camcc TITAN_TOP_GDSC>`: without it the MCLK branch
+    stayed in halt ("status stuck at 'off'") and probe failed with -EBUSY.
 
-  Verified on the phone so far: `modprobe camcc-sm8250` returns 0 and registers
-  the whole camera clock tree (111 `cam_cc_*` clocks: `cam_cc_mclk0..5`,
-  `cam_cc_csiphy0..5`, the CSID/VFE clocks), the phone stays up, and the
-  `blacklist camcc_sm8250` line is gone from
-  `/etc/modprobe.d/omamobile-r8q-bringup.conf` (original saved at
-  `/root/omamobile-r8q-bringup.conf.pre-camera`). So the blacklist was indeed
-  only a bring-up workaround and CAMCC is safe; it was the missing DT nodes,
-  not the clock controller, that kept the camera dark.
-- **Back:** [PORT-PLAN.md](PORT-PLAN.md) · [NOTES.md](NOTES.md) ·
-  [board/missing/04-sensors-cameras-dpms-and-installer.md](board/missing/04-sensors-cameras-dpms-and-installer.md)
+  Still failing: the HI-847 does not answer on its I2C bus. Every transfer on
+  `i2c@a88000` (QUP10, vendor `qupv3_se10`, GPIO129/130) times out —
+  `geni_i2c a88000.i2c: Timeout cancel_m_cmd`, then
+  `hi847 10-0021: failed to find sensor: -5` — and `i2cdetect` sees no ACK at
+  any address on that bus. Ruled out so far: pin muxing (`a88000.i2c` claims
+  both pins with function `qup10`), the rail and MCLK (both on, above), the
+  sensor's reset/LDO-enable polarity (all four combinations tested), and the
+  I2C address (a scan with the sensor powered, kept up by a debug module,
+  answers at none).
+
+  Also recorded: **kexec cannot change the device tree on this phone.** The
+  file-based syscall regenerates the DT from the running one and ignores
+  `--dtb`; the load syscall honours it but panics here (needs
+  `CONFIG_PROC_KCORE` for VA_BITS, added to `kernel.config`, and still
+  panicked), so a DT change needs the boot image, i.e. a write to `sda24`.
+  `tools/r8q-flash-recovery` now clears the LUN read-only flag as well: the
+  guard leaves the whole disk read-only, so clearing only the partition flag
+  made `dd` copy zero bytes while succeeding.
+
+  Staged artifacts: `out-r8q/recovery-omamobile.img` (camera overlay,
+  dual-boot, sha256 `d3379ad6…`), modules for the release installed on the
+  phone, and a byte-exact backup of the previous `sda24` in
+  `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
 
 ## 1. What is actually wrong (corrected)
 
@@ -189,14 +203,37 @@ shows an image. That is the camera working on this port. The pipeline's exact
 video node number comes from `media-ctl -p`; link the graph step by step
 (`media-ctl -l`) if the pipeline handler has not linked it.
 
-## 6. Follow-ups, in order
+## 6. Next experiments for the QUP10 I2C timeout
 
-1. The three remaining sensors (IMX555, S5K3L6, IMX616): port the vendor mode
-   tables into `drivers/media/i2c/` drivers of the same shape as `hi847`; the
-   rear main also needs its actuator (`qcom,actuator` at 0x18 → a mainline VCM
-   driver) and OIS, and its eeprom for calibration.
-2. libcamera and PipeWire: CAMSS exposes a media graph, so apps need a
-   libcamera pipeline (raw capture first via `cam`/`qcam`), then
-   `pipewire-libcamera` so Wayland apps see it through the portal.
-3. `i2c-qcom-cci` is only needed for the rear main and the front sensor; wire
-   it in the same way when those drivers land.
+The bus controller, not the sensor, is where the work is. In order of cost:
+
+1. **GPI EE offset for `gpi_dma1` (0xa00000).** The port patches the GPI driver
+   to set `ee_offset` per QUP (`00cfa5c21`): 0x1000 for 0x900000 and 0x6000 for
+   0x800000/0xa00000. The working touch bus is on the 0x900000 instance; the
+   camera bus is on 0xa00000, the one value that has never been validated by a
+   working peripheral. Try 0x1000 there (one kernel rebuild + flash), and if
+   that works, keep it.
+2. **FIFO vs GPI.** `geni_i2c` only uses GPI DMA when the hardware says the
+   FIFO interface is disabled (`GENI_IF_DISABLE_RO`), which TrustZone can set
+   per SE. If the FIFO is usable, dropping `dmas`/`dma-names` from `&i2c10`
+   leaves the driver on the FIFO path and tells us whether the fault is the
+   GPI channel or the wire.
+3. **Electrical check.** With a scope or a GPIO-mode test: pull-ups on SDA/SCL
+   and whether the sensor drives them; the 1.8 V CAM_VIO rail is up, so a dead
+   bus would mean the pull-ups sit on a different rail or the bus is held low.
+4. Only then go back to the sensor driver. The HI-847 driver changes are
+   already in (`hynix,hi847`, regulators, reset/LDO GPIOs, runtime PM,
+   one-link-frequency DT, TITAN_TOP power domain).
+
+## 7. Follow-ups for the other three sensors
+
+1. **Sony IMX555** (rear main, CCI0 master 0, CSIPHY0, MCLK0 19.2 MHz) and
+   **Sony IMX616** (front, CCI0 master 1, CSIPHY3, MCLK2 24 MHz): no mainline
+   driver; write one each, with the actuator (`qcom,actuator` 0x18) and OIS for
+   the main camera.
+2. **Samsung S5K3L6** (ultrawide, QUP I2C2, 7-bit 0x2d, CSIPHY1, MCLK1): no
+   driver either, and it is on the same kind of QUP I2C bus, so the QUP10
+   finding above applies to it too.
+3. libcamera and PipeWire once a sensor streams: the media graph is CAMSS's,
+   so apps need a libcamera pipeline (`cam`, `qcam`) and then
+   `pipewire-libcamera`.

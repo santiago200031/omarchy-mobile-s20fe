@@ -2,7 +2,7 @@
 
 # Column: Success / Hardware-Verified on SM-G780G (`r8q`)
 
-Subsystems verified working on hardware as of `2026-11-15` (branch `r8q-wifi-bt`, `omamobile-device-r8q` `0.1.18`).
+Subsystems verified working on hardware as of `2026-11-15` (branch `main`, `omamobile-device-r8q` `0.1.18`).
 
 | Card | Scope | Hardware Proof |
 | --- | --- | --- |

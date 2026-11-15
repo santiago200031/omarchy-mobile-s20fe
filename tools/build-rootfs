@@ -126,6 +126,9 @@ conf=device/$DEVICE/device.conf
 DEVICE_PACKAGE=$(sed -n 's/^PACKAGE=\([a-z0-9-]*\)$/\1/p' "$conf")
 [[ -n $DEVICE_PACKAGE ]] || alarm_die "$conf has no PACKAGE"
 ROOTFS_PACKAGES=$(sed -n 's/^ROOTFS_PACKAGES="\(.*\)"$/\1/p' "$conf")
+# Extra space, in MiB, over the base install's 20%; see rootfs/build-inside.
+ROOTFS_HEADROOM_MB=$(sed -n 's/^ROOTFS_HEADROOM_MB=\([0-9]\+\)$/\1/p' "$conf")
+ROOTFS_HEADROOM_MB=${ROOTFS_HEADROOM_MB:-2048}
 # Boot files in the device package: the kernel comes as a package
 KERNEL_PACKAGE=0
 grep -c 'OMAMOBILE_BOOT_FILES' "packages/$DEVICE_PACKAGE/install" >/dev/null 2>&1 && KERNEL_PACKAGE=1
@@ -180,6 +183,7 @@ docker run --rm --privileged --platform linux/arm64 \
   -v "$volume:/target" -v "$work:/out" -v "$ALARM_CACHE/pkg:/var/cache/pacman/pkg" \
   -e VERSION="$VERSION" -e DEVICE="$DEVICE" -e DEVICE_PACKAGE="$DEVICE_PACKAGE" \
   -e ROOTFS_PACKAGES="$ROOTFS_PACKAGES" -e KERNEL_PACKAGE="$KERNEL_PACKAGE" \
+  -e ROOTFS_HEADROOM_MB="$ROOTFS_HEADROOM_MB" \
   -e KERNEL_RELEASE="$release" -e MODULES_SHA256="$(sha256sum < "$modules" | cut -d' ' -f1)" \
   -e GIT_COMMIT="$commit" -e ALARM_SHA256="$(sha256sum < "$ALARM_TARBALL" | cut -d' ' -f1)" \
   -e OMARCHY_CHANNEL="$OMARCHY_CHANNEL" -e CHANNEL="$CHANNEL" -e ALLOW_MISSING="$ALLOW_MISSING" \

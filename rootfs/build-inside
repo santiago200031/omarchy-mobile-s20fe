@@ -290,7 +290,13 @@ install -Dm644 /out/MANIFEST "$T/usr/share/omamobile/rootfs/MANIFEST"
 
 say "ext4 image"
 used=$(du -sx --block-size=1M "$T" | cut -f1)
-size=$(( (used * 12 / 10 + 768 + 63) / 64 * 64 ))
+# 20% headroom over what is installed, plus ROOTFS_HEADROOM_MB (default
+# 2048): the image is built from a base install and the device's own
+# packages land after first boot, so a tight image fills up and leaves no
+# room for updates, a model or a swapfile. A descriptor may raise it.
+headroom=${ROOTFS_HEADROOM_MB:-2048}
+[[ $headroom =~ ^[0-9]+$ ]] || { echo "ROOTFS_HEADROOM_MB must be a number of MiB" >&2; exit 1; }
+size=$(( (used * 12 / 10 + headroom + 63) / 64 * 64 ))
 rm -f /out/rootfs.img
 truncate -s "${size}M" /out/rootfs.img
 # -m 1: 1% reserved for root, not 5% of a ~100 GB userdata

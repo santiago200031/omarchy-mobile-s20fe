@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# tools/r8q-harvest-phone: live read-only ADB harvesting of r8q assets
+"""
+Harvest live system assets from running Galaxy S20 FE (r8q) over adb root:
+- /mnt/vendor/persist/sensors/ -> <dest>/sensors/
+- /proc/cmdline                -> <dest>/cmdline
+- /proc/config.gz              -> <dest>/config.gz
+- /sys/firmware/devicetree/base -> <dest>/devicetree/base
+- /sys/firmware/fdt            -> <dest>/live.dtb
+- /vendor/firmware_mnt/image   -> <dest>/firmware_mnt/image
+"""
+
+import argparse
+import gzip
+import os
+import subprocess
+import sys
+import time
+
+DEFAULT_DEST = os.path.expanduser("~/omamobile-kernel/reference-r8q/harvest")
+
+say = lambda msg: print(f"\033[1;34m==>\033[0m {msg}")
+ok = lambda msg: print(f"\033[1;32m  ✔\033[0m {msg}")
+die = lambda msg: (print(f"\033[1;31mERROR:\033[0m {msg}", file=sys.stderr), sys.exit(1))
+
+def run(cmd, capture=False):
+    res = subprocess.run(
+        cmd,
+        shell=True,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+    )
+    if res.returncode != 0:
+        die(f"Command failed: {cmd}\n{res.stderr if capture else ''}")
+    return res.stdout if capture else None
+
+def check_adb_root():
+    devs = run("adb devices", capture=True)
+    if "\tdevice" not in devs:
+        die("Galaxy S20 FE not detected over adb (check cable or unlock screen)")
+    run("adb root")
+    time.sleep(1)
+    uid = run("adb shell id -u", capture=True).strip()
+    if uid != "0":
+        die(f"adb root failed: uid is '{uid}', expected '0'")
+    ok("ADB connection established with root access")
+
+def harvest_sensors(dest_dir):
+    sensors_dest = os.path.join(dest_dir, "sensors")
+    os.makedirs(sensors_dest, exist_ok=True)
+    say("Harvesting /mnt/vendor/persist/sensors/...")
+    cmd = f"adb shell 'tar -cf - -C /mnt/vendor/persist/sensors .' | tar -C '{sensors_dest}' -xf -"
+    run(cmd)
+    count = sum(len(files) for _, _, files in os.walk(sensors_dest))
+    ok(f"Harvested {count} sensor calibration/registry files")
+
+def harvest_proc(dest_dir):
+    say("Harvesting /proc/cmdline and /proc/config.gz...")
+    cmdline_path = os.path.join(dest_dir, "cmdline")
+    config_path = os.path.join(dest_dir, "config.gz")
+    run(f"adb pull /proc/cmdline '{cmdline_path}' >/dev/null")
+    run(f"adb pull /proc/config.gz '{config_path}' >/dev/null")
+    if not os.path.isfile(cmdline_path) or os.path.getsize(cmdline_path) == 0:
+        die("Failed to harvest /proc/cmdline")
+    if not os.path.isfile(config_path) or os.path.getsize(config_path) == 0:
+        die("Failed to harvest /proc/config.gz")
+    with gzip.open(config_path, "rb") as f:
+        _ = f.read(1024)
+    ok(f"Harvested /proc/cmdline ({os.path.getsize(cmdline_path)} bytes) and /proc/config.gz ({os.path.getsize(config_path)} bytes)")
+
+def harvest_devicetree(dest_dir):
+    say("Harvesting /sys/firmware/devicetree/base (31k+ nodes) via compressed tar stream...")
+    dt_dir = os.path.join(dest_dir, "devicetree")
+    os.makedirs(dt_dir, exist_ok=True)
+    cmd = f"adb shell 'tar -czf - -C /sys/firmware/devicetree base 2>/dev/null' | tar -xzf - -C '{dt_dir}'"
+    run(cmd)
+    model_file = os.path.join(dt_dir, "base", "model")
+    if os.path.isfile(model_file):
+        with open(model_file, "rb") as f:
+            model = f.read().decode("latin1", errors="replace").strip("\x00")
+        ok(f"Harvested devicetree base (model: {model})")
+    fdt_path = os.path.join(dest_dir, "live.dtb")
+    run(f"adb pull /sys/firmware/fdt '{fdt_path}' >/dev/null 2>&1 || true")
+    if os.path.isfile(fdt_path):
+        ok(f"Harvested live compiled DTB ({os.path.getsize(fdt_path)} bytes)")
+
+def harvest_firmware_mnt(dest_dir):
+    say("Harvesting /vendor/firmware_mnt/image (~103 MB)...")
+    fw_dir = os.path.join(dest_dir, "firmware_mnt", "image")
+    os.makedirs(fw_dir, exist_ok=True)
+    cmd = f"adb shell 'tar -cf - -C /vendor/firmware_mnt image' | tar -C '{os.path.join(dest_dir, 'firmware_mnt')}' -xf -"
+    run(cmd)
+    count = len(os.listdir(fw_dir)) if os.path.exists(fw_dir) else 0
+    ok(f"Harvested {count} firmware images from /vendor/firmware_mnt/image")
+
+def main():
+    parser = argparse.ArgumentParser(description="Harvest r8q system assets over adb root")
+    parser.add_argument("--dest", default=DEFAULT_DEST, help=f"Destination directory (default: {DEFAULT_DEST})")
+    args = parser.parse_args()
+
+    check_adb_root()
+    os.makedirs(args.dest, exist_ok=True)
+    say(f"Harvesting assets to {args.dest}")
+
+    harvest_sensors(args.dest)
+    harvest_proc(args.dest)
+    harvest_devicetree(args.dest)
+    harvest_firmware_mnt(args.dest)
+
+    say(f"All assets successfully harvested to {args.dest}!")
+    run(f"ls -lh '{args.dest}'")
+
+if __name__ == "__main__":
+    main()

@@ -180,6 +180,30 @@ def main():
     run(f"cp {dsp_target_dir}/modem.mbn {sm8250_dir}/modem.mbn 2>/dev/null || true")
     run(f"cp {dsp_target_dir}/modemr.jsn {sm8250_dir}/modemr.jsn 2>/dev/null || true")
 
+    # 7. IPA Firmware: ipa_fws and ipa_uc
+    say("Pulling and squashing IPA firmware...")
+    run(f"adb shell \"sh -c 'cd /vendor/firmware && tar -cf - ipa_fws.* ipa_uc.*'\" | tar -C {STAGE_DIR}/ -xf - 2>/dev/null || true")
+    if os.path.exists(f"{STAGE_DIR}/ipa_fws.mdt"):
+        squash_mdt(f"{STAGE_DIR}/ipa_fws.mdt", f"{dsp_target_dir}/ipa_fws.mbn")
+        run(f"cp {dsp_target_dir}/ipa_fws.mbn {sm8250_dir}/ipa_fws.mbn")
+        run(f"cp {dsp_target_dir}/ipa_fws.mbn {qcom_dir}/ipa_fws.mbn")
+        run(f"cp {dsp_target_dir}/ipa_fws.mbn {OUT_DIR}/ipa_fws.mbn")
+    if os.path.exists(f"{STAGE_DIR}/ipa_uc.mdt"):
+        squash_mdt(f"{STAGE_DIR}/ipa_uc.mdt", f"{dsp_target_dir}/ipa_uc.mbn")
+        run(f"cp {dsp_target_dir}/ipa_uc.mbn {sm8250_dir}/ipa_uc.mbn")
+        run(f"cp {dsp_target_dir}/ipa_uc.mbn {qcom_dir}/ipa_uc.mbn")
+        run(f"cp {dsp_target_dir}/ipa_uc.mbn {OUT_DIR}/ipa_uc.mbn")
+
+    # 8. Haptics: Cirrus CS40L25a / CS40L20
+    say("Pulling Cirrus CS40L25a / CS40L20 haptics firmware...")
+    run(f"adb shell \"sh -c 'cd /vendor/firmware && tar -cf - cs40l*'\" | tar -C {cirrus_dir}/ -xf - 2>/dev/null || true")
+    run(f"cp {cirrus_dir}/cs40l* {OUT_DIR}/ 2>/dev/null || true")
+
+    # 9. Touchkey / Grip sensor: A96T356
+    say("Pulling A96T356 touchkey/grip sensor firmware...")
+    run(f"adb pull /vendor/firmware/a96t356_r8q_all.bin {OUT_DIR}/a96t356_r8q_all.bin >/dev/null 2>&1 || true")
+    run(f"adb pull /vendor/firmware/a96t356_r8q_usa.bin {OUT_DIR}/a96t356_r8q_usa.bin >/dev/null 2>&1 || true")
+
     say(f"All firmware successfully extracted and squashed into {OUT_DIR}!")
     run(f"rm -rf {STAGE_DIR}")
     run(f"ls -lhR {OUT_DIR} | head -35")

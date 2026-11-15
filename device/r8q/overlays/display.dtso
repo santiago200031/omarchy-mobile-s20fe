@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: MIT
 /*
  * Bring-up overlay (PORT-PLAN M3): enable MDSS, DSI0, DSI0 PHY, and the
- * Samsung S6E3FC3 (AMS646YD01) command-mode panel, and release dispcc clocks
- * protected during simpledrm-only bring-up. Paths work with or without __symbols__.
+ * Samsung S6E3FC3 (AMS646YD01) command-mode panel.
  */
 /dts-v1/;
 /plugin/;
-
-&{/soc@0/clock-controller@af00000} {
-	protected-clocks = [];
-};
 
 &{/soc@0/display-subsystem@ae00000} {
 	status = "okay";

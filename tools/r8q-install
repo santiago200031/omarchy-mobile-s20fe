@@ -66,7 +66,7 @@ pacman -Sy
 EOF
 
 say "4. Installing Omarchy Mobile phone stack..."
-ssh "$REMOTE" 'pacman -S --noconfirm --needed hyprland quickshell omamobile-shell omamobile-omarchy omamobile-owl-widgets omamobile-apps sddm uwsm omarchy omarchy-settings'
+ssh "$REMOTE" 'pacman -S --noconfirm --needed hyprland quickshell omamobile-shell omamobile-omarchy omamobile-owl-widgets omamobile-apps sddm uwsm omarchy omarchy-settings extra/mesa extra/vulkan-mesa-implicit-layers extra/vulkan-freedreno'
 
 say "5. Configuring user alarm and S20 FE display profile..."
 ssh "$REMOTE" 'bash -s' << 'EOF'
@@ -95,6 +95,7 @@ local omarchy_gdk_scale = 2
 local omarchy_monitor_scale = 2.25
 
 hl.env("GDK_SCALE", tostring(omarchy_gdk_scale))
+hl.monitor({ output = "DSI-1", mode = "1080x2400@120", position = "0x0", scale = omarchy_monitor_scale })
 hl.monitor({ output = "Unknown-1", mode = "1080x2400@60", position = "0x0", scale = omarchy_monitor_scale })
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
 MONCONF

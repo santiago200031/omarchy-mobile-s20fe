@@ -2,13 +2,16 @@
 [Unit]
 Description=Omarchy Mobile AI supervisor
 After=network.target
-Requires=network.target
+# Nothing to serve until the model is on the device. Without this the unit
+# crash-loops with Restart=on-failure; with it the unit stays inactive and
+# starts by itself once the GGUF is in place.
+ConditionPathExists=/usr/share/omamobile-ai/models/LFM3-1.7B-Q4_K_M.gguf
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/omamobile-ai
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 Environment=OMAMOBILE_AI_CONFIG=/etc/omamobile-ai.conf
 
 [Install]

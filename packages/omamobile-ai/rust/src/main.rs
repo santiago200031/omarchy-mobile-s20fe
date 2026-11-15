@@ -11,7 +11,6 @@
 use std::{
     collections::HashSet,
     fs,
-    net::TcpStream as StdTcpStream,
     path::Path,
     process::Stdio,
     sync::{
@@ -345,7 +344,7 @@ async fn _ensure_llama(state: &AppState) -> Result<(), String> {
     let child = _spawn_llama(&state.config)?;
     *guard = Some(child);
 
-    match _wait_for_port(state.config.llama_port).await {
+    match _wait_until_ready(state.config.llama_port).await {
         Ok(()) => {
             info!("llama-server ready on port {}", state.config.llama_port);
             Ok(())
@@ -429,16 +428,24 @@ fn _set_affinity(cores: &[usize]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Poll until llama-server accepts connections, or give up after the timeout.
-async fn _wait_for_port(port: u16) -> Result<(), String> {
+/// Poll llama-server's /health until it reports ready (200), not merely until
+/// its port answers: it opens the port while the GGUF is still loading and
+/// answers 503 to requests until the model is in memory.
+async fn _wait_until_ready(port: u16) -> Result<(), String> {
+    let url = format!("http://127.0.0.1:{port}/health");
+    let client = _http_client();
     let deadline = tokio::time::Instant::now() + STARTUP_TIMEOUT;
+
     while tokio::time::Instant::now() < deadline {
-        if StdTcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return Ok(());
+        if let Ok(resp) = client.get(&url).send().await {
+            if resp.status().is_success() {
+                return Ok(());
+            }
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    Err(format!("llama-server did not open port {port}"))
+
+    Err(format!("llama-server did not become ready on port {port}"))
 }
 
 /// Kill and reap llama-server, if we own one.

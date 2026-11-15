@@ -106,8 +106,10 @@ trap 'rm -rf "$stage"' EXIT
 wants=$(find "$stage" -path '*.wants/*' 2>/dev/null || true)
 [[ -z "$wants" ]] || fail "something enabled by default: $wants"
 
-# The service file must have WantedBy (user-managed enable).
-grep -q 'WantedBy=multi-user.target' usr/lib/systemd/system/omamobile-ai.service || \
-  fail "service must have WantedBy=multi-user.target"
+# The service file must have WantedBy, and must not start without a model.
+unit=usr/lib/systemd/system/omamobile-ai.service
+grep -q 'WantedBy=multi-user.target' "$unit" || fail "service must have WantedBy=multi-user.target"
+grep -q '^ConditionPathExists=/usr/share/omamobile-ai/models/' "$unit" || \
+  fail "service must wait for the model to exist"
 
 echo "ok - all checks passed"

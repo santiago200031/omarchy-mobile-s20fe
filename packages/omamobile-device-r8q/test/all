@@ -112,6 +112,12 @@ grep -q 'DNS=9.9.9.9' 20-usb-gadget.network
 grep -q 'https://pkgs.omamobile.org/stable/\$arch' omamobile-mirrorlist
 grep -q 'KERNEL=="3d00000.gpu"' 80-r8q-gpu.rules
 grep -q '305000000' 80-r8q-gpu.rules
+grep -q 'power/control.*on' 80-r8q-gpu.rules
+grep -q 'KERNEL=="9c0000.geniqup"' 80-r8q-gpu.rules
+grep -q 'KERNEL=="980000.i2c"' 80-r8q-gpu.rules
+grep -q '1080x2400@60' hyprland-r8q.conf
+! grep -q 'vfr' hyprland-r8q.conf
+grep -q 'offline_unreserved_xpu_pages' r8q-liveness-monitor
 grep -q '/sys/class/backlight' omamobile-r8q-panel.service
 test -f omamobile-device-r8q.install
 grep -q 'Samsung-Galaxy-S20-FE.conf' PKGBUILD

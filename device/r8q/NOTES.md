@@ -63,6 +63,32 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
 - **Rootfs state on `/dev/loop0` (`/omarchy-r8q.img`):** All Omarchy packages were pre-installed (`hyprland 0.57.0-3.3`, `quickshell 0.3.2`, `omamobile-shell 0.2.127-1`, `sddm 0.21.0-7`, `uwsm`), `/home` was empty, and `/proc/cmdline` held `systemd.unit=multi-user.target` (explaining why only the Linux console was visible on screen).
 - **Mesa discovery:** Provisioned user `alarm` (`uid=1000`), `monitors.lua` (`DSI-1` `1080x2400@120` @ `2.25`), and `sddm` autologin. On launch, `Hyprland` aborted (`SIGABRT`) with `EGL_NOT_INITIALIZED (0x12289): DRI2: failed to load driver` on `/dev/dri/card1`. Inspection showed `[omamobile]/mesa 1:26.2.4-1.4` only builds `panfrost` (Pixel Mali) and omits `/usr/lib/dri/msm_dri.so`.
 - **Freedreno unblock:** Installed Arch Linux ARM `extra/mesa 1:26.2.7-1`, `extra/vulkan-mesa-implicit-layers 1:26.2.7-1`, and `extra/vulkan-freedreno 1:26.2.7-1` (PGP-verified offline against key `68B3537F39A313B3E574D06777193F152BDBE6A6` after syncing UTC clock). Restarting `seatd` + `sddm` launched `Hyprland --watchdog-fd 4`, `quickshell -n -p /usr/share/omarchy/shell`, `squeekboard`, `Xwayland`, `omamobile-doubletap`, `omamobile-osk-guard`, and `omamobile-sleepd` cleanly at `t+8s`.
-- **Follow-up hang at `t+14s` & offline fixes prepared:** At `t+14s` as 3D rendering started, SSH banner exchange stalled (`ping` alive ~2 min before watchdog reset; `systemd.unit=multi-user.target` prevents bootloop). Two offline fixes were identified and staged in the tree:
-  1. `dmesg` reported `OF: reserved mem: OVERLAP DETECTED! memory@8bf00000 (0x8bf00000--0x90500000) overlaps with memory@9031a000 (0x9031a000--0x9031c000)` — `sm8250.dtsi`'s generic `cdsp_secure_heap` overlapped `r8q`'s `gpu_mem` ZAP carveout. Fixed in `sm8250-samsung-common.dtsi` using `r8q`'s exact PIL memory map from `live.dts`.
-  2. `packages/omamobile-device-r8q/80-r8q-gpu.rules` only set `min_freq="305000000"`, allowing Adreno devfreq to scale up and issue RPMh bandwidth votes under 3D load. Added `ATTR{max_freq}="305000000"` to pin the GPU to 305 MHz during bring-up.
+- **Initial `t+12..14s` hang (`gd469bd3bf2a9`):** At `t+14s` as 3D rendering started, SSH banner exchange stalled before a watchdog reset (`multi-user.target` on cmdline kept recovery safe). See §5 below for the full pstore root cause and resolution.
+
+---
+
+## 5. Gate D Unblocked: Unreserved XPU/TZ/Knox Memory, RPMh I2C Churn, and Hyprland Lua Fixes (2026-11-15)
+
+### A. Root Cause of the `t+12..14s` Freeze (`console-ramoops-0`)
+- `console-ramoops-0` on `7.3.0-rc6-omamobile-push1-gd469bd3bf2a9` showed `mmc0: Timeout waiting for hardware interrupt` with `ADMA Ptr: 0x90800210` (`0x90400000..0x90a00000` is TrustZone-protected `cdsp_secure_heap` XPU memory) followed by `rcu_preempt` stalls on CPUs `0,2,3,6,7` and `rpmh_write_batch` `-110` on `HW IRQ 37 pending at GIC` because CPU 0 wedged on the XPU violation.
+- Diffing live `/proc/iomem` against Samsung `r8q` downstream DTB/DTBO exposed **nine unreserved `no-map` XPU/TZ/debug/Knox TIMA regions** totaling `5,880` 4 KiB pages (`23,520 KiB`):
+  - `xbl_aop_mem` upper part (`0x80603000..0x80700000`, `253` pages)
+  - `reserved_xbl_uefi_log` (`0x80880000..0x80894000`, `20` pages)
+  - `removed_mem` gaps (`0x85e00000..0x86200000`, `1,024` pages; `0x8681a000..0x86900000`, `230` pages)
+  - `cdsp_secure_heap` upper part (`0x90500000..0x90a00000`, `1,280` pages)
+  - `dfps_data_mem` (`0x9e300000..0x9e400000`, `256` pages)
+  - `sec_debug_mem` (`0x9f000000..0x9f800000`, `2,048` pages)
+  - `ss_plog_mem` (`0x9f800000..0x9fa00000`, `512` pages)
+  - `kaslr_mem` (`0xa0001000..0xa0002000`, `1` page)
+  - `tima_mem` Samsung Knox TIMA hypervisor (`0xb0100000..0xb0200000`, `256` pages)
+- **Fix:**
+  - Live-validated immediately by offlining all `5,880` pages via `/sys/devices/system/memory/hard_offline_page` (`HardwareCorrupted: 23520 kB` in `/proc/meminfo`).
+  - Reserved all 10 Samsung `r8q` `no-map` regions natively in `sm8250-samsung-common.dtsi` (kernel commit `1324fe066`, built into `7.3.0-rc6-omamobile-push1-g1324fe066cbb` with modules staged on phone).
+  - Added `offline_unreserved_xpu_pages()` in `r8q-liveness-monitor` (`0.1.16`) as a boot-time fallback when running on older DTBs whose `/proc/iomem` still exposes those ranges as `System RAM`.
+
+### B. Secondary Fixes & Live Session Verification
+- **I2C1 RPMh churn vs `fw_devlink`:** Unloading `max77705_charger` also unbound `max17042_battery` via `fw_devlink` (`supplier:i2c:0-0069--i2c:0-0036`), removing `/sys/class/power_supply/max170xx_battery`. Instead, keeping `max77705_charger` loaded and pinning `9c0000.geniqup` and `980000.i2c` (plus `3d00000.gpu` and `3d6a000.gmu`) to `power/control="on"` in `80-r8q-gpu.rules` eliminated `BCM`/`QUP0` RPMh churn while preserving battery telemetry (`capacity=99`).
+- **Monitor `SIGPIPE` storm:** Replaced `online_cpus | grep -qx "$c"` inside `r8q-liveness-monitor`'s heartbeat check loop (`1h49m` wasted CPU over `8.5h`) with a direct read of `$SYS/devices/system/cpu/cpu$c/online`.
+- **Hyprland `looknfeel.lua` & `monitors.lua`:** Removed invalid `vfr = true` from `misc` in `/home/alarm/.config/hypr/looknfeel.lua` and `hyprland-r8q.conf` (`hl.meta.lua` has no `misc.vfr` — caused the `looknfeel.lua:1` red config error bar) and switched `DSI-1` to `1080x2400@60`. (`tools/r8q-install` still emits the old `misc.vfr` / `@120` lines until updated.)
+- **Bring-up quietness:** Blacklisted `icc_bwmon` and `camcc_sm8250` in `/etc/modprobe.d/omamobile-r8q-bringup.conf`, masked `udisks2.service` (77 UFS partitions), and disabled `voxtype.service` autostart (147 MB model).
+- **Verified Desktop (`2026-11-15`):** `sddm`, `Hyprland --watchdog-fd 4`, `quickshell -n -p /usr/share/omarchy/shell`, `squeekboard`, and `Xwayland` running cleanly (`DSI-1 1080x2400@60`, `scale 2.4`, `dpmsStatus: 1`, `gpu_cur=305000000`, `stmfts` touch IRQs active) and confirmed working on screen by the user.

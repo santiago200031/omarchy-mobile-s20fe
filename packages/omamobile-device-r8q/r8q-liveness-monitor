@@ -66,7 +66,7 @@ start_heartbeats() {
     for p in "$PIDDIR"/*; do
         [ -f "$p" ] || continue
         c=${p##*/}
-        online_cpus | grep -qx "$c" || { kill "$(cat "$p")" 2>/dev/null; rm -f "$p"; }
+        [ "$(cat "$SYS/devices/system/cpu/cpu$c/online" 2>/dev/null)" = "1" ] || { kill "$(cat "$p")" 2>/dev/null; rm -f "$p"; }
     done
 }
 
@@ -93,11 +93,41 @@ reboot_phone() {
     while :; do sleep 30; done
 }
 
+offline_unreserved_xpu_pages() {
+    ctl="$SYS/devices/system/memory/hard_offline_page"
+    [ "$SYS" = "/sys" ] && [ -w "$ctl" ] && [ -r /proc/iomem ] || return 0
+    # Safety fallback when booting a DT that omits Samsung XPU/TZ/Knox no-map
+    # nodes: keep buddy/DMA allocators off firmware-protected physical pages.
+    grep -Eq '(90500000-|9e300000-|9fb00000-bcbfffff) .*System RAM' /proc/iomem || return 0
+    [ "$(awk '/^HardwareCorrupted:/ { print $2 }' /proc/meminfo)" -lt 23520 ] || return 0
+    for range in \
+        0x80603000:0x80700000 \
+        0x80880000:0x80894000 \
+        0x85e00000:0x86200000 \
+        0x8681a000:0x86900000 \
+        0x90500000:0x90a00000 \
+        0x9e300000:0x9e400000 \
+        0x9f000000:0x9f800000 \
+        0x9f800000:0x9fa00000 \
+        0xa0001000:0xa0002000 \
+        0xb0100000:0xb0200000
+    do
+        addr=$((${range%:*}))
+        end=$((${range#*:}))
+        while [ "$addr" -lt "$end" ]; do
+            printf '0x%x\n' "$addr" > "$ctl" 2>/dev/null || true
+            addr=$((addr + 4096))
+        done
+    done
+    log "offlined unreserved XPU/TZ/Knox pages via hard_offline_page"
+}
+
 main() {
     mkdir -p "$RUN" "$PIDDIR"
     if ((CHECK_ONLY)); then
         log "check-only: judging existing heartbeats, no heartbeats spawned"
     else
+        offline_unreserved_xpu_pages
         start_heartbeats
         # Give the heartbeats their first tick before judging anything.
         sleep 5

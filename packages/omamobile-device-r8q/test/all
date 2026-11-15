@@ -46,6 +46,10 @@ grep -q 'r8q-wifi-aspm' omamobile-r8q-wifi.service
 grep -q 'omamobile-r8q-wifi.service' PKGBUILD
 grep -q 'r8q-rtc-epoch restore' omamobile-r8q-rtc.service
 grep -q 'r8q-rtc-epoch save' omamobile-r8q-rtc.service
+grep -q 'WantedBy=sysinit.target' omamobile-r8q-rtc.service
+grep -q 'DefaultDependencies=no' omamobile-r8q-rtc.service
+grep -q 'sysinit.target.wants' PKGBUILD
+grep -q 'sysinit_wants/omamobile-r8q-rtc.service' PKGBUILD
 grep -q 'omamobile-r8q-rtc.service' PKGBUILD
 grep -q '18081' rust/ai-server/src/main.rs
 grep -q 'max170xx_battery' rust/ai-server/src/main.rs
@@ -116,12 +120,16 @@ grep -q 'power/control.*on' 80-r8q-gpu.rules
 grep -q 'KERNEL=="9c0000.geniqup"' 80-r8q-gpu.rules
 grep -q 'KERNEL=="980000.i2c"' 80-r8q-gpu.rules
 grep -q 'KERNEL=="994000.i2c"' 80-r8q-gpu.rules
+grep -q 'KERNEL=="998000.serial"' 80-r8q-gpu.rules
 grep -q 'KERNEL=="5-0049"' 80-r8q-gpu.rules
 grep -q '1080x2400@60' hyprland-r8q.conf
 ! grep -q 'vfr' hyprland-r8q.conf
 grep -q 'offline_unreserved_xpu_pages' r8q-liveness-monitor
 grep -q 'pin_r8q_power_control' r8q-liveness-monitor
+grep -q 'ensure_r8q_clock' r8q-liveness-monitor
 grep -q 'ensure_r8q_touch_driver' r8q-liveness-monitor
+grep -q 'ensure_r8q_bt_uart' r8q-liveness-monitor
+grep -q 'ensure_r8q_desktop' r8q-liveness-monitor
 grep -q '/sys/class/backlight' omamobile-r8q-panel.service
 test -f omamobile-device-r8q.install
 grep -q 'Samsung-Galaxy-S20-FE.conf' PKGBUILD

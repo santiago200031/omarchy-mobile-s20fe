@@ -130,6 +130,7 @@ pin_r8q_power_control() {
         "$SYS/devices/platform/soc@0/9c0000.geniqup/power/control" \
         "$SYS/devices/platform/soc@0/9c0000.geniqup/980000.i2c/power/control" \
         "$SYS/devices/platform/soc@0/9c0000.geniqup/994000.i2c/power/control" \
+        "$SYS/devices/platform/soc@0/9c0000.geniqup/998000.serial/power/control" \
         "$SYS/bus/i2c/devices/5-0049/power/control"
     do
         [ -w "$ctl" ] || continue
@@ -162,14 +163,104 @@ ensure_r8q_touch_driver() {
     log "rebound 5-0049 from ${cur:-unbound} to stmfts-r8q"
 }
 
+ensure_r8q_clock() {
+    [ "$SYS" = "/sys" ] || return 0
+    year=$(date -u +%Y 2>/dev/null) || year=0
+    case "$year" in ''|*[!0-9]*) year=0;; esac
+    if [ "$year" -lt 2026 ] && [ -x /usr/lib/omamobile/r8q-rtc-epoch ]; then
+        /usr/lib/omamobile/r8q-rtc-epoch restore >/dev/null 2>&1 || true
+        log "restored wall-clock epoch ($(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null))"
+    fi
+    year=$(date -u +%Y 2>/dev/null) || year=0
+    case "$year" in ''|*[!0-9]*) year=0;; esac
+    if [ "$year" -ge 2026 ] && [ -x /usr/lib/omamobile/r8q-rtc-epoch ]; then
+        /usr/lib/omamobile/r8q-rtc-epoch save >/dev/null 2>&1 || true
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet systemd-timesyncd.service 2>/dev/null ||
+            systemctl start systemd-timesyncd.service 2>/dev/null || true
+    fi
+}
+
+ensure_r8q_bt_uart() {
+    [ "$SYS" = "/sys" ] || return 0
+    dev="$SYS/devices/platform/soc@0/9c0000.geniqup/998000.serial"
+    ko="/usr/lib/modules/$(uname -r 2>/dev/null)/extra/r8q-bt-uart.ko"
+    addr_file=/var/lib/omamobile/bt-public-addr
+    [ -d "$dev" ] || return 0
+
+    if [ ! -d "$SYS/class/bluetooth/hci0" ] && [ ! -e "$dev/driver" ] && [ -f "$ko" ]; then
+        if [ ! -d "$SYS/module/r8q_bt_uart" ]; then
+            al=$(awk '$3 == "aliases_lookup" { print "0x" $1; exit }' /proc/kallsyms 2>/dev/null)
+            om=$(awk '$3 == "of_mutex" { print "0x" $1; exit }' /proc/kallsyms 2>/dev/null)
+            sp=$(awk '$3 == "device_links_supplier_sync_state_pause" { print "0x" $1; exit }' /proc/kallsyms 2>/dev/null)
+            [ -n "$al" ] && [ -n "$om" ] && [ -n "$sp" ] &&
+                insmod "$ko" aliases_lookup_addr="$al" of_mutex_addr="$om" sync_state_pause_addr="$sp" 2>/dev/null || true
+        fi
+        echo on > "$SYS/devices/platform/soc@0/9c0000.geniqup/power/control" 2>/dev/null || true
+        echo on > "$dev/power/control" 2>/dev/null || true
+        command -v systemctl >/dev/null 2>&1 && systemctl start bluetooth.service 2>/dev/null || true
+        for m in bluetooth rfcomm bnep hidp btqca hci_uart; do
+            modprobe "$m" 2>/dev/null || true
+        done
+        [ -e "$dev/driver" ] || echo 998000.serial > "$SYS/bus/platform/drivers/qcom_geni_serial/bind" 2>/dev/null || true
+        i=0
+        while [ "$i" -lt 12 ] && [ ! -d "$SYS/class/bluetooth/hci0" ]; do
+            sleep 0.5
+            i=$((i + 1))
+        done
+        log "bound 998000.serial for QCA6390 Bluetooth UART"
+    fi
+
+    [ -d "$SYS/class/bluetooth/hci0" ] || return 0
+    if command -v btmgmt >/dev/null 2>&1; then
+        i=0
+        while [ "$i" -lt 12 ]; do
+            if timeout 3 btmgmt --timeout 2 info </dev/null 2>/dev/null | grep -q '^hci0:'; then
+                break
+            fi
+            if timeout 3 btmgmt --timeout 2 --index none config </dev/null 2>/dev/null | grep -q 'missing options:.*public-address'; then
+                if [ ! -s "$addr_file" ]; then
+                    mkdir -p /var/lib/omamobile
+                    (umask 077
+                     od -An -N5 -tx1 /dev/urandom |
+                         awk '{ printf "02:%s:%s:%s:%s:%s\n", $1, $2, $3, $4, $5 }' |
+                         tr a-f A-F > "$addr_file")
+                fi
+                chmod 600 "$addr_file" 2>/dev/null || true
+                timeout 5 btmgmt --timeout 3 --index 0 public-addr "$(cat "$addr_file")" </dev/null >/dev/null 2>&1 || true
+                timeout 5 btmgmt --timeout 3 --index 0 power on </dev/null >/dev/null 2>&1 || true
+                log "configured hci0 public address and powered controller on"
+                break
+            fi
+            sleep 0.5
+            i=$((i + 1))
+        done
+    fi
+}
+
+ensure_r8q_desktop() {
+    [ "$SYS" = "/sys" ] || return 0
+    command -v systemctl >/dev/null 2>&1 || return 0
+    if [ -e /etc/systemd/system/display-manager.service ] &&
+       ! systemctl is-active --quiet display-manager.service 2>/dev/null; then
+        systemctl start --no-block display-manager.service 2>/dev/null || true
+        log "started display-manager.service"
+    fi
+}
+
 main() {
     mkdir -p "$RUN" "$PIDDIR"
+    clock_tick=0
     if ((CHECK_ONLY)); then
         log "check-only: judging existing heartbeats, no heartbeats spawned"
     else
         offline_unreserved_xpu_pages
         pin_r8q_power_control
+        ensure_r8q_clock
         ensure_r8q_touch_driver
+        ensure_r8q_bt_uart
+        ensure_r8q_desktop
         start_heartbeats
         # Give the heartbeats their first tick before judging anything.
         sleep 5
@@ -200,6 +291,8 @@ main() {
             sleep 1
             continue
         fi
+        clock_tick=$(( (clock_tick + 1) % 30 ))
+        [ "$clock_tick" -eq 0 ] && ensure_r8q_clock
         pin_r8q_power_control
         start_heartbeats
         sleep 2

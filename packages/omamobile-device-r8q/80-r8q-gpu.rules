@@ -10,3 +10,5 @@ ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="9c0000.geniqup", ATTR{powe
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="980000.i2c", ATTR{power/control}="on"
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="994000.i2c", ATTR{power/control}="on"
 ACTION=="add|change", SUBSYSTEM=="i2c", KERNEL=="5-0049", ATTR{power/control}="on"
+# Keep QCA6390 Bluetooth UART6 awake across HCI transfers.
+ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="998000.serial", ATTR{power/control}="on"

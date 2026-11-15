@@ -3,8 +3,10 @@
 # Restores at boot (before any time-sync client), saves at shutdown.
 [Unit]
 Description=Omarchy Mobile: r8q wall-clock epoch save/restore
+DefaultDependencies=no
 After=local-fs.target
-Before=time-sync.target systemd-timesyncd.service chronyd.service
+Before=sysinit.target time-sync.target systemd-timesyncd.service chronyd.service shutdown.target
+Conflicts=shutdown.target
 
 [Service]
 Type=oneshot
@@ -13,4 +15,4 @@ ExecStart=/usr/lib/omamobile/r8q-rtc-epoch restore
 ExecStop=/usr/lib/omamobile/r8q-rtc-epoch save
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target

@@ -11,6 +11,7 @@ _cleanup_stale_usb_network() {
 
 post_install() {
   _cleanup_stale_usb_network
+  rm -f /etc/systemd/system/multi-user.target.wants/omamobile-r8q-rtc.service
   if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
     systemctl daemon-reload || true
   fi

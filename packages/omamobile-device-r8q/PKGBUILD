@@ -139,14 +139,15 @@ package() {
   # The serial getty is the way in when the USB network stack or the session is
   # wedged; the kernel console is on the same port (console=ttyGS0).
   local wants="$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
-  install -d "$wants"
+  local sysinit_wants="$pkgdir/usr/lib/systemd/system/sysinit.target.wants"
+  install -d "$wants" "$sysinit_wants"
   ln -s ../systemd-networkd.service "$wants/systemd-networkd.service"
   ln -s ../sshd.service "$wants/sshd.service"
   ln -s ../serial-getty@.service "$wants/serial-getty@ttyGS0.service"
   ln -s ../omamobile-r8q-ufs.service "$wants/omamobile-r8q-ufs.service"
   ln -s ../omamobile-r8q-cpuidle.service "$wants/omamobile-r8q-cpuidle.service"
   ln -s ../omamobile-r8q-panel.timer "$wants/omamobile-r8q-panel.timer"
-  ln -s ../omamobile-r8q-rtc.service "$wants/omamobile-r8q-rtc.service"
+  ln -s ../omamobile-r8q-rtc.service "$sysinit_wants/omamobile-r8q-rtc.service"
   ln -s ../omamobile-r8q-wifi.service "$wants/omamobile-r8q-wifi.service"
   ln -s ../omamobile-r8q-liveness.service "$wants/omamobile-r8q-liveness.service"
   ln -s ../omamobile-r8q-battery.service "$wants/omamobile-r8q-battery.service"

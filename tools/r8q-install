@@ -187,6 +187,8 @@ STATE
 chown -R sddm:sddm /var/lib/sddm
 systemctl enable seatd.service
 systemctl enable sddm.service
+ln -sfn /usr/lib/systemd/system/sddm.service /etc/systemd/system/multi-user.target.wants/sddm.service
+systemctl enable bluetooth.service omamobile-r8q-wifi.service systemd-timesyncd.service
 systemctl set-default graphical.target
 EOF
 

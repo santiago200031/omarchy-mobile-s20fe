@@ -9,18 +9,32 @@
 # clock never steps backwards from this helper.
 set -eu
 epoch_file=/var/lib/omamobile/r8q-epoch
+timesync_clock=/var/lib/systemd/timesync/clock
+# Minimum 2026-11-15T00:00:00Z floor when neither epoch_file nor timesync_clock is present.
+floor_epoch=1794700800
 case "${1:-}" in
 save)
   mkdir -p "$(dirname "$epoch_file")"
-  date +%s > "$epoch_file"
+  now=$(date +%s)
+  if [ "$now" -gt 1767225600 ]; then
+    printf '%s\n' "$now" > "$epoch_file"
+  fi
   ;;
 restore)
-  [ -r "$epoch_file" ] || exit 0
-  saved=$(cat "$epoch_file")
+  saved=0
+  if [ -r "$epoch_file" ]; then
+    val=$(cat "$epoch_file")
+    case "$val" in ''|*[!0-9]*) val=0;; esac
+    [ "$val" -gt "$saved" ] && saved=$val
+  fi
+  if [ -e "$timesync_clock" ]; then
+    ts=$(stat -c %Y "$timesync_clock" 2>/dev/null || echo 0)
+    case "$ts" in ''|*[!0-9]*) ts=0;; esac
+    [ "$ts" -gt "$saved" ] && saved=$ts
+  fi
+  [ "$saved" -gt 1767225600 ] || saved=$floor_epoch
   now=$(date +%s)
-  case "$saved" in ''|*[!0-9]*) exit 0;; esac
-  # Sanity: the saved value must look like 2026 or later.
-  if [ "$saved" -gt 1767225600 ] && [ "$now" -lt "$saved" ]; then
+  if [ "$now" -lt "$saved" ]; then
     date -u -s "@$saved"
   fi
   ;;

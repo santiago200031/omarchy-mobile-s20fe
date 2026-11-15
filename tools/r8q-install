@@ -72,6 +72,9 @@ say "5. Configuring user alarm and S20 FE display profile..."
 ssh "$REMOTE" 'bash -s' << 'EOF'
 id -u alarm >/dev/null 2>&1 || useradd -m -s /bin/bash -G wheel,video,input,seat,audio alarm
 usermod -aG wheel,video,input,seat,audio alarm
+echo "alarm:${OMAMOBILE_PIN:-1234}" | chpasswd
+mkdir -p /home/alarm/.config/omamobile
+printf 'pin\n' > /home/alarm/.config/omamobile/credential
 echo 'alarm ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/10-alarm
 chmod 440 /etc/sudoers.d/10-alarm
 

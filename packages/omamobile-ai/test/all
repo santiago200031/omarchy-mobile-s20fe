@@ -83,6 +83,12 @@ done < <(grep -n '^\s*pub\s\+fn\|^\s*fn\s\+[a-z]' "$main_rs" | grep -v '^\s*[0-9
 grep -q '_ensure_llama' "$main_rs" || fail "handle_chat must call _ensure_llama"
 grep -q '_proxy_chat' "$main_rs" || fail "handle_chat must call _proxy_chat"
 
+# The llama.cpp router surface Pi's /login validates must exist.
+for route in /models /props /models/load /models/unload; do
+  grep -qF ".route(\"$route\"" "$main_rs" || fail "missing router route: $route"
+done
+grep -q '"status": { "value"' "$main_rs" || fail "router catalog must report status.value"
+
 # handle_health must call _system_stats.
 grep -q '_system_stats' "$main_rs" || fail "handle_health must call _system_stats"
 

@@ -274,6 +274,13 @@ fn _build_router(state: Arc<AppState>) -> Router {
         .route("/v1/models", get(_handle_models))
         .route("/v1/chat/completions", post(_handle_chat))
         .route("/v1/unload", post(_handle_unload))
+        // llama.cpp router surface: Pi's /login llama.cpp validates a server
+        // by listing it this way, so the phone is also a "router" with one
+        // model. Loading and unloading map onto our lazy lifecycle.
+        .route("/models", get(_handle_router_models))
+        .route("/props", get(_handle_router_props))
+        .route("/models/load", post(_handle_router_load))
+        .route("/models/unload", post(_handle_router_unload))
         .fallback(_handle_not_found)
         .with_state(state)
 }
@@ -325,6 +332,56 @@ async fn _handle_chat(
 
     _record_request(&state);
     _proxy_chat(&state, body).await
+}
+
+/// GET /models: the llama.cpp router catalog, with the one model we serve.
+/// `status.value` must be present or clients call the server "not a router".
+async fn _handle_router_models(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let status = if state.llama.lock().await.is_some() {
+        "loaded"
+    } else {
+        "unloaded"
+    };
+    Json(json!({
+        "object": "list",
+        "data": [{
+            "id": _model_id(&state.config),
+            "status": { "value": status },
+            "source": "local",
+            "meta": {
+                "n_ctx": state.config.context_size,
+                "n_ctx_train": state.config.context_size,
+            },
+            "architecture": { "input_modalities": ["text"] },
+        }],
+    }))
+}
+
+/// GET /props: only the router flag is read; nothing here autoloads.
+async fn _handle_router_props(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(json!({
+        "models_autoload": false,
+        "default_generation_settings": {},
+        "model_path": state.config.model_path,
+    }))
+}
+
+/// POST /models/load: the router's explicit load, which is our lazy spawn.
+async fn _handle_router_load(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    _ensure_llama(&state).await.map_err(|e| {
+        error!("load failed: {e}");
+        StatusCode::SERVICE_UNAVAILABLE
+    })?;
+    _record_request(&state);
+    Ok(Json(json!({ "success": true })))
+}
+
+/// POST /models/unload: the router's unload, which frees the model now.
+async fn _handle_router_unload(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    _stop_llama(&state).await;
+    Json(json!({ "success": true }))
 }
 
 /// Anything else: a JSON 404 so clients see a readable error.

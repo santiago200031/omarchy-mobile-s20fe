@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+# Maintainer: Omarchy Mobile contributors
+#
+# omamobile-ai: on-device AI supervisor.
+# Rust binary that exposes OpenAI-compatible endpoints and manages
+# llama-server lifecycle (lazy spawn, proxy, idle shutdown).
+#
+# Build: cargo fetches crates in prepare() and builds offline.
+# The Rust source is in src/ inside this package directory.
+pkgname=omamobile-ai
+pkgver=$(cat "${startdir:-.}/version")
+pkgrel=1
+pkgdesc="Omarchy Mobile: on-device AI supervisor with lazy llama-server management"
+arch=(aarch64)
+url="https://github.com/derekross/omarchy-mobile"
+license=(MIT)
+depends=(bash systemd)
+optdepends=(
+  'llama-server: the inference backend (usually from omamobile-llama)'
+)
+makedepends=(cargo pkgconf)
+install=omamobile-ai.install
+source=()
+sha256sums=()
+
+prepare() {
+  # Fetch crates so the build stays offline.
+  cargo fetch --locked \
+    --manifest-path "$startdir/rust/Cargo.toml" \
+    --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cargo build --frozen --release \
+    --manifest-path "$startdir/rust/Cargo.toml" \
+    --target-dir "$srcdir/target"
+}
+
+check() {
+  "$startdir/test/all"
+}
+
+package() {
+  install -Dm755 "$srcdir/target/release/omamobile-ai" \
+    "$pkgdir/usr/bin/omamobile-ai"
+
+  install -Dm644 "$startdir/etc/omamobile-ai.conf" \
+    "$pkgdir/etc/omamobile-ai.conf"
+
+  install -Dm644 "$startdir/README.md" \
+    "$pkgdir/usr/share/doc/$pkgname/README.md"
+
+  install -Dm644 "$startdir/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  install -Dm644 "$startdir/usr/lib/systemd/system/omamobile-ai.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-ai.service"
+}

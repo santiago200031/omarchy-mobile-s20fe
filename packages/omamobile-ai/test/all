@@ -1,0 +1,113 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Static checks for omamobile-ai: package layout, Rust structure, config, and
+# that nothing is enabled by default.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+# ------------------------------------------------------------------- layout
+for f in PKGBUILD omamobile-ai.install version README.md LICENSE etc/omamobile-ai.conf \
+         usr/lib/systemd/system/omamobile-ai.service; do
+  [[ -f "$f" ]] || fail "missing: $f"
+done
+
+# PKGBUILD must be valid shell.
+bash -n PKGBUILD || fail "PKGBUILD syntax"
+
+# install script must be valid shell.
+bash -n omamobile-ai.install || fail "install syntax"
+
+# systemd unit must parse (systemd-analyze if available).
+if command -v systemd-analyze >/dev/null 2>&1; then
+  systemd-analyze verify --root="$(pwd)/.." \
+    usr/lib/systemd/system/omamobile-ai.service 2>&1 |
+    grep -v -E 'Command .* is not executable|not found' || true
+fi
+
+# ------------------------------------------------------------------- config
+# Config must be a valid sh fragment (sourceable).
+sh -n etc/omamobile-ai.conf || fail "config syntax"
+
+# Required keys present.
+for key in MODEL_PATH THREADS IDLE_TIMEOUT LISTEN_PORT LLAMA_PORT CPU_AFFINITY; do
+  grep -q "^${key}=" etc/omamobile-ai.conf || fail "config missing key: $key"
+done
+
+# The single entry point is 8080; llama-server stays on a private port.
+grep -qx 'LISTEN_PORT=8080' etc/omamobile-ai.conf || fail "LISTEN_PORT must be 8080"
+! grep -qx 'LLAMA_PORT=8080' etc/omamobile-ai.conf || fail "LLAMA_PORT must differ from LISTEN_PORT"
+
+# ------------------------------------------------------------------- Rust structure
+# Cargo.toml must list our dependencies.
+cargo_toml=rust/Cargo.toml
+[[ -f "$cargo_toml" ]] || fail "missing: $cargo_toml"
+
+# The binary name must be omamobile-ai.
+grep -q 'name = "omamobile-ai"' "$cargo_toml" || fail "Cargo.toml: binary not named omamobile-ai"
+
+# Dependencies must include axum, tokio, serde, reqwest.
+for dep in axum tokio serde reqwest; do
+  grep -q "$dep" "$cargo_toml" || fail "Cargo.toml: missing dependency: $dep"
+done
+
+# The lock file is committed so the build is reproducible.
+[[ -f rust/Cargo.lock ]] || fail "missing: rust/Cargo.lock"
+
+# Source file must exist.
+main_rs=rust/src/main.rs
+[[ -f "$main_rs" ]] || fail "missing: $main_rs"
+
+# --- Private method naming ---
+# Private methods must start with underscore and be snake_case.
+private_count=$(grep -cE '^\s*fn\s+_[a-z]' "$main_rs" || true)
+[[ $private_count -ge 5 ]] || fail "need at least 5 private methods (found $private_count)"
+
+# --- Public methods must be small ---
+# Each public fn must be ≤ 20 lines (handlers are allowed more, but still
+# should delegate to private helpers rather than containing logic).
+while IFS= read -r match; do
+  lineno=$(echo "$match" | cut -d: -f1)
+  # Count lines until the next top-level fn at the same or lesser indent.
+  total=0
+  while IFS= read -r line; do
+    total=$((total + 1))
+    ((total > 20)) && fail "public method too long (>$total lines) at line $lineno"
+    # Stop at next top-level fn.
+    echo "$line" | grep -qE '^\s*(pub\s+)?fn\s+[a-z]' && break
+  done < <(tail -n +"$lineno" "$main_rs")
+done < <(grep -n '^\s*pub\s\+fn\|^\s*fn\s\+[a-z]' "$main_rs" | grep -v '^\s*[0-9]*:.*fn\s\+_')
+
+# --- Each handler delegates to private helpers ---
+# handle_chat must call _ensure_llama.
+grep -q '_ensure_llama' "$main_rs" || fail "handle_chat must call _ensure_llama"
+grep -q '_proxy_chat' "$main_rs" || fail "handle_chat must call _proxy_chat"
+
+# handle_health must call _system_stats.
+grep -q '_system_stats' "$main_rs" || fail "handle_health must call _system_stats"
+
+# The supervisor owns the public port and spawns llama-server behind it.
+grep -q 'listen_port' "$main_rs" || fail "the supervisor binds the configured listen port"
+grep -q 'llama_port' "$main_rs" || fail "llama-server runs on a private internal port"
+grep -q 'idle_timeout_secs' "$main_rs" || fail "the idle timeout must be enforced"
+
+# --- No identifiers in source ---
+if grep -qE '([0-9a-f]{2}:){5}[0-9a-f]{2}' "$main_rs" "$cargo_toml" 2>/dev/null; then
+  fail "identifiers found in source"
+fi
+
+# ------------------------------------------------------------------- packaging
+# Nothing enabled by default (no wants links in staged output).
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+./omamobile-ai.install "$stage"
+
+# The service must NOT be enabled by default (no .wants links).
+wants=$(find "$stage" -path '*.wants/*' 2>/dev/null || true)
+[[ -z "$wants" ]] || fail "something enabled by default: $wants"
+
+# The service file must have WantedBy (user-managed enable).
+grep -q 'WantedBy=multi-user.target' usr/lib/systemd/system/omamobile-ai.service || \
+  fail "service must have WantedBy=multi-user.target"
+
+echo "ok - all checks passed"

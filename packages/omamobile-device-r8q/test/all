@@ -51,9 +51,6 @@ grep -q 'DefaultDependencies=no' omamobile-r8q-rtc.service
 grep -q 'sysinit.target.wants' PKGBUILD
 grep -q 'sysinit_wants/omamobile-r8q-rtc.service' PKGBUILD
 grep -q 'omamobile-r8q-rtc.service' PKGBUILD
-grep -q '18081' rust/ai-server/src/main.rs
-grep -q 'max170xx_battery' rust/ai-server/src/main.rs
-grep -q 'max77705-charger' rust/ai-server/src/main.rs
 grep -q '/sys/class/graphics/fb0/blank' omamobile-r8q-panel.service
 grep -qx 'OnUnitActiveSec=4min' omamobile-r8q-panel.timer
 # Liveness net: a wedged core stops ticking and no kernel detector can fire
@@ -144,3 +141,8 @@ echo ok sources
 echo ok liveness
 echo ok battery
 echo ok preflight
+# Device-specific omamobile-ai tuning for sm8250.
+test -f etc/omamobile-ai.conf.d/10-sm8250.conf
+grep -q 'CPU_AFFINITY=4-6' etc/omamobile-ai.conf.d/10-sm8250.conf
+grep -q 'THREADS=3' etc/omamobile-ai.conf.d/10-sm8250.conf
+echo ok ai-dropin

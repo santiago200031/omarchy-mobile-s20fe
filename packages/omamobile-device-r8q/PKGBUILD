@@ -8,6 +8,7 @@ arch=(aarch64)
 url="https://github.com/derekross/omarchy-mobile"
 license=(MIT)
 depends=(bash systemd)
+optdepends=('omamobile-ai: on-device AI with lazy llama-server management')
 backup=(etc/pacman.d/omamobile-mirrorlist)
 install=omamobile-device-r8q.install
 
@@ -23,12 +24,8 @@ build() {
   gcc -static -O2 -o "$srcdir/r8q-liveness-heartbeat" \
     "$startdir/r8q-liveness-heartbeat.c"
 
-  # Build the Rust native on-device AI server (the only implementation;
-  # the container image ships cargo via tools/lib/alarm-setup). Fail loudly
-  # rather than shipping a fallback, so a missing toolchain never goes quiet.
+  # Build r8q-preflight (hardware/DT/boot verification for the S20 FE).
   command -v cargo >/dev/null 2>&1 || { echo "PKGBUILD: cargo missing in build image" >&2; exit 1; }
-  cargo build --manifest-path "$startdir/rust/ai-server/Cargo.toml" --release --target-dir "$srcdir/cargo-target"
-  cp "$srcdir/cargo-target/release/ai-server" "$srcdir/omamobile-ai-server"
   cargo build --manifest-path "$startdir/rust/r8q-preflight/Cargo.toml" --release --target-dir "$srcdir/cargo-target"
   cp "$srcdir/cargo-target/release/r8q-preflight" "$srcdir/r8q-preflight"
 }
@@ -36,7 +33,6 @@ build() {
 package() {
   install -Dm755 "$srcdir/reboot-to" "$pkgdir/usr/local/bin/reboot-to"
   install -Dm755 "$startdir/reboot" "$pkgdir/usr/local/bin/reboot"
-  install -Dm755 "$srcdir/omamobile-ai-server" "$pkgdir/usr/local/bin/omamobile-ai-server"
   install -Dm755 "$srcdir/r8q-preflight" "$pkgdir/usr/local/bin/r8q-preflight"
   # The per-CPU liveness net: a wedged core stops ticking and no kernel
   # watchdog can fire on it (bus-level hang, the r8q crash class); the
@@ -135,6 +131,9 @@ package() {
     "$pkgdir/usr/share/alsa/ucm2/Samsung/r8q/HiFi.conf"
   install -Dm644 "$startdir/LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  # Device-specific omamobile-ai tuning (CPU affinity, thread count for sm8250).
+  install -Dm644 "$startdir/etc/omamobile-ai.conf.d/10-sm8250.conf" \
+    "$pkgdir/etc/omamobile-ai.conf.d/10-sm8250.conf"
   # Enable sshd, networkd and a rescue shell on the USB serial port (ttyGS0).
   # The serial getty is the way in when the USB network stack or the session is
   # wedged; the kernel console is on the same port (console=ttyGS0).

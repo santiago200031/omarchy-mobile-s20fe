@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 /*
  * Bring-up overlay (PORT-PLAN M7): enable the SM8250 ASoC sound card
- * linking ADSP Q6AFE TERTIARY_TDM_RX_0 to CS35L41 Left/Right amps.
+ * linking ADSP Q6AFE PRIMARY_TDM_RX_0 to CS35L41 Left/Right amps.
  *
  * Usage: tools/r8q-boot pack --dual-boot --overlay display --overlay remoteprocs --overlay audio-amps --overlay audio-sound
  * Must be loaded AFTER remoteprocs.dtso and audio-amps.dtso.
  *
  * Hardware path:
- *   ADSP (running firmware) → Q6AFE TERTIARY_TDM_RX_0 →
- *   GPI DMA1 → CS35L41 Left (earpiece) / Right (speaker)
+ *   ADSP (running firmware) → Q6AFE PRIMARY_TDM_RX_0 (0x18, MI2S0 gpio138..141) →
+ *   GPI DMA1 / I2C11 → CS35L41 Left (earpiece) / Right (speaker)
  *
  * UCM2 profile: Samsung-Galaxy-S20-FE (installed in device package)
  *   - HiFi verb routes to hw:0,0 (SM8250 sound card, PCM 0)
@@ -34,6 +34,88 @@
 /dts-v1/;
 /plugin/;
 
+/*
+ * Add PRIMARY TDM (MI2S0 gpio138..141) pinctrl states matching stock live.dts
+ * and bind them on &sound (base DT had MI2S2 tert_tdm_*_state).
+ */
+&{/soc@0/pinctrl@f100000} {
+	pri_tdm_active: pri-tdm-active-state {
+		sck-pins {
+			pins = "gpio138";
+			function = "mi2s0_sck";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		data0-pins {
+			pins = "gpio139";
+			function = "mi2s0_data0";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		ws-pins {
+			pins = "gpio141";
+			function = "mi2s0_ws";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		data1-pins {
+			pins = "gpio140";
+			function = "mi2s0_data1";
+			drive-strength = <8>;
+			bias-disable;
+		};
+	};
+
+	pri_tdm_sleep: pri-tdm-sleep-state {
+		sck-pins {
+			pins = "gpio138";
+			function = "mi2s0_sck";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+
+		data0-pins {
+			pins = "gpio139";
+			function = "mi2s0_data0";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+
+		ws-pins {
+			pins = "gpio141";
+			function = "mi2s0_ws";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+
+		data1-pins {
+			pins = "gpio140";
+			function = "mi2s0_data1";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+};
+
+/* PRIMARY_TDM_RX_0 backend DAI (0x18 = 24) matching stock live.dts */
+&{/soc@0/remoteproc@17300000/glink-edge/apr/service@4/dais} {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	dai@18 {
+		reg = <0x18>; /* PRIMARY_TDM_RX_0 */
+		qcom,tdm-sync-mode = <0>;
+		qcom,tdm-sync-src = <1>;
+		qcom,tdm-data-out = <0>;
+		qcom,tdm-invert-sync = <0>;
+		qcom,tdm-data-delay = <1>;
+		qcom,tdm-data-align = <0>;
+	};
+};
+
 /* MultiMedia1 frontend DAI (needed by &sound mm1-dai-link) */
 &{/soc@0/remoteproc@17300000/glink-edge/apr/service@7/dais} {
 	#address-cells = <1>;
@@ -44,13 +126,23 @@
 	};
 };
 
+/* Route speaker TDM link to PRIMARY_TDM_RX_0 with 4x32-bit slots (6.144 MHz BCLK) */
+&{/sound/tertiary-tdm-rx-dai-link/cpu} {
+	sound-dai = <&q6afedai 0x18>;
+	dai-tdm-slot-num = <4>;
+	dai-tdm-slot-width = <32>;
+	dai-tdm-slot-rx-mask = <1 1 0 0>;
+};
+
 /* SM8250 ASoC sound card — TDM interface to CS35L41 amps */
 &{/sound} {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&pri_tdm_active>;
+	pinctrl-1 = <&pri_tdm_sleep>;
 	status = "okay";
 	/*
-	 * The sound card is defined in the base DTB (d469bd3bf).
-	 * This overlay simply enables it.
-	 * The card uses TDM slot 0 on the ADSP's Q6AFE.
 	 * Channel map and clock ops are in 8e889264e.
+	 * Base DT defaults to TERTIARY_TDM_RX_0; overridden above to PRIMARY_TDM_RX_0
+	 * on MI2S0 (gpio138..141) with 4x32-bit slots (6.144 MHz BCLK).
 	 */
 };

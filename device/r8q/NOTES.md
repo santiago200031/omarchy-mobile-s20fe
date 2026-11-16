@@ -115,3 +115,19 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   3. **`btmgmt --timeout` & unconfigured `hci0`:** After `hci_qca` downloads `qca/htbtfw20.tlv` and `qca/htnv20.bin`, QCA6390 sets `HCI_QUIRK_USE_BDADDR_PROPERTY` and waits in `Unconfigured controller` (`missing options: public-address`). `ensure_r8q_bt_uart()` in `r8q-liveness-monitor` generates a `02:XX:XX:XX:XX:XX` address (`0600`) in `/var/lib/omamobile/bt-public-addr`, configures `btmgmt --timeout 3 --index 0 public-addr`, and powers `hci0` on (`BR/EDR` + `LE`). Always pass `--timeout` to `btmgmt` (`v5.88`) and `--index none` for `config`, because `-i 0 config` prints `hci62528` and non-timeout `btmgmt` blocks SSH shells.
 - **Why `mise` / `pacman-key` failed with TLS / key-in-the-future errors on reboot:** `omamobile-r8q-rtc.service` previously had `DefaultDependencies=yes` + `WantedBy=multi-user.target` while declaring `Before=systemd-timesyncd.service`, creating a `sysinit.target` ordering cycle that made systemd delete `systemd-timesyncd.service` and skip timely clock sync (leaving the PM8150 RTC at `May 1975`). Fixed with `DefaultDependencies=no`, `WantedBy=sysinit.target`, `Before=sysinit.target time-sync.target systemd-timesyncd.service`, `ensure_r8q_clock()` (60 s epoch save + NTP kick), and `r8q-rtc-epoch` `timesync/clock` / `2026-11-15` floor. Verified `curl -fsSI https://mise.jdx.dev/releases.tsv` (`HTTP/2 200`), `mise doctor`, and `pacman-key --list-sigs` clean.
 - **Boot GUI with `systemd.unit=multi-user.target`:** Symlinked `sddm.service` under `multi-user.target.wants` and added `ensure_r8q_desktop()` to `r8q-liveness-monitor` (`0.1.18`) and `tools/r8q-install`.
+
+---
+
+## 8. P1 Native Kernel & Gate C Remoteprocs + Audio (`2026-11-16`)
+
+- **P1 verified (`7.3.0-rc6-omamobile-push1-gcaa38517520a`, `omamobile-r8q-p1-signoff`):**
+  - Built into `~/omamobile-kernel/out-r8q-p1`, modules pushed, packed (`recovery-omamobile.img`), and flashed to `sda24` over USB SSH (`tools/r8q-flash-recovery`).
+  - `/proc/iomem` XPU regions properly reserved (`HardwareCorrupted: 0 kB`); `stmfts` and `qcom_geni_serial` (`998000.serial` → `hci0`) bound natively without OOT `.ko` workarounds.
+  - Updated `r8q-liveness-monitor` (`0.1.19`) to retry `hci0` `public-addr` configuration until `hci_qca` creates `hci0` (~9.5 s post-boot).
+- **Gate C Step 1 (`display,remoteprocs`) & Step 2 (`+audio-amps`):**
+  - `remoteproc0` (`slpi`), `remoteproc1` (`cdsp`), `remoteproc2` (`adsp`) all reached `running`; `a00000.dma-controller` (`gpi_dma1`) and `a8c000.i2c` (`i2c11`) probed dual `cs35l41` (`11-0040`, `11-0041`, Rev A0).
+- **Gate C Step 3 (`+audio-sound`) — Why `TERTIARY_TDM_RX_0` failed `-110` (`PLL_UNLOCK`) & Fix:**
+  - Base DT `d469bd3bf` wired `&sound` to `TERTIARY_TDM_RX_0` (`0x38`, `mi2s2_*` `gpio133..137`, 2 slots, `tdm-sync-mode=1`, `tdm-invert-sync=1`), leaving `cs35l41` without BCLK (`Enable(1) failed: -110`, `PLL_UNLOCK=1`).
+  - Stock `live.dts` and `dmesg` proved `r8q` routes speaker amps via `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` (`gpio138..141`), `4x32-bit` slots (`6.144 MHz` BCLK), `tdm-sync-mode=0`, `tdm-sync-src=1`, `tdm-invert-sync=0`, `tdm-data-delay=1`.
+  - Updated `device/r8q/overlays/audio-sound.dtso` (`pri_tdm_active`/`pri_tdm_sleep`, `dai@18`, `&q6afedai 0x18`, `4x32-bit`) and `packages/omamobile-device-r8q/ucm2/Samsung/r8q/HiFi.conf` (`PRIMARY_TDM_RX_0 Audio Mixer MultiMedia1`, `ASP`, `Left/Right Analog/Digital PCM Volume`).
+  - **Verified end-to-end (`pw-cat --playback` → `Built-in Audio Stereo Speakers` → `MultiMedia1` → `PRIMARY_TDM_RX_0` → `11-0040`/`11-0041`):** both `cs35l41` amps reported `GLOBAL_EN=1`, `AMP_EN=1` (`0002018=0x21`), `PUP_DONE=1` (`0010090=0x41404000`), and `PLL_LOCK=1` / `PLL_UNLOCK=0` (`0010098=0x2000000f`) with zero kernel errors.

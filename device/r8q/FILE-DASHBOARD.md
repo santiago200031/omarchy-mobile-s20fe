@@ -3,8 +3,8 @@
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-gd469bd3bf2a9` (needs rebuild/flash with `1324fe066`, `5866f774c`, `caa385175`)
-**Device Package:** `omamobile-device-r8q` `0.1.14` installed on phone (`0.1.19` staged in `r8q-p3-device-package-bump`)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-gcaa38517520a` (P1 native DT + touch + BT verified on hardware)
+**Device Package:** `omamobile-device-r8q` `0.1.19` (verified with `audio` + `hci0` retry + UCM2 fixes on `r8q-p3-device-package-bump`)
 **Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
 **Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
 
@@ -49,31 +49,31 @@
 
 ## 🔲 MISSING (5 cards — next work queue)
 
-### P1: Flash Native DT + Touch + BT Recovery (CRITICAL)
+### P1: Flash Native DT + Touch + BT Recovery (VERIFIED ON HARDWARE; SIGNOFF PENDING)
 
 | Item | Status | Details |
 |------|--------|---------|
-| Kernel sign-offs | 🔴 | All 20 commits on `omamobile-r8q` (plus `camera-wip`) need human `Signed-off-by:` before upstream PRs (`tools/kernel-pr-check`) |
-| Rebuild recovery image | 🔴 | Current `recovery-omamobile.img` in `out-r8q` is `camera-wip` (`0a1227989`); live phone runs `gd469bd3bf2a9` |
-| Flash to `sda24` | ⏳ | Needs human approval (`tools/r8q-flash-recovery` over USB SSH, or Download Mode) |
-| Verify `uname -r` | ⏳ | Must match rebuilt kernel release |
-| Verify native drivers | ⏳ | `stmfts`, `998000.serial`, `bluetooth` should work without `stmfts-r8q.ko`/`r8q-bt-uart.ko` |
+| Kernel sign-offs | 🔴 | All 20 commits on `omamobile-r8q-p1-signoff` (`caa385175`) need human `Signed-off-by:` before upstream PRs (`tools/kernel-pr-check`) |
+| Rebuild recovery image | ✅ | Built `~/omamobile-kernel/out-r8q-p1` (`7.3.0-rc6-omamobile-push1-gcaa38517520a`, 1821 modules) |
+| Flash to `sda24` | ✅ | Flashed & verified over USB SSH (`tools/r8q-flash-recovery`) |
+| Verify `uname -r` | ✅ | Verified `7.3.0-rc6-omamobile-push1-gcaa38517520a`, `HardwareCorrupted: 0 kB`, 37/37 `ro=1` |
+| Verify native drivers | ✅ | Native `stmfts` + `qcom_geni_serial` + `hci0` working without `stmfts-r8q.ko`/`r8q-bt-uart.ko` |
 
 **Files involved:**
-- `~/omamobile-kernel/wt-r8q` (branch `omamobile-r8q`, HEAD `caa385175`)
-- `tools/r8q-boot pack` → `out-r8q/recovery-omamobile.img`
+- `~/omamobile-kernel/wt-r8q` (branch `omamobile-r8q-p1-signoff`, HEAD `caa385175`)
+- `tools/r8q-boot pack` → `out-r8q-p1/recovery-omamobile.img`
 - `tools/r8q-flash-recovery` → `sda24`
 - `tools/r8q-push` → modules tarball
 
-### P2: Gate C — Remoteprocs & Audio (HIGH)
+### P2: Gate C — Remoteprocs & Audio (VERIFIED END-TO-END ON HARDWARE)
 
 | Item | Status | Details |
 |------|--------|---------|
-| `remoteprocs.dtso` | 🔴 | Enable `adsp`, `cdsp`, `slpi`; verify `qrtr-ns`, `pd-mapper`, `tqftpserv` |
-| `audio-amps.dtso` | 🔴 | Enable `gpi_dma1`, `i2c11@a8c000`; probe dual `cs35l41@40`/`@41` |
-| `audio-sound.dtso` | 🔴 | Enable TDM sound card; test UCM2 with `aplay -l` |
-| Firmware staging | ⏳ | `adsp.mbn`, `cdsp.mbn`, `slpi.mbn` already present (preflight ok) |
-| Silence dispcc rcg2 warning | ⏳ | After audio lands |
+| `remoteprocs.dtso` | ✅ | `slpi`, `cdsp`, `adsp` all `running` |
+| `audio-amps.dtso` | ✅ | `gpi_dma1` (`a00000.dma-controller`) + `i2c11` (`a8c000.i2c`) probed dual `cs35l41` (`11-0040`, `11-0041`, Rev A0) |
+| `audio-sound.dtso` | ✅ | Routed `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` (`gpio138..141`), `4x32-bit` slots (`6.144 MHz` BCLK); PipeWire → `MultiMedia1` → `cs35l41` `PUP_DONE=1`, `PLL_LOCK=1` |
+| Firmware staging | ✅ | `adsp.mbn`, `cdsp.mbn`, `slpi.mbn` loaded cleanly |
+| Audible tone check | ⏳ | PipeWire silent playback verified zero errors; optional human-attended low-volume tone check |
 
 **Files involved:**
 - `device/r8q/overlays/remoteprocs.dtso` (exists, needs testing)

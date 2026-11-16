@@ -157,6 +157,11 @@ test -f ../../device/r8q/overlays/audio-amps.dtso
 test -f ../../device/r8q/overlays/audio-sound.dtso
 test -f ../../device/r8q/overlays/display.dtso
 test -f ../../device/r8q/overlays/camera.dtso
+test -f ../../device/r8q/overlays/slpi-sensors.dtso
+grep -q '10-r8q-hexagonrpcd.conf' PKGBUILD
+grep -q '79-r8q-iio-sensor-proxy.rules' PKGBUILD
+grep -q 'ConditionPathExists=/usr/share/qcom/sm8250/samsung/r8q/sensors/sns_reg.conf' 10-r8q-hexagonrpcd.conf
+grep -q 'ssc-accel' 79-r8q-iio-sensor-proxy.rules
 if command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]; then
   PATH="$HOME/.cargo/bin:$PATH" cargo test --manifest-path rust/r8q-preflight/Cargo.toml --quiet
 fi

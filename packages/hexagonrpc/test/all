@@ -1,0 +1,39 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Offline checks for the hexagonrpc package.
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."
+fails=0
+fail() { echo "FAIL: $*" >&2; fails=$((fails + 1)); }
+pass() { echo "ok: $*"; }
+
+(
+  # shellcheck disable=SC1091
+  source ./PKGBUILD
+  [[ $pkgname == hexagonrpc ]] || exit 1
+  [[ $pkgver == "$(tr -d ' \n' < version)" ]] || exit 2
+  [[ ${#source[@]} == "${#sha256sums[@]}" ]] || exit 3
+  for i in "${!sha256sums[@]}"; do
+    [[ ${sha256sums[$i]} =~ ^[0-9a-f]{64}$ ]] || exit 4
+    if [[ $i -gt 0 ]]; then
+      [[ ${sha256sums[$i]} == "$(sha256sum "${source[$i]}" | cut -d' ' -f1)" ]] || exit 5
+    fi
+  done
+  [[ ${source[0]} == *"v$pkgver.tar.gz" ]] || exit 6
+) && pass "PKGBUILD pins tarball, version, and all checksums" \
+  || fail "PKGBUILD pin check failed (exit $?)"
+
+grep -q 'sns_reg_version' 0001-rpcd-builder-map-sns_reg_version-and-ssc_hw_rev.patch \
+  && grep -q 'ssc_hw_rev' 0001-rpcd-builder-map-sns_reg_version-and-ssc_hw_rev.patch \
+  && pass "patch exposes sns_reg_version and ssc_hw_rev in HexagonFS" \
+  || fail "patch missing sns_reg_version or ssc_hw_rev"
+
+grep -q '^u fastrpc ' hexagonrpc.sysusers && pass "sysusers defines fastrpc user" \
+  || fail "hexagonrpc.sysusers missing u fastrpc entry"
+
+grep -q 'KERNEL=="fastrpc-\*"' 60-hexagonrpc.rules && grep -q 'GROUP="fastrpc"' 60-hexagonrpc.rules \
+  && pass "udev rule grants fastrpc access to /dev/fastrpc-*" \
+  || fail "60-hexagonrpc.rules missing fastrpc permission rule"
+
+((fails)) && { echo "$fails test(s) failed" >&2; exit 1; }
+echo "hexagonrpc: all tests passed"

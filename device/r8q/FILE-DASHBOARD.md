@@ -99,7 +99,7 @@
 | Item | Status | Details |
 |------|--------|---------|
 | DPMS & Lock Screen | 🔴 | Verify `LockGlance.qml` wake; Power-key DPMS off/on |
-| SLPI sensors | 🔴 | After `remoteprocs.dtso` enables SLPI |
+| SLPI sensors | ✅ | `slpi-sensors.dtso` (`L8C` `1.8 V`) + `hexagonrpc 0.5.0-2` + `iio-sensor-proxy` (`accel`, `light`, `compass` live; `proximity` `UNKNOWN`) |
 | Camera: HI-847 I2C | 🔴 | I2C bus timeout — needs boot image flash (kexec can't change DT) |
 | Camera: other 3 sensors | ⏳ | IMX555, S5K3L6, IMX616 — no mainline drivers yet |
 | `tools/r8q-install` alignment | ✅ | `monitors.lua` @60, `vrr=0`, scale 2.25 |
@@ -134,7 +134,7 @@
 | File | Status | Notes |
 |------|--------|-------|
 | `PKGBUILD` | ✅ | Builds `reboot-to`, `r8q-liveness-heartbeat`, AI server, preflight |
-| `version` | ⚠️ | `0.1.19` in repo (`0.1.14` installed on phone) |
+| `version` | ✅ | `0.1.20` (installed & verified on phone with `hexagonrpc 0.5.0-2`) |
 | `test/all` | ✅ | Comprehensive config tests |
 | `hyprland-r8q.conf` | ✅ | `DSI-1,1080x2400@60,0x0,2.25`; `vrr=0`; no blur/shadow/animations |
 | `ucm2/` | ✅ | HiFi.conf, Samsung-Galaxy-S20-FE.conf, kona-mtp-snd-card.conf |

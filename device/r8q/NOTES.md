@@ -131,3 +131,18 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   - Stock `live.dts` and `dmesg` proved `r8q` routes speaker amps via `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` (`gpio138..141`), `4x32-bit` slots (`6.144 MHz` BCLK), `tdm-sync-mode=0`, `tdm-sync-src=1`, `tdm-invert-sync=0`, `tdm-data-delay=1`.
   - Updated `device/r8q/overlays/audio-sound.dtso` (`pri_tdm_active`/`pri_tdm_sleep`, `dai@18`, `&q6afedai 0x18`, `4x32-bit`) and `packages/omamobile-device-r8q/ucm2/Samsung/r8q/HiFi.conf` (`PRIMARY_TDM_RX_0 Audio Mixer MultiMedia1`, `ASP`, `Left/Right Analog/Digital PCM Volume`).
   - **Verified end-to-end (`pw-cat --playback` → `Built-in Audio Stereo Speakers` → `MultiMedia1` → `PRIMARY_TDM_RX_0` → `11-0040`/`11-0041`):** both `cs35l41` amps reported `GLOBAL_EN=1`, `AMP_EN=1` (`0002018=0x21`), `PUP_DONE=1` (`0010090=0x41404000`), and `PLL_LOCK=1` / `PLL_UNLOCK=0` (`0010098=0x2000000f`) with zero kernel errors.
+
+---
+
+## 9. P4 SLPI Sensors (`hexagonrpc` + `vreg_l8c_1p8`) & Volume Up Root Cause (`2026-11-16`)
+
+- **SLPI Sensors (`slpi-sensors.dtso`, `hexagonrpc 0.5.0-2`, `omamobile-device-r8q 0.1.20`):**
+  - Initial `ssccli --sensor accelerometer` found QRTR node `9` (`ssc` service `400`) but failed on `'registry' sensor unavailable, is hexagonrpcd running?`.
+  - After packaging `linux-msm/hexagonrpc` `0.5.0`, verbose tracing revealed three blockers causing SLPI `sns_registry_sensor.c:99` (`SNS_REG_INIT`) and `sns_thread_manager.c:437` (`SEE Sensor exceeded processing time limit`) crashes:
+    1. `rpcd_builder.c` did not map `/persist/sensors/registry/sns_reg_version` or `/sys/class/sensors/ssc_core/ssc_hw_rev`; patched in `packages/hexagonrpc/0001-rpcd-builder-map-sns_reg_version-and-ssc_hw_rev.patch`.
+    2. Leaving LineageOS/vendor `.json` files in `/usr/share/qcom/.../sensors/config/` caused `sns_registry` to attempt writing `temp.json` on the read-only HexagonFS; using the pre-parsed `persist` registry (`191` files from `/dev/sda8` read-only) with an empty `sensors/config/` dir avoids `temp.json` writes.
+    3. `sm8250-samsung-r8q.dts` omitted `vreg_l8c_1p8` (`PM8150L L8C`, `1.8 V`, bound as `sensor_vdd-supply` on `qcom,ssc@5c00000` in stock `live.dts`), leaving the I3C/I2C sensor bus unpowered. Added `device/r8q/overlays/slpi-sensors.dtso` (`vdd-l1-l8-supply = <&vreg_s4a_1p8>`, `vreg_l8c_1p8: ldo8`).
+  - **Verified live on hardware (`7.3.0-rc6-omamobile-push1-gcaa38517520a`):**
+    - `ssccli`: `accelerometer` (`LSM6DSO`), `light` (`TCS3407`), `magnetometer` & `compass` (`AK0991X`) all stream real readings; `proximity` returns `UNKNOWN` (Samsung optical/virtual proximity on `stk31610`).
+    - Added `79-r8q-iio-sensor-proxy.rules` (`ssc-accel ssc-light ssc-compass` on `fastrpc-sdsp*`) and `10-r8q-hexagonrpcd.conf` (`ConditionPathExists` + `-R /usr/share/qcom/sm8250/samsung/r8q`); `monitor-sensor` reports `Has accelerometer`, `Has ambient light sensor`, and `Has compass` with live updates.
+- **Volume Up key root cause:** Stock `live.dts` (`gpio_keys/vol_up` + `pinctrl@c000`) wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (`pm8150l_gpio3`), whereas `sm8250-samsung-common.dtsi` had `&pm8150_gpios 3`. Pending kernel DTS override in `sm8250-samsung-r8q.dts`.

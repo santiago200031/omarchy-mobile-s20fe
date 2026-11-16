@@ -34,6 +34,16 @@
 /dts-v1/;
 /plugin/;
 
+/* MultiMedia1 frontend DAI (needed by &sound mm1-dai-link) */
+&{/soc@0/remoteproc@17300000/glink-edge/apr/service@7/dais} {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	dai@0 {
+		reg = <0>; /* MSM_FRONTEND_DAI_MULTIMEDIA1 */
+	};
+};
+
 /* SM8250 ASoC sound card — TDM interface to CS35L41 amps */
 &{/sound} {
 	status = "okay";

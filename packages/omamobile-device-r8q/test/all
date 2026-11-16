@@ -167,6 +167,7 @@ grep -q '70-r8q-libcamera.conf' PKGBUILD
 grep -qx 'LIBCAMERA_SOFTISP_MODE=cpu' 70-r8q-libcamera.conf
 grep -q 'ConditionPathExists=/usr/share/qcom/sm8250/samsung/r8q/sensors/sns_reg.conf' 10-r8q-hexagonrpcd.conf
 grep -q 'ssc-accel' 79-r8q-iio-sensor-proxy.rules
+grep -q 'ACCEL_MOUNT_MATRIX' 79-r8q-iio-sensor-proxy.rules
 if command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]; then
   PATH="$HOME/.cargo/bin:$PATH" cargo test --manifest-path rust/r8q-preflight/Cargo.toml --quiet
 fi

@@ -215,6 +215,44 @@ and `tools/r8q-flash-recovery` clears both LUN and partition `ro` flags before
 writing `sda24`. Byte-exact pre-camera backup of `sda24` is in
 `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
 
+### 6.2 HI-847 probe and CSIPHY2 0-IRQ fix (2026-11-16)
+
+- **Tested on `7.3.0-rc6-omamobile-push1-gb7e537fa47a8`:**
+  - `hi847 10-0021` probed (`0x0847`), `/dev/media0` topology linked
+    `hi847 10-0021:0 -> msm_csiphy2 -> msm_csid0 -> msm_vfe0_rdi0 -> /dev/video0`.
+  - `VIDIOC_STREAMON` at `3264x2448` (`pgAA`), with `test_pattern=1`, and at
+    `1632x1224` (`pgAA`) incremented `vfe0` (`3 -> 8` IRQs) and `csid0` (`2 -> 5` IRQs),
+    but `msm_csiphy2` stayed at `0` IRQs and timed out with `0`-byte raw files.
+- **Root cause:** `&camss` `port@2` (`csiphy2_ep`) used 1-based
+  `data-lanes = <1 2 3 4>;` and omitted `clock-lanes = <7>;` and
+  `bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;`. `camss-csiphy-3ph-1-0.c` computes
+  `BIT(c->data[i].pos * 2)` and lane offsets `c->data[i].pos * 2` on SM8250, so
+  `<1 2 3 4>` skipped physical lane 0 and overflowed 8-bit `CTRL5`.
+- **Fix staged (offline build, kernel `camera-wip` @ `f3be9fb6d`):**
+  - Updated `csiphy2_ep` to `clock-lanes = <7>;`, `data-lanes = <0 1 2 3>;`,
+    `bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;` (keeping `data-lanes = <1 2 3 4>;` and
+    `link-frequencies = /bits/ 64 <400000000>;` on `hi847_out`).
+  - Built `7.3.0-rc6-omamobile-push1-gf3be9fb6de08`, `1827` modules in
+    `modules-7.3.0-rc6-omamobile-push1-gf3be9fb6de08.tar.zst`, and packed 7-overlay
+    `recovery-omamobile-camera.img` (sha256 `64f7aad8b42c0b7bb751e2ae1268b13dc59f637be26f4fdddbabf343dc3577cc`).
+
+### 6.3 Gated step: install modules, flash `sda24`, reboot, capture raw frame
+
+- **Risk:** Writes `/usr/lib/modules/7.3.0-rc6-omamobile-push1-gf3be9fb6de08` on `userdata`,
+  writes `recovery` (`sda24`), and reboots into Omarchy. Require human go-ahead (`AGENTS.md` §1).
+- **Commands (once approved):**
+  1. Stream & unpack `modules-7.3.0-rc6-omamobile-push1-gf3be9fb6de08.tar.zst` to
+     `/usr/lib/modules/` and run `depmod -a 7.3.0-rc6-omamobile-push1-gf3be9fb6de08`.
+  2. Write `recovery-omamobile-camera.img` to `/dev/sda24`, read back sha256 (`64f7aad8…`),
+     then `reboot-to recovery` (keeping LineageOS `boot` untouched).
+  3. Over fresh SSH: set `media-ctl` `3264x2448` / `SGRBG10_1X10`, capture 2 frames with
+     `timeout 5 v4l2-ctl -d /dev/video0 --set-fmt-video=width=3264,height=2448,pixelformat=pgAA --stream-mmap=4 --stream-count=2 --stream-to=/tmp/hi847.raw`,
+     and verify `/proc/interrupts` (`csiphy2`, `csid0`, `vfe0`).
+- **Pass:** Non-empty `/tmp/hi847.raw` (expected `~19.9 MB` for 2 packed `pgAA` `3264x2448`
+  frames) and increasing `csiphy2`/`csid0`/`vfe0` IRQs without oops or I2C timeouts.
+- **Stop / Rollback:** If USB fails to return, button-boot LineageOS (`boot` untouched) and
+  restore `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`) to `sda24`.
+
 ## 7. Follow-ups for the other three sensors
 
 1. **Sony IMX555** (rear main, CCI0 master 0, CSIPHY0, MCLK0 19.2 MHz) and

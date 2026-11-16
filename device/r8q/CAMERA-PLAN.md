@@ -1,44 +1,27 @@
 # Camera plan (r8q / SM8250): the mainline V4L2 stack, telephoto first
 
-- **Status (2026-11-15, night):** the camera **stack** is up on the phone and
-  the sensor is the last blocker. Kernel worktree `~/omamobile-kernel/wt-r8q`
-  (HEAD `0a1227989`), out `~/omamobile-kernel/out-r8q`, release
-  `7.3.0-rc6-omamobile-push1-g0a1227989083`, flashed into `sda24` and booted.
+- **Status (2026-11-16):** Root cause of the QUP10 I2C timeout identified offline;
+  fix built and staged on kernel branch `camera-wip` (`56ed977c2`,
+  `~/omamobile-kernel/out-r8q`, release
+  `7.3.0-rc6-omamobile-push1-g56ed977c2b7f`). Pending gated flash/boot test.
 
-  Working, verified on the phone:
+  Previously on `0a1227989`, the camera **stack** came up on the phone with
+  `qcom-camss` (`/dev/media0`, `/dev/video0..13`), `camcc-sm8250` (111
+  clocks), and `cam_cc_mclk3_clk` at 19.2 MHz (`TITAN_TOP_GDSC`), while
+  `i2c@a88000` (QUP10) timed out (`Timeout cancel_m_cmd`) and `hi847` returned
+  `-5`. Cross-checking stock `live.dts` (`rpmh-regulator-ldoc7` →
+  `pm8150a_l7: L7C`, phandle `0x2d1`) showed `bd65a535b` misread that label
+  and enabled `vreg_l7a_1p8` (`L7A`, `regulators-0`) instead of the already
+  defined **`vreg_l7c_1p8` (`L7C`, `regulators-1`)** — leaving the real
+  `CAM_VIO` 1.8 V rail (and likely external `qup_i2c10` pull-ups since pinctrl
+  uses `bias-disable`) unpowered.
 
-  - `qcom-camss` probes: `/dev/media0`, `/dev/video0..13`, all six CSIPHYs, the
-    four CSIDs and the VFE RDI/pix entities are in the media graph;
-  - `camcc-sm8250` is no longer blacklisted (111 `cam_cc_*` clocks, clean probe);
-  - the HI-847's CAM_VIO rail is modelled (PM8150A LDO7, 1.8 V) and enabled
-    (`vreg_l7a_1p8`: 1 in use, 1800 mV) and its MCLK3 runs at 19.2 MHz
-    (`cam_cc_mclk3_clk` enable_count 1) — after giving the sensor
-    `power-domains = <&camcc TITAN_TOP_GDSC>`: without it the MCLK branch
-    stayed in halt ("status stuck at 'off'") and probe failed with -EBUSY.
-
-  Still failing: the HI-847 does not answer on its I2C bus. Every transfer on
-  `i2c@a88000` (QUP10, vendor `qupv3_se10`, GPIO129/130) times out —
-  `geni_i2c a88000.i2c: Timeout cancel_m_cmd`, then
-  `hi847 10-0021: failed to find sensor: -5` — and `i2cdetect` sees no ACK at
-  any address on that bus. Ruled out so far: pin muxing (`a88000.i2c` claims
-  both pins with function `qup10`), the rail and MCLK (both on, above), the
-  sensor's reset/LDO-enable polarity (all four combinations tested), and the
-  I2C address (a scan with the sensor powered, kept up by a debug module,
-  answers at none).
-
-  Also recorded: **kexec cannot change the device tree on this phone.** The
-  file-based syscall regenerates the DT from the running one and ignores
-  `--dtb`; the load syscall honours it but panics here (needs
-  `CONFIG_PROC_KCORE` for VA_BITS, added to `kernel.config`, and still
-  panicked), so a DT change needs the boot image, i.e. a write to `sda24`.
-  `tools/r8q-flash-recovery` now clears the LUN read-only flag as well: the
-  guard leaves the whole disk read-only, so clearing only the partition flag
-  made `dd` copy zero bytes while succeeding.
-
-  Staged artifacts: `out-r8q/recovery-omamobile.img` (camera overlay,
-  dual-boot, sha256 `d3379ad6…`), modules for the release installed on the
-  phone, and a byte-exact backup of the previous `sda24` in
-  `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
+  Staged (not flashed yet):
+  `~/omamobile-kernel/out-r8q/recovery-omamobile-camera.img` (`display`,
+  `remoteprocs`, `audio-amps`, `audio-sound`, `slpi-sensors`, `vol-up`,
+  `camera`; sha256 `8abf24b1…`) and
+  `~/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-g56ed977c2b7f.tar.zst`
+  (1821 modules).
 
 ## 1. What is actually wrong (corrected)
 
@@ -212,36 +195,28 @@ ID (`failed to find sensor: -5`). Ruled out, each verified on the phone:
 | Test | Result |
 | --- | --- |
 | Pin mux | `a88000.i2c` claims GPIO129/130 with function `qup10`, exactly the stock DT's `qupv3_se10_i2c_active` (drive 2, `bias-disable`) |
-| CAM_VIO rail | `vreg_l7a_1p8` enabled, 1800 mV, 1 consumer; PM8150A LDO7, from the stock `cam_vio-supply` |
+| CAM_VIO rail | **Fixed in `56ed977c2`:** `0a1227989` enabled `vreg_l7a_1p8` (`L7A`), whereas stock `live.dts` (`rpmh-regulator-ldoc7` → `pm8150a_l7: L7C`, phandle `0x2d1`) is **`vreg_l7c_1p8` (`L7C`)** under `regulators-1` |
 | MCLK3 | `cam_cc_mclk3_clk` enable_count 1, 19.2 MHz (after the `TITAN_TOP_GDSC` power-domain fix) |
 | Reset / LDO-enable polarity | all four combinations, via module parameters: identical `-EIO` |
 | I2C address | `i2cdetect` on the powered bus: no ACK at any address; the stock DT's `slave-addr = 0x42` is the 8-bit form of 0x21 |
 | Interrupt | the SE IRQ does fire (409 → 411 per probe), so it is not a missing/routed-wrong IRQ; the stock DT's SPI 355 is what mainline uses |
-| GPI EE offset | the port sets 0x6000 for the 0xa00000 GPI instance (`00cfa5c21`); testing 0x1000 changed nothing |
-| Bench bus | `i2c5` (touch, QUP0, GPI instance 0x900000) works, so GENI I2C and GPI DMA work in general on this port |
+| GPI EE offset | `0x6000` for `0xa00000` (`gpi_dma1`, `00cfa5c21`) matches stock `live.dts` (`qcom,gpi-ee-offset = <0x6000>`) |
+| Bench bus + QUP2 control | **Verified working (2026-11-16):** `&i2c11` (`a8c000.i2c`, `qupv3_se11`, dual `cs35l41` amps) on the **same `gpi_dma1` (`0xa00000`)** probes cleanly, ruling out QUP2/GPI |
 
-Left, in order of cost:
+Next gated test step (once human approves flashing `sda24` + reboot):
 
-1. **FIFO vs GPI.** `geni_i2c` reads `GENI_IF_DISABLE_RO` and only uses GPI DMA
-   when the FIFO interface is disabled (TrustZone can set that per SE). Removing
-   `dmas`/`dma-names` from `&i2c10` makes probe fail if the FIFO is disabled (we
-   learn the state) or run on FIFO (we learn whether GPI is the fault).
-2. **Electrical.** With a scope on GPIO129/130: are the pull-ups present and on
-   which rail, and does the sensor drive SDA low (a powered sensor holding SCL
-   low indefinitely shows exactly this timeout). The tele camera is behind the
-   back glass; a loose connector would look like this too.
-3. **A second QUP1 bus as a control.** Enable `&i2c11` (the CS35L41 amplifiers,
-   vendor `qupv3_se11`) on the same QUP1 block: if it also times out, the fault
-   is the QUP1 block/GPI pair rather than the camera wiring.
+1. Push `~/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-g56ed977c2b7f.tar.zst`
+   and flash `~/omamobile-kernel/out-r8q/recovery-omamobile-camera.img` (sha256
+   `8abf24b1…`) to `sda24` (`tools/r8q-flash-recovery`).
+2. Check if `hi847 10-0021` probes cleanly with `vreg_l7c_1p8` powering `CAM_VIO`
+   and I2C10 pull-ups. If `i2c@a88000` still times out with `L7C` enabled, test
+   FIFO vs GPI (drop `dmas`/`dma-names` from `&i2c10`) and check `GPIO129`/`GPIO130`
+   voltages/pull-ups electrically.
 
-The current state on the phone: the clean camera image is flashed
-(`out-r8q/recovery-omamobile.img`, sha256 `5fe3a273…`, release
-`7.3.0-rc6-omamobile-push1-g0a1227989083`) and the camera modules are held off
-with `/etc/modprobe.d/zz-camera-hold.conf`, so the phone runs at normal speed
-with `camcc` at 0 references. Remove that file (and reboot) to bring the stack
-back for the next test. The previous boot partition is backed up byte-for-byte
-in `backup/r8q-camera/recovery-before-camera.img`
-(sha256 `ebac7774…`).
+Note: **kexec cannot change the DTB on this phone** (`--dtb` ignored / panics),
+and `tools/r8q-flash-recovery` clears both LUN and partition `ro` flags before
+writing `sda24`. Byte-exact pre-camera backup of `sda24` is in
+`backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
 
 ## 7. Follow-ups for the other three sensors
 

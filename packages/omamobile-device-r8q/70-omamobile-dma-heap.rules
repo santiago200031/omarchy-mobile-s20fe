@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+# libcamera's software ISP (and so PipeWire's libcamera plugin, which runs in
+# the user's WirePlumber) allocates its output buffers from the DMA-BUF heaps.
+# They are root-only by default, so without this a user session sees the
+# cameras but gets no debayered stream ("Could not open any dma-buf provider").
+SUBSYSTEM=="dma_heap", KERNEL=="system|reserved|default_cma_region", GROUP="video", MODE="0660", TAG+="uaccess"

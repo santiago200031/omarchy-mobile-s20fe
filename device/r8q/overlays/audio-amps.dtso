@@ -38,3 +38,12 @@
 	/* These are probed by the cs35l41_i2c driver */
 	/* pinctrl for SCL/SDA on GPIOs — must match board layout */
 };
+
+/* Let mainline wm_adsp resolve cirrus/cs35l41-dsp1-spk-prot-r8q-{right,left}.* */
+&{/soc@0/geniqup@ac0000/i2c@a8c000/amplifier@40} {
+	cirrus,subsystem-id = "r8q";
+};
+
+&{/soc@0/geniqup@ac0000/i2c@a8c000/amplifier@41} {
+	cirrus,subsystem-id = "r8q";
+};

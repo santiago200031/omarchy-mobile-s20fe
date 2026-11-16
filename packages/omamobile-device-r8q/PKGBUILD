@@ -143,6 +143,8 @@ package() {
     "$pkgdir/usr/lib/udev/rules.d/79-r8q-iio-sensor-proxy.rules"
   install -Dm644 "$startdir/70-omamobile-dma-heap.rules" \
     "$pkgdir/usr/lib/udev/rules.d/70-omamobile-dma-heap.rules"
+  install -Dm644 "$startdir/70-r8q-libcamera.conf" \
+    "$pkgdir/usr/lib/environment.d/70-r8q-libcamera.conf"
   # Bring-up overlays (device/r8q/overlays/): enable nodes disabled in the
   # base DTB one boot at a time. Each overlay is self-contained and can be
   # tested independently via tools/r8q-boot --overlay NAME.

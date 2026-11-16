@@ -232,19 +232,20 @@ writing `sda24`. Byte-exact pre-camera backup of `sda24` is in
   - Updated `csiphy2_ep` to `clock-lanes = <7>;`, `data-lanes = <0 1 2 3>;`,
     `bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;` (keeping `data-lanes = <1 2 3 4>;` and
     `link-frequencies = /bits/ 64 <400000000>;` on `hi847_out`).
-  - Built `7.3.0-rc6-omamobile-push1-gf3be9fb6de08`, `1827` modules in
+  - Built `7.3.0-rc6-omamobile-push1-gf3be9fb6de08` with explicit `DEVICE=r8q`, `1821` modules in
     `modules-7.3.0-rc6-omamobile-push1-gf3be9fb6de08.tar.zst`, and packed 7-overlay
-    `recovery-omamobile-camera.img` (sha256 `64f7aad8b42c0b7bb751e2ae1268b13dc59f637be26f4fdddbabf343dc3577cc`).
+    `recovery-omamobile-camera.img` (sha256 `4ce468555bf345299a54119685514fbd33a1a07190ca35d591b7abb1ab5ff10b`).
 
 ### 6.3 Gated step: install modules, flash `sda24`, reboot, capture raw frame
 
 - **Risk:** Writes `/usr/lib/modules/7.3.0-rc6-omamobile-push1-gf3be9fb6de08` on `userdata`,
   writes `recovery` (`sda24`), and reboots into Omarchy. Require human go-ahead (`AGENTS.md` §1).
 - **Commands (once approved):**
-  1. Stream & unpack `modules-7.3.0-rc6-omamobile-push1-gf3be9fb6de08.tar.zst` to
+  1. Flash `recovery-omamobile-camera.img` (`4ce46855…`) to `/dev/sda24` (`tools/r8q-boot flash-recovery`
+     from LineageOS over `adb`, or `heimdall flash --RECOVERY` in Download Mode, or
+     `tools/r8q-flash-recovery` from running Omarchy) and verify readback.
+  2. Stream & unpack `modules-7.3.0-rc6-omamobile-push1-gf3be9fb6de08.tar.zst` to
      `/usr/lib/modules/` and run `depmod -a 7.3.0-rc6-omamobile-push1-gf3be9fb6de08`.
-  2. Write `recovery-omamobile-camera.img` to `/dev/sda24`, read back sha256 (`64f7aad8…`),
-     then `reboot-to recovery` (keeping LineageOS `boot` untouched).
   3. Over fresh SSH: set `media-ctl` `3264x2448` / `SGRBG10_1X10`, capture 2 frames with
      `timeout 5 v4l2-ctl -d /dev/video0 --set-fmt-video=width=3264,height=2448,pixelformat=pgAA --stream-mmap=4 --stream-count=2 --stream-to=/tmp/hi847.raw`,
      and verify `/proc/interrupts` (`csiphy2`, `csid0`, `vfe0`).

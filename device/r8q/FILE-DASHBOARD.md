@@ -4,7 +4,7 @@
 
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
 **Live Kernel:** `7.3.0-rc6-omamobile-push1-gcaa38517520a` (P1 native DT + touch + BT verified on hardware)
-**Device Package:** `omamobile-device-r8q` `0.1.19` (verified with `audio` + `hci0` retry + UCM2 fixes on `r8q-p3-device-package-bump`)
+**Device Package:** `omamobile-device-r8q` `0.1.21` + `hexagonrpc` `0.5.0-2` (installed & verified on phone)
 **Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
 **Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
 
@@ -14,9 +14,9 @@
 
 | Column | Count | Last Updated |
 | --- | --- | --- |
-| ✅ SUCCESS | 6 | 2026-11-15 |
-| ❌ FAILED (known, mitigated) | 7 | 2026-11-15 |
-| 🔲 MISSING | 5 | 2026-11-15 |
+| ✅ SUCCESS | 6 | 2026-11-16 |
+| ❌ FAILED (known, mitigated) | 7 | 2026-11-16 |
+| 🔲 MISSING | 5 (P1/P2/SLPI+VolUp done) | 2026-11-16 |
 
 ---
 
@@ -73,34 +73,34 @@
 | `audio-amps.dtso` | ✅ | `gpi_dma1` (`a00000.dma-controller`) + `i2c11` (`a8c000.i2c`) probed dual `cs35l41` (`11-0040`, `11-0041`, Rev A0) |
 | `audio-sound.dtso` | ✅ | Routed `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` (`gpio138..141`), `4x32-bit` slots (`6.144 MHz` BCLK); PipeWire → `MultiMedia1` → `cs35l41` `PUP_DONE=1`, `PLL_LOCK=1` |
 | Firmware staging | ✅ | `adsp.mbn`, `cdsp.mbn`, `slpi.mbn` loaded cleanly |
-| Audible tone check | ⏳ | PipeWire silent playback verified zero errors; optional human-attended low-volume tone check |
+| Audible playback | ✅ | Verified on bottom speaker (`Analog=18`, `Digital=817`); quieter than full stock (CS35L41 tuning/boost follow-up) |
 
 **Files involved:**
-- `device/r8q/overlays/remoteprocs.dtso` (exists, needs testing)
-- `device/r8q/overlays/audio-amps.dtso` (exists, needs testing)
-- `device/r8q/overlays/audio-sound.dtso` (exists, needs testing)
-- `packages/omamobile-device-r8q/ucm2/` (exists with HiFi.conf)
-- `tools/r8q-boot --overlay remoteprocs,audio-amps,audio-sound`
+- `device/r8q/overlays/remoteprocs.dtso` (verified)
+- `device/r8q/overlays/audio-amps.dtso` (verified)
+- `device/r8q/overlays/audio-sound.dtso` (verified with `PRIMARY_TDM_RX_0`)
+- `packages/omamobile-device-r8q/ucm2/` (verified `HiFi.conf`)
+- `tools/r8q-boot --dual-boot --overlay display,remoteprocs,audio-amps,audio-sound`
 
 ### P3: Cellular/Modem & Wireless Soak (MEDIUM)
 
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT soak test | 🔴 | Sustained downloads + USB NCM + BT audio |
-| Modem/cellular | 🔴 | NV partitions backed up; keep `ro=1`; test after audio+soak pass |
-| Native `caa385175` rebuild | ⏳ | Verify BT works without `r8q-bt-uart.ko` |
+| Modem/cellular | 🔴 | Take off-repo RO backup of `efs*`/`persist`/`modem*` first (`AGENTS.md`); keep `ro=1` |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)
 - `device/r8q/kernel.config` (`CONFIG_BT_LE=y` already set)
 
-### P4: Sensors, Cameras & DPMS (MEDIUM)
+### P4: Sensors, Cameras & DPMS (IN PROGRESS — SLPI Sensors & VolUp DONE)
 
 | Item | Status | Details |
 |------|--------|---------|
 | DPMS & Lock Screen | 🔴 | Verify `LockGlance.qml` wake; Power-key DPMS off/on |
 | SLPI sensors | ✅ | `slpi-sensors.dtso` (`L8C` `1.8 V`) + `hexagonrpc 0.5.0-2` + `iio-sensor-proxy` (`accel`, `light`, `compass` live; `proximity` `UNKNOWN`) |
-| Camera: HI-847 I2C | 🔴 | I2C bus timeout — needs boot image flash (kexec can't change DT) |
+| Volume Up key (`vol-up.dtso`) | ✅ | Wired to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (IRQ `179`); tested working on hardware |
+| Camera: HI-847 I2C | 🔴 | I2C bus timeout — `camera-wip` branch (needs kernel/CCI debug) |
 | Camera: other 3 sensors | ⏳ | IMX555, S5K3L6, IMX616 — no mainline drivers yet |
 | `tools/r8q-install` alignment | ✅ | `monitors.lua` @60, `vrr=0`, scale 2.25 |
 
@@ -139,6 +139,9 @@
 | `hyprland-r8q.conf` | ✅ | `DSI-1,1080x2400@60,0x0,2.25`; `vrr=0`; no blur/shadow/animations |
 | `ucm2/` | ✅ | HiFi.conf, Samsung-Galaxy-S20-FE.conf, kona-mtp-snd-card.conf |
 | `80-r8q-gpu.rules` | ✅ | Pins GPU, I2C, serial, touch `power/control="on"` |
+| `79-r8q-iio-sensor-proxy.rules` | ✅ | Tags `fastrpc-sdsp*` with `ssc-accel ssc-light ssc-compass` |
+| `10-r8q-hexagonrpcd.conf` | ✅ | Drop-in for `hexagonrpcd-sdsp.service` (`-R .../r8q` + `ConditionPathExists`) |
+| `packages/hexagonrpc/` | ✅ | `hexagonrpc 0.5.0-2` with `sns_reg_version` + `ssc_hw_rev` patch |
 | `r8q-liveness-monitor` | ✅ | Per-CPU heartbeats, XPU guard, clock sync, touch/BT/desktop helpers |
 | `omamobile-r8q-liveness.service` | ✅ | `RuntimeWatchdogSec=30s`, `Restart=always` |
 | `omamobile-r8q-battery.service` | ✅ | Post-boot module load |
@@ -177,19 +180,23 @@
 | `display.dtso` | ✅ | Enables MDSS, DSI0, PHY, panel; clears `protected-clocks` |
 | `display-mdss.dtso` | ⚠️ | DO NOT USE — leaves `protected-clocks` intact |
 | `display-clocks.dtso` | ✅ | Bisect overlay — clears `protected-clocks` alone |
-| `remoteprocs.dtso` | ⏳ | Needs testing — enables ADSP, CDSP, SLPI |
-| `audio-amps.dtso` | ⏳ | Needs testing — enables `gpi_dma1`, `i2c11` |
-| `audio-sound.dtso` | ⏳ | Needs testing — enables sound card |
-| `camera.dtso` | ⏳ | Needs testing — enables CAMSS, CCI10, HI-847 |
+| `remoteprocs.dtso` | ✅ | Verified — enables ADSP, CDSP, SLPI |
+| `audio-amps.dtso` | ✅ | Verified — enables `gpi_dma1`, `i2c11` (`cs35l41` `@40`/`@41`) |
+| `audio-sound.dtso` | ✅ | Verified — `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` + `MultiMedia1` |
+| `slpi-sensors.dtso` | ✅ | Verified — enables `vreg_l8c_1p8` (`L8C` `1.8 V`) for SLPI sensors |
+| `vol-up.dtso` | ✅ | Verified — wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3` |
+| `camera.dtso` | 🔴 | Open issue — enables CAMSS, CCI10, HI-847 (`camera-wip`) |
 
 ### Tools (`tools/r8q-*`)
 
 | Tool | Status | Notes |
 |------|--------|-------|
-| `r8q-boot` | ✅ | Pack/verify recovery images; supports overlays |
+| `r8q-boot` | ✅ | Pack/verify recovery images; validates overlay deps |
 | `r8q-boot-watch` | ✅ | Watch boot progress |
 | `r8q-flash-recovery` | ✅ | Write recovery partition over SSH |
 | `r8q-push` | ✅ | Push modules + verify |
+| `r8q-audio-bringup` | ✅ | 9-step gated audio bring-up sequence |
+| `r8q-camera-bringup` | ⏳ | 5-step gated camera bring-up sequence |
 | `r8q-install` | ✅ | Full installer (swap, repos, packages, UI) |
 | `r8q-rescue` | ✅ | Rescue operations |
 | `r8q-stabilize` | ✅ | Stability testing |
@@ -233,11 +240,11 @@
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `omamobile-r8q` |
-| Output | ✅ | `~/omamobile-kernel/out-r8q` |
-| HEAD | ⚠️ | `caa385175` (BT UART alias clamp) — last commit |
-| Key commits | ⚠️ | `1324fe066` (XPU DT), `5866f774c` (touch), `caa385175` (BT) — need sign-offs |
-| Branch `camera-wip` | ✅ | Exists for camera work |
+| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `omamobile-r8q-p1-signoff` (`omamobile-r8q`) |
+| Output | ✅ | `~/omamobile-kernel/out-r8q-p1` (`7.3.0-rc6-omamobile-push1-gcaa38517520a`) |
+| HEAD | ⚠️ | `caa385175` (BT UART alias clamp) |
+| Upstream prep | ⚠️ | `20` commits need human `Signed-off-by:`; fold `PRIMARY_TDM_RX_0`, `vreg_l8c_1p8`, and `pm8150l_gpios 3` into DTS |
+| Branch `camera-wip` | ⏳ | Open QUP10 I2C timeout (`0a1227989`) |
 | Branch `r8q/display-panel` | ✅ | Exists |
 
 ---
@@ -245,25 +252,19 @@
 ## 🔑 Critical Path
 
 ```
-P1 (Flash Native DT) → P2 (Audio/DSP) → P3 (Soak/Modem) → P4 (Cameras/Sensors) → P5 (Stability)
-     │                                                    │
-     └─ Human sign-offs ──────────────────────────────────┘
-     └─ Rebuild + flash ──────────────────────────────────┘
-     └─ Verify uname -r ──────────────────────────────────┘
+P1 (Native DT ✅) → P2 (Audio/DSP ✅) → P4 Sensors/VolUp (✅) → P3 (Soak/Modem) & P4 (DPMS/Camera) → P5 (Soak/Perf) → Upstream PRs
 ```
 
-**Blockers:**
-1. Human maintainer `Signed-off-by:` on 3 kernel commits
-2. Human approval + Download Mode for `tools/r8q-flash-recovery`
-3. Audio overlay testing requires remoteprocs first
+**Remaining blockers:**
+1. Human `Signed-off-by:` on the `20` kernel commits + folding verified overlay DT fixes (`PRIMARY_TDM_RX_0`, `vreg_l8c_1p8`, `pm8150l_gpios 3`) into `sm8250-samsung-r8q.dts` before upstream PRs (`tools/kernel-pr-check`).
+2. Off-repo read-only backup + SHA256 of `efs*`, `persist`, and `modem*` before any P3 modem (`remoteproc_mpss`) testing.
+3. Camera (`HI-847` QUP10 I2C timeout in `camera-wip`), DPMS/Lock screen check, and CS35L41 loudness tuning/protection firmware.
 
-**What's working right now (no changes needed):**
-- Hyprland desktop (running as `alarm` user)
-- Wi-Fi (`wlp1s0` UP, 192.168.178.98)
-- Bluetooth (`hci0` Powered: yes)
-- Touch (`stmfts-r8q.ko` live, 16-byte Type-B)
+**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-gcaa38517520a`):**
+- Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `Xwayland` on `DSI-1 1080x2400@60`)
+- Touch (`stmfts` natively bound, 16-byte Type-B) & Volume Up / Volume Down hardware keys
+- Wi-Fi (`wlp1s0` UP via `ath11k_pci`) & Bluetooth (`hci0` Powered via native `qcom_geni_serial`)
 - GPU (`3d00000.gpu` at 305 MHz, `renderD128`)
-- USB gadget (`172.16.42.1`)
-- Battery telemetry (99%)
-- Liveness watchdog (active)
-- UFS guard (77/77 `ro=1`)
+- Remoteprocs (`slpi`, `cdsp`, `adsp` running) & Audio (`PRIMARY_TDM_RX_0` → dual `cs35l41` + PipeWire)
+- SLPI Sensors (`hexagonrpc` + `iio-sensor-proxy`: accelerometer, ambient light, magnetometer, compass)
+- USB gadget (`172.16.42.1`), Battery telemetry (`99–100%`), Liveness watchdog (`active`), UFS RO guard (`77/77` `ro=1`)

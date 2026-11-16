@@ -217,6 +217,7 @@ ensure_r8q_bt_uart() {
         i=0
         while [ "$i" -lt 12 ]; do
             if timeout 3 btmgmt --timeout 2 info </dev/null 2>/dev/null | grep -q '^hci0:'; then
+                bt_configured=1
                 break
             fi
             if timeout 3 btmgmt --timeout 2 --index none config </dev/null 2>/dev/null | grep -q 'missing options:.*public-address'; then
@@ -231,11 +232,14 @@ ensure_r8q_bt_uart() {
                 timeout 5 btmgmt --timeout 3 --index 0 public-addr "$(cat "$addr_file")" </dev/null >/dev/null 2>&1 || true
                 timeout 5 btmgmt --timeout 3 --index 0 power on </dev/null >/dev/null 2>&1 || true
                 log "configured hci0 public address and powered controller on"
+                bt_configured=1
                 break
             fi
             sleep 0.5
             i=$((i + 1))
         done
+    else
+        bt_configured=1
     fi
 }
 
@@ -295,6 +299,7 @@ ensure_r8q_audio() {
 main() {
     mkdir -p "$RUN" "$PIDDIR"
     clock_tick=0
+    bt_configured=0
     if ((CHECK_ONLY)); then
         log "check-only: judging existing heartbeats, no heartbeats spawned"
     else
@@ -338,6 +343,7 @@ main() {
         fi
         clock_tick=$(( (clock_tick + 1) % 30 ))
         [ "$clock_tick" -eq 0 ] && ensure_r8q_clock
+        [ "$bt_configured" -eq 0 ] && ensure_r8q_bt_uart
         pin_r8q_power_control
         start_heartbeats
         sleep 2

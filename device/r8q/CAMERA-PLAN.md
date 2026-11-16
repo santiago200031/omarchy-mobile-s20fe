@@ -1,9 +1,6 @@
 # Camera plan (r8q / SM8250): the mainline V4L2 stack, telephoto first
 
-- **Status (2026-11-16):** **`i2c@a88000` (QUP10) timeout SOLVED (`56ed977c2`);**
-  missing `MCLK3` (`GPIO 97`) pinctrl fix built and staged on kernel branch
-  `camera-wip` (`b7e537fa4`, `~/omamobile-kernel/out-r8q`, release
-  `7.3.0-rc6-omamobile-push1-gb7e537fa47a8`). Pending gated flash/boot test.
+- **Status (2026-11-17):** **HI-847 telephoto camera verified live in `omacam` (`7.3.0-rc6-omamobile-push1-g7ca90963c426` on kernel `camera-wip`, `libcamera 0.7.2-4.24`, `omamobile-device-r8q 0.1.24-1`).** `omacam` streams `3256x2448` (`max_fps=30.02`, `exposure_time=(46, 33269)` µs, `gain=(1.0, 16.0)`) upright with both UI and viewfinder orientation confirmed normal by the user.
 
   - **Tested live on `56ed977c2` (`7.3.0-rc6-omamobile-push1-g56ed977c2b7f`):**
     switching `vddio-supply` from `vreg_l7a_1p8` to **`vreg_l7c_1p8` (`L7C`)**
@@ -245,6 +242,19 @@ writing `sda24`. Byte-exact pre-camera backup of `sda24` is in
   - **Raw capture (`1632x1224`, `pgAA`):** returned `5,013,504` bytes (`rc=0`).
   - **libcamera probe:** `libcamera v0.7.2` (`SimplePipeline` + `EGL GL_RENDERER: FD650`) discovers `/base/soc@0/geniqup@ac0000/i2c@a88000/camera@21` and drives `vfe0` (`9 -> 42` IRQs) and `csid0` (`1 -> 4` IRQs); `gst-launch-1.0 libcamerasrc ! fakesink` still times out at latency negotiation and `hi847` logs missing `get_selection` / `orientation` / `rotation` props (tracked in §7 item 3).
 - **Rollback backup preserved:** `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
+
+### 6.4 `omacam` viewfinder, SoftISP, timings & orientation (VERIFIED PASS — 2026-11-17)
+
+- **DMA-BUF heap & SoftISP (`omamobile-device-r8q 0.1.22`–`0.1.23`):**
+  - `/dev/dma_heap` defaulted to `0600 root:root`, causing `libcamera` `DmaBufAllocator` failures and unsupported format errors in `omacam`; fixed via `70-omamobile-dma-heap.rules` (`GROUP="video", MODE="0660", TAG+="uaccess"`).
+  - Adreno `FD650` `debayer_egl` hit GPU `hangcheck` lockups in `SWIspWorker`; fixed for now by defaulting `LIBCAMERA_SOFTISP_MODE=cpu` in `70-r8q-libcamera.conf` (GPU `debayer_egl` stays a follow-up).
+- **SLPI orientation (`omamobile-device-r8q 0.1.24`):**
+  - Firmware returned an all-zero mount matrix so `iio-sensor-proxy` reported `bottom-up` (inverting `omacam`'s UI buttons). Added `ACCEL_MOUNT_MATRIX="-1, 0, 0; 0, -1, 0; 0, 0, 1"` in `79-r8q-iio-sensor-proxy.rules`; UI confirmed upright.
+- **HI-847 sensor helper (`libcamera 0.7.2-4.24`, patch `0058`):**
+  - Without a helper, `IPASoft` treated `V4L2_CID_ANALOGUE_GAIN` min code `0` as `0x` gain and pinned exposure at `4` lines (pure black-level read noise). Added `CameraSensorHelperHi847` (`blackLevel_ = 4096`, `AnalogueGainLinear{ 1, 16, 0, 16 }` verified from `com.samsung.sensor.hi847.so`), `hi847.yaml`, and `CameraSensorProperties`.
+- **HI-847 timings, crop selection & DT rotation (`wt-r8q` `63cbf400a` + `7ca90963c`):**
+  - Scaled `.llp` from `0x033C` (828 72 MHz SCLKs) to MIPI pixel clocks (`3680` at 320 MHz, `1840` at 160 MHz), fixing negative `HBLANK` (`-2436` → `+416` / `+208`) and 30/60 fps timing (`max_fps=30.02`, `exposure_time=(46, 33269)` µs).
+  - Added `hi847_get_selection()`, `v4l2_fwnode_device_parse()`, and DT `orientation = <1>; rotation = <270>;` (at `90` preview was upside-down; at `270` confirmed upright in `omacam` on `7.3.0-rc6-omamobile-push1-g7ca90963c426`).
 
 ## 7. Follow-ups for the other three sensors
 

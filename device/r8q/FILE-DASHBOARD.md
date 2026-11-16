@@ -3,8 +3,8 @@
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-gcaa38517520a` (P1 native DT + touch + BT verified on hardware)
-**Device Package:** `omamobile-device-r8q` `0.1.21` + `hexagonrpc` `0.5.0-2` (installed & verified on phone)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-g7ca90963c426` (P1 native DT + touch + BT + Gate C audio + SLPI/VolUp + HI-847 camera verified on hardware)
+**Device Package:** `omamobile-device-r8q` `0.1.24` + `hexagonrpc` `0.5.0-2` + `libcamera 0.7.2-4.24` (installed & verified on phone)
 **Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
 **Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
 
@@ -100,8 +100,8 @@
 | DPMS & Lock Screen | 🔴 | Verify `LockGlance.qml` wake; Power-key DPMS off/on |
 | SLPI sensors | ✅ | `slpi-sensors.dtso` (`L8C` `1.8 V`) + `hexagonrpc 0.5.0-2` + `iio-sensor-proxy` (`accel`, `light`, `compass` live; `proximity` `UNKNOWN`) |
 | Volume Up key (`vol-up.dtso`) | ✅ | Wired to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (IRQ `179`); tested working on hardware |
-| Camera: HI-847 telephoto | ✅ | Streaming raw RAW10 (`pgAA` `3264x2448` & `1632x1224`) on `camera-wip` (`gf3be9fb6de08`); `libcamerasrc`/SoftISP WIP |
-| Camera: other 3 sensors | ⏳ | IMX555, S5K3L6, IMX616 — no mainline drivers yet |
+| Camera: HI-847 telephoto | ✅ | `vreg_l7c_1p8`, `MCLK3`, `CSIPHY2`, `.llp`/crop/props, `orientation=1`/`rotation=270` (`7ca90963c`) + `libcamera 0.7.2-4.24` (`0058`); `omacam` live @ 30.02 fps |
+| Camera: other 3 sensors & FD650 EGL | ⏳ | IMX555, S5K3L6, IMX616 need drivers; `0.1.23` pins `LIBCAMERA_SOFTISP_MODE=cpu` (`FD650` `debayer_egl` hangcheck follow-up) |
 | `tools/r8q-install` alignment | ✅ | `monitors.lua` @60, `vrr=0`, scale 2.25 |
 
 **Files involved:**
@@ -134,12 +134,14 @@
 | File | Status | Notes |
 |------|--------|-------|
 | `PKGBUILD` | ✅ | Builds `reboot-to`, `r8q-liveness-heartbeat`, AI server, preflight |
-| `version` | ✅ | `0.1.21` (installed & verified on phone with `hexagonrpc 0.5.0-2`) |
+| `version` | ✅ | `0.1.24` (installed & verified on phone with `hexagonrpc 0.5.0-2` and `libcamera 0.7.2-4.24`) |
+| `70-omamobile-dma-heap.rules` | ✅ | Grants `video` / `uaccess` access to `/dev/dma_heap` |
+| `70-r8q-libcamera.conf` | ✅ | Defaults `LIBCAMERA_SOFTISP_MODE=cpu` to avoid `FD650` EGL hang |
 | `test/all` | ✅ | Comprehensive config tests |
 | `hyprland-r8q.conf` | ✅ | `DSI-1,1080x2400@60,0x0,2.25`; `vrr=0`; no blur/shadow/animations |
 | `ucm2/` | ✅ | HiFi.conf, Samsung-Galaxy-S20-FE.conf, kona-mtp-snd-card.conf |
 | `80-r8q-gpu.rules` | ✅ | Pins GPU, I2C, serial, touch `power/control="on"` |
-| `79-r8q-iio-sensor-proxy.rules` | ✅ | Tags `fastrpc-sdsp*` with `ssc-accel ssc-light ssc-compass` |
+| `79-r8q-iio-sensor-proxy.rules` | ✅ | Tags `fastrpc-sdsp*` with `ssc-accel ssc-light ssc-compass` and `ACCEL_MOUNT_MATRIX="-1, 0, 0; 0, -1, 0; 0, 0, 1"` |
 | `10-r8q-hexagonrpcd.conf` | ✅ | Drop-in for `hexagonrpcd-sdsp.service` (`-R .../r8q` + `ConditionPathExists`) |
 | `packages/hexagonrpc/` | ✅ | `hexagonrpc 0.5.0-2` with `sns_reg_version` + `ssc_hw_rev` patch |
 | `r8q-liveness-monitor` | ✅ | Per-CPU heartbeats, XPU guard, clock sync, touch/BT/desktop helpers |
@@ -185,7 +187,7 @@
 | `audio-sound.dtso` | ✅ | Verified — `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` + `MultiMedia1` |
 | `slpi-sensors.dtso` | ✅ | Verified — enables `vreg_l8c_1p8` (`L8C` `1.8 V`) for SLPI sensors |
 | `vol-up.dtso` | ✅ | Verified — wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3` |
-| `camera.dtso` | 🔴 | Open issue — enables CAMSS, CCI10, HI-847 (`camera-wip`) |
+| `camera.dtso` | ✅ | Verified — enables CAMSS, CCI10, HI-847 (`7ca90963c`) |
 
 ### Tools (`tools/r8q-*`)
 
@@ -240,11 +242,11 @@
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `omamobile-r8q-p1-signoff` (`omamobile-r8q`) |
-| Output | ✅ | `~/omamobile-kernel/out-r8q-p1` (`7.3.0-rc6-omamobile-push1-gcaa38517520a`) |
-| HEAD | ⚠️ | `caa385175` (BT UART alias clamp) |
-| Upstream prep | ⚠️ | `20` commits need human `Signed-off-by:`; fold `PRIMARY_TDM_RX_0`, `vreg_l8c_1p8`, and `pm8150l_gpios 3` into DTS |
-| Branch `camera-wip` | ⏳ | Open QUP10 I2C timeout (`0a1227989`) |
+| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `camera-wip` (`10` commits above `caa385175`) |
+| Output | ✅ | `~/omamobile-kernel/out-r8q` (`7.3.0-rc6-omamobile-push1-g7ca90963c426`) |
+| HEAD | ✅ | `7ca90963c` (HI-847 orientation/rotation DT) |
+| Upstream prep | ⚠️ | Kernel commits need human `Signed-off-by:`; fold `PRIMARY_TDM_RX_0`, `vreg_l8c_1p8`, `pm8150l_gpios 3`, and display/camera overlays into base DTS |
+| Branch `camera-wip` | ✅ | Verified live on hardware (`g7ca90963c426`, `omacam` 30 fps) |
 | Branch `r8q/display-panel` | ✅ | Exists |
 
 ---
@@ -258,13 +260,14 @@ P1 (Native DT ✅) → P2 (Audio/DSP ✅) → P4 Sensors/VolUp (✅) → P3 (Soa
 **Remaining blockers:**
 1. Human `Signed-off-by:` on the `20` kernel commits + folding verified overlay DT fixes (`PRIMARY_TDM_RX_0`, `vreg_l8c_1p8`, `pm8150l_gpios 3`) into `sm8250-samsung-r8q.dts` before upstream PRs (`tools/kernel-pr-check`).
 2. Off-repo read-only backup + SHA256 of `efs*`, `persist`, and `modem*` before any P3 modem (`remoteproc_mpss`) testing.
-3. Camera (`HI-847` QUP10 I2C timeout in `camera-wip`), DPMS/Lock screen check, and CS35L41 loudness tuning/protection firmware.
+3. DPMS Power-key check, `r8q-audio-tuning` (CS35L41 protection firmware), remaining 3 camera sensors (`IMX555`/`S5K3L6`/`IMX616`), and Adreno `FD650` `debayer_egl`.
 
-**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-gcaa38517520a`):**
+**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g7ca90963c426`):**
 - Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `Xwayland` on `DSI-1 1080x2400@60`)
 - Touch (`stmfts` natively bound, 16-byte Type-B) & Volume Up / Volume Down hardware keys
 - Wi-Fi (`wlp1s0` UP via `ath11k_pci`) & Bluetooth (`hci0` Powered via native `qcom_geni_serial`)
 - GPU (`3d00000.gpu` at 305 MHz, `renderD128`)
 - Remoteprocs (`slpi`, `cdsp`, `adsp` running) & Audio (`PRIMARY_TDM_RX_0` → dual `cs35l41` + PipeWire)
-- SLPI Sensors (`hexagonrpc` + `iio-sensor-proxy`: accelerometer, ambient light, magnetometer, compass)
-- USB gadget (`172.16.42.1`), Battery telemetry (`99–100%`), Liveness watchdog (`active`), UFS RO guard (`77/77` `ro=1`)
+- SLPI Sensors (`hexagonrpc` + `iio-sensor-proxy` with `ACCEL_MOUNT_MATRIX`: accelerometer, ambient light, magnetometer, compass)
+- Camera (`hi847` rear telephoto streaming `3256x2448` @ 30.02 fps in `omacam` via `libcamera 0.7.2-4.24` CPU SoftISP)
+- USB gadget (`172.16.42.1`), Battery telemetry (`99–100%`), Liveness watchdog (`active`), Dual-boot `--dual-boot` UFS RO guard (`ro=1`)

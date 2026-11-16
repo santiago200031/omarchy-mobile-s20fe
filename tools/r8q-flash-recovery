@@ -65,15 +65,20 @@ say "Writing $PART (the phone must stay awake; this is ~80 MB)"
 # partitions, so clearing the partition flag alone leaves $PART writable
 # looking but every write dropped (dd "succeeds" with 0 bytes). Clear the LUN
 # flag too, and set both back afterwards.
-DISK="${PART%[0-9]*}"
+DISK="${PART%%[0-9]*}"
 "${SSH[@]}" "$REMOTE" "set -e
+  cleanup() {
+    blockdev --setro $PART 2>/dev/null || true
+    blockdev --setro $DISK 2>/dev/null || true
+    rm -f /tmp/omamobile-recovery.img
+  }
+  trap cleanup EXIT
   blockdev --setrw $DISK
   blockdev --setrw $PART
   dd if=/tmp/omamobile-recovery.img of=$PART bs=4M conv=fsync
   sync
   blockdev --setro $PART
   blockdev --setro $DISK
-  rm -f /tmp/omamobile-recovery.img
   echo \"ro: $DISK=\$(cat /sys/block/${DISK##*/}/ro) $PART=\$(cat /sys/block/${PART##*/}/ro)\""
 
 say "Reading the partition back and verifying"

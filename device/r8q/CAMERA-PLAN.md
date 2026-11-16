@@ -1,26 +1,25 @@
 # Camera plan (r8q / SM8250): the mainline V4L2 stack, telephoto first
 
-- **Status (2026-11-16):** Root cause of the QUP10 I2C timeout identified offline;
-  fix built and staged on kernel branch `camera-wip` (`56ed977c2`,
-  `~/omamobile-kernel/out-r8q`, release
-  `7.3.0-rc6-omamobile-push1-g56ed977c2b7f`). Pending gated flash/boot test.
+- **Status (2026-11-16):** **`i2c@a88000` (QUP10) timeout SOLVED (`56ed977c2`);**
+  missing `MCLK3` (`GPIO 97`) pinctrl fix built and staged on kernel branch
+  `camera-wip` (`b7e537fa4`, `~/omamobile-kernel/out-r8q`, release
+  `7.3.0-rc6-omamobile-push1-gb7e537fa47a8`). Pending gated flash/boot test.
 
-  Previously on `0a1227989`, the camera **stack** came up on the phone with
-  `qcom-camss` (`/dev/media0`, `/dev/video0..13`), `camcc-sm8250` (111
-  clocks), and `cam_cc_mclk3_clk` at 19.2 MHz (`TITAN_TOP_GDSC`), while
-  `i2c@a88000` (QUP10) timed out (`Timeout cancel_m_cmd`) and `hi847` returned
-  `-5`. Cross-checking stock `live.dts` (`rpmh-regulator-ldoc7` →
-  `pm8150a_l7: L7C`, phandle `0x2d1`) showed `bd65a535b` misread that label
-  and enabled `vreg_l7a_1p8` (`L7A`, `regulators-0`) instead of the already
-  defined **`vreg_l7c_1p8` (`L7C`, `regulators-1`)** — leaving the real
-  `CAM_VIO` 1.8 V rail (and likely external `qup_i2c10` pull-ups since pinctrl
-  uses `bias-disable`) unpowered.
+  - **Tested live on `56ed977c2` (`7.3.0-rc6-omamobile-push1-g56ed977c2b7f`):**
+    switching `vddio-supply` from `vreg_l7a_1p8` to **`vreg_l7c_1p8` (`L7C`)**
+    completely eliminated `geni_i2c a88000.i2c: Timeout cancel_m_cmd`.
+    `hi847_identify_module()` completed I2C10 transfers in 8 ms and returned `-5`
+    (`-EIO`, NACK). Live `/sys/kernel/debug/gpio` + `pinmux-pins` showed
+    `GPIO 97` (`MCLK3`) was still `UNCLAIMED` (`func0`, `in low pull down`)
+    because `camera@21` lacked `cam_mclk3_default`.
+  - **Fixed in `b7e537fa4`:** added `pinctrl-0 = <&cam_mclk3_default &cam_tele_active>`
+    (`gpio97` `cam_mclk`, `gpio78`/`gpio135` `bias-disable`) on `hi847: camera@21`.
 
   Staged (not flashed yet):
   `~/omamobile-kernel/out-r8q/recovery-omamobile-camera.img` (`display`,
   `remoteprocs`, `audio-amps`, `audio-sound`, `slpi-sensors`, `vol-up`,
-  `camera`; sha256 `8abf24b1…`) and
-  `~/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-g56ed977c2b7f.tar.zst`
+  `camera`; sha256 `02b11e65…`) and
+  `~/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-gb7e537fa47a8.tar.zst`
   (1821 modules).
 
 ## 1. What is actually wrong (corrected)
@@ -205,13 +204,11 @@ ID (`failed to find sensor: -5`). Ruled out, each verified on the phone:
 
 Next gated test step (once human approves flashing `sda24` + reboot):
 
-1. Push `~/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-g56ed977c2b7f.tar.zst`
+1. Push `~/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-gb7e537fa47a8.tar.zst`
    and flash `~/omamobile-kernel/out-r8q/recovery-omamobile-camera.img` (sha256
-   `8abf24b1…`) to `sda24` (`tools/r8q-flash-recovery`).
-2. Check if `hi847 10-0021` probes cleanly with `vreg_l7c_1p8` powering `CAM_VIO`
-   and I2C10 pull-ups. If `i2c@a88000` still times out with `L7C` enabled, test
-   FIFO vs GPI (drop `dmas`/`dma-names` from `&i2c10`) and check `GPIO129`/`GPIO130`
-   voltages/pull-ups electrically.
+   `02b11e65…`) to `sda24` (`tools/r8q-flash-recovery`).
+2. Check if `hi847 10-0021` probes cleanly with `cam_mclk3_default` +
+   `vreg_l7c_1p8`, and capture raw frames via `media-ctl` + `v4l2-ctl`.
 
 Note: **kexec cannot change the DTB on this phone** (`--dtb` ignored / panics),
 and `tools/r8q-flash-recovery` clears both LUN and partition `ro` flags before

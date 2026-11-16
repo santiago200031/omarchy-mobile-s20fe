@@ -158,6 +158,7 @@ test -f ../../device/r8q/overlays/audio-sound.dtso
 test -f ../../device/r8q/overlays/display.dtso
 test -f ../../device/r8q/overlays/camera.dtso
 test -f ../../device/r8q/overlays/slpi-sensors.dtso
+test -f ../../device/r8q/overlays/vol-up.dtso
 grep -q '10-r8q-hexagonrpcd.conf' PKGBUILD
 grep -q '79-r8q-iio-sensor-proxy.rules' PKGBUILD
 grep -q 'ConditionPathExists=/usr/share/qcom/sm8250/samsung/r8q/sensors/sns_reg.conf' 10-r8q-hexagonrpcd.conf

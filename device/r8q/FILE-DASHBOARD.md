@@ -134,7 +134,7 @@
 | File | Status | Notes |
 |------|--------|-------|
 | `PKGBUILD` | ✅ | Builds `reboot-to`, `r8q-liveness-heartbeat`, AI server, preflight |
-| `version` | ✅ | `0.1.20` (installed & verified on phone with `hexagonrpc 0.5.0-2`) |
+| `version` | ✅ | `0.1.21` (installed & verified on phone with `hexagonrpc 0.5.0-2`) |
 | `test/all` | ✅ | Comprehensive config tests |
 | `hyprland-r8q.conf` | ✅ | `DSI-1,1080x2400@60,0x0,2.25`; `vrr=0`; no blur/shadow/animations |
 | `ucm2/` | ✅ | HiFi.conf, Samsung-Galaxy-S20-FE.conf, kona-mtp-snd-card.conf |

@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay: fix Volume Up key GPIO on Galaxy S20 FE (r8q).
+ * sm8250-samsung-common.dtsi wires key-vol-up to pm8150_gpios 3, whereas
+ * stock r8q live.dts (pinctrl@c000 under pmic@4) wires it to pm8150l_gpios 3.
+ */
+/dts-v1/;
+/plugin/;
+
+&pm8150l_gpios {
+	vol_up_l_n: vol-up-n-state {
+		pins = "gpio3";
+		function = "normal";
+		power-source = <0>;
+		input-enable;
+		bias-pull-up;
+	};
+};
+
+&{/gpio-keys} {
+	pinctrl-names = "default";
+	pinctrl-0 = <&vol_up_l_n>;
+
+	key-vol-up {
+		gpios = <&pm8150l_gpios 3 1>; /* GPIO_ACTIVE_LOW */
+	};
+};

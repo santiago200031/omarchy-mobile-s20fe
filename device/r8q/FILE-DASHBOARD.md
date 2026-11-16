@@ -82,25 +82,25 @@
 - `packages/omamobile-device-r8q/ucm2/` (verified `HiFi.conf`)
 - `tools/r8q-boot --dual-boot --overlay display,remoteprocs,audio-amps,audio-sound`
 
-### P3: Cellular/Modem & Wireless Soak (MEDIUM)
+### P3: Cellular/Modem & Wireless Soak (IN PROGRESS — Wireless Concurrency & NV RO Backup DONE)
 
 | Item | Status | Details |
 |------|--------|---------|
-| Wi-Fi+BT soak test | 🔴 | Sustained downloads + USB NCM + BT audio |
-| Modem/cellular | 🔴 | Take off-repo RO backup of `efs*`/`persist`/`modem*` first (`AGENTS.md`); keep `ro=1` |
+| Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
+| Modem/cellular | 🔴 | Off-repo RO backup + SHA256 of 10 NV/modem partitions done (`ro=1`); `modem.mbn` staged; `rmtfs`/`tqftpserv`/`pd-mapper` + `MPSS` DT still to enable |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)
 - `device/r8q/kernel.config` (`CONFIG_BT_LE=y` already set)
 
-### P4: Sensors, Cameras & DPMS (IN PROGRESS — SLPI Sensors & VolUp DONE)
+### P4: Sensors, Cameras & DPMS (IN PROGRESS — SLPI Sensors, VolUp & DPMS DONE)
 
 | Item | Status | Details |
 |------|--------|---------|
-| DPMS & Lock Screen | 🔴 | Verify `LockGlance.qml` wake; Power-key DPMS off/on |
+| DPMS & Lock Screen | ✅ | `hl.dsp.dpms` enable/disable toggles `card1-DSI-1/dpms` (`On`/`Off`), `bl_power` (`0`/`4`), lock `secure: true`, 0 dmesg errors (attended Power-key press check pending) |
 | SLPI sensors | ✅ | `slpi-sensors.dtso` (`L8C` `1.8 V`) + `hexagonrpc 0.5.0-2` + `iio-sensor-proxy` (`accel`, `light`, `compass` live; `proximity` `UNKNOWN`) |
 | Volume Up key (`vol-up.dtso`) | ✅ | Wired to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (IRQ `179`); tested working on hardware |
-| Camera: HI-847 I2C | 🔴 | I2C bus timeout — `camera-wip` branch (needs kernel/CCI debug) |
+| Camera: HI-847 I2C | ⏳ | `vreg_l7c_1p8` (`L7C`) fix built on `camera-wip` (`56ed977c2`, staged in `out-r8q/recovery-omamobile-camera.img`), awaiting gated flash/boot test |
 | Camera: other 3 sensors | ⏳ | IMX555, S5K3L6, IMX616 — no mainline drivers yet |
 | `tools/r8q-install` alignment | ✅ | `monitors.lua` @60, `vrr=0`, scale 2.25 |
 

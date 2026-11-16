@@ -149,3 +149,17 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   - Stock `live.dts` (`gpio_keys/vol_up` + `pinctrl@c000`) wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (`pm8150l_gpio3`), whereas `sm8250-samsung-common.dtsi` had `&pm8150_gpios 3`. Added `device/r8q/overlays/vol-up.dtso` and verified on hardware (`gpiochip1` `gpio3` `in high pull-up`, `/proc/interrupts` IRQ `179` `spmi-gpio 2 Edge Volume Up`).
   - Raised `HiFi.conf` speaker gains (`Analog PCM Volume` `10` → `18`, `Digital PCM Volume` `790` → `817` = `0.00 dB`) to match stock `GAIN_CTRL = 0x253` / `DIG_VOL_CTRL = 0x8001` (`+11.4 dB`), verified live on both `11-0040` and `11-0041`.
   - **Reboot USB quirk:** After warm `reboot-to recovery`, the host USB-C link may not re-enumerate `a600000.usb` until the USB-C cable is unplugged and replugged once.
+
+---
+
+## 10. P3 Wireless/Modem Backup, P4 DPMS Cycle & CS35L41 Diagnostics (`2026-11-16`)
+
+- **Concurrent Wi-Fi + Bluetooth + USB NCM (`7.3.0-rc6-omamobile-push1-gcaa38517520a`):**
+  - `wlp1s0` (`ath11k_pci`, `omamobile-r8q-wifi.service` active) sustained `15/15` ICMP pings (`0%` loss, `rtt min/avg/max = 11.304/13.392/15.320 ms`) and 3 concurrent HTTPS fetches (`HTTP 200`) at `5180.0 MHz` (`576.4–720.6 MBit/s`, `-60 dBm`) alongside `btmgmt find -l` LE discovery on `hci0` (`br/edr` + `le` powered, zero missing options) and active USB NCM (`172.16.42.1`), with zero wireless errors in `dmesg`.
+  - Observed `dwc3 a600000.usb: remote wakeup not configured` and one transient 2-second USB NCM re-enumeration during a sustained 195 MiB read over SSH (`uptime` stayed continuous).
+- **DPMS & Lock Screen cycle (remote `hyprctl`):**
+  - Verified `hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'` and `'hl.dsp.dpms({ action = "disable" })'` cleanly transition `DSI-1` between `dpmsStatus: False` (`card1-DSI-1/dpms=Off`, `ae94000.dsi.0/bl_power=4`) and `dpmsStatus: True` (`card1-DSI-1/dpms=On`, `bl_power=0`, `brightness=1023`), with `omarchy-shell lock status` reporting `locked: true, secure: true` and zero DRM/DSI errors in `dmesg`. Attended Power-key wake check remains for the human.
+- **NV/Modem Off-Repo RO Backup (`AGENTS.md` §1):**
+  - Verified all 10 NV/modem UFS partitions (`modemst1`, `modemst2`, `fsc`, `mdm1m9kefs1`, `mdm1m9kefs2`, `mdm1m9kefsc`, `persist`, `efs`, `sec_efs`, `modem`) `ro=1` and backed them up read-only off-repo to `~/omamobile-kernel/reference-r8q/nv-backup/` (`sha256sum -c SHA256SUMS`: `10` ok). Confirmed `/lib/firmware/qcom/sm8250/samsung/r8q/modem.mbn` + `modemr.jsn` are staged, while `rmtfs`, `tqftpserv`, and `pd-mapper` daemons are not yet installed.
+- **CS35L41 Speaker State Inspection:**
+  - Live `regmap/11-004[01]/registers` + `amixer -c 0`: both amps run `PCM Source = ASP`, `PWR_CTRL3 = 0x01000000` (`wkfet_amp=Y`), `BSTCVRT_VCTRL1 = 0x00` (`bst_ctl=0`), `AMP_GAIN_CTRL = 0x240` (`Analog PCM Volume = 18`), `AMP_DIG_VOL_CTRL = 0x8000` (`Digital PCM Volume = 817`, `0.00 dB`). Stock `/lib/firmware/cirrus/cs35l40-{bot,rcv}-dsp1-spk-prot.{wmfw,bin}` exist on the phone, unused while `cs35l41.c` hardcodes `dsp->part = "cs35l41"` and `PCM Source = ASP`.

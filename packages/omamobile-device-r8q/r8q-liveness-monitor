@@ -217,6 +217,7 @@ ensure_r8q_bt_uart() {
         i=0
         while [ "$i" -lt 12 ]; do
             if timeout 3 btmgmt --timeout 2 info </dev/null 2>/dev/null | grep -q '^hci0:'; then
+                bt_configured=1
                 break
             fi
             if timeout 3 btmgmt --timeout 2 --index none config </dev/null 2>/dev/null | grep -q 'missing options:.*public-address'; then
@@ -231,11 +232,14 @@ ensure_r8q_bt_uart() {
                 timeout 5 btmgmt --timeout 3 --index 0 public-addr "$(cat "$addr_file")" </dev/null >/dev/null 2>&1 || true
                 timeout 5 btmgmt --timeout 3 --index 0 power on </dev/null >/dev/null 2>&1 || true
                 log "configured hci0 public address and powered controller on"
+                bt_configured=1
                 break
             fi
             sleep 0.5
             i=$((i + 1))
         done
+    else
+        bt_configured=1
     fi
 }
 
@@ -249,9 +253,53 @@ ensure_r8q_desktop() {
     fi
 }
 
+ensure_r8q_remoteprocs() {
+    [ "$SYS" = "/sys" ] || return 0
+    for rpath in "$SYS"/class/remoteproc/remoteproc*; do
+        [ -d "$rpath" ] || continue
+        rp_name=$(cat "$rpath/name" 2>/dev/null) || rp_name=${rpath##*/}
+        rp_state=$(cat "$rpath/state" 2>/dev/null) || rp_state="unknown"
+        case "$rp_name" in
+            adsp|cdsp|slpi)
+                [ "$rp_state" = "running" ] ||
+                    log "remoteproc $rp_name (${rpath##*/}) state=$rp_state (expected running)"
+                ;;
+        esac
+    done
+}
+
+ensure_r8q_audio() {
+    [ "$SYS" = "/sys" ] || return 0
+    # Pin I2C11, GPI DMA1, and CS35L41 amps when enabled by Gate C overlays.
+    for ctl in \
+        "$SYS/devices/platform/soc@0/ac0000.geniqup/power/control" \
+        "$SYS/devices/platform/soc@0/ac0000.geniqup/a8c000.i2c/power/control" \
+        "$SYS/devices/platform/soc@0/a00000.dma-controller/power/control" \
+        "$SYS/bus/i2c/devices/11-0040/power/control" \
+        "$SYS/bus/i2c/devices/11-0041/power/control"
+    do
+        [ -w "$ctl" ] || continue
+        ctl_state=""
+        read -r ctl_state < "$ctl" 2>/dev/null || true
+        [ "$ctl_state" = "on" ] || echo on > "$ctl" 2>/dev/null || true
+    done
+    for addr in 0040 0041; do
+        i2c_dev="$SYS/bus/i2c/devices/11-$addr"
+        if [ -d "$i2c_dev" ]; then
+            amp_name=$(cat "$i2c_dev/name" 2>/dev/null) || amp_name="unknown"
+            log "CS35L41 @ 0x${addr#00}: $amp_name"
+        fi
+    done
+    if command -v aplay >/dev/null 2>&1; then
+        cards=$(aplay -l 2>/dev/null | grep -c '^card ' || true)
+        [ "$cards" -gt 0 ] && log "ALSA sound card detected ($cards card(s))"
+    fi
+}
+
 main() {
     mkdir -p "$RUN" "$PIDDIR"
     clock_tick=0
+    bt_configured=0
     if ((CHECK_ONLY)); then
         log "check-only: judging existing heartbeats, no heartbeats spawned"
     else
@@ -261,6 +309,8 @@ main() {
         ensure_r8q_touch_driver
         ensure_r8q_bt_uart
         ensure_r8q_desktop
+        ensure_r8q_remoteprocs
+        ensure_r8q_audio
         start_heartbeats
         # Give the heartbeats their first tick before judging anything.
         sleep 5
@@ -293,6 +343,7 @@ main() {
         fi
         clock_tick=$(( (clock_tick + 1) % 30 ))
         [ "$clock_tick" -eq 0 ] && ensure_r8q_clock
+        [ "$bt_configured" -eq 0 ] && ensure_r8q_bt_uart
         pin_r8q_power_control
         start_heartbeats
         sleep 2

@@ -3,7 +3,7 @@
 pkgname=omamobile-device-r8q
 pkgver=$(cat "${startdir:-.}/version")
 pkgrel=1
-pkgdesc="Omarchy Mobile support for Samsung Galaxy S20 FE (r8q): reboot-to and USB networking"
+pkgdesc="Omarchy Mobile support for Samsung Galaxy S20 FE (r8q): reboot-to, USB networking, liveness watchdog, overlays, and UCM2 audio"
 arch=(aarch64)
 url="https://github.com/derekross/omarchy-mobile"
 license=(MIT)
@@ -133,6 +133,14 @@ package() {
     "$pkgdir/usr/share/alsa/ucm2/conf.d/sm8250/Samsung-Galaxy-S20-FE.conf"
   install -Dm644 "$startdir/ucm2/Samsung/r8q/HiFi.conf" \
     "$pkgdir/usr/share/alsa/ucm2/Samsung/r8q/HiFi.conf"
+  # Bring-up overlays (device/r8q/overlays/): enable nodes disabled in the
+  # base DTB one boot at a time. Each overlay is self-contained and can be
+  # tested independently via tools/r8q-boot --overlay NAME.
+  install -d "$pkgdir/usr/share/omamobile/device/r8q/overlays"
+  for ov in "$startdir"/../../device/r8q/overlays/*.dtso; do
+    [ -f "$ov" ] || continue
+    install -Dm644 "$ov" "$pkgdir/usr/share/omamobile/device/r8q/overlays/$(basename "$ov")"
+  done
   install -Dm644 "$startdir/LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   # Enable sshd, networkd and a rescue shell on the USB serial port (ttyGS0).

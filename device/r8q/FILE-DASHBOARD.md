@@ -100,7 +100,7 @@
 | DPMS & Lock Screen | 🔴 | Verify `LockGlance.qml` wake; Power-key DPMS off/on |
 | SLPI sensors | ✅ | `slpi-sensors.dtso` (`L8C` `1.8 V`) + `hexagonrpc 0.5.0-2` + `iio-sensor-proxy` (`accel`, `light`, `compass` live; `proximity` `UNKNOWN`) |
 | Volume Up key (`vol-up.dtso`) | ✅ | Wired to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (IRQ `179`); tested working on hardware |
-| Camera: HI-847 I2C | 🔴 | I2C bus timeout — `camera-wip` branch (needs kernel/CCI debug) |
+| Camera: HI-847 telephoto | ✅ | Streaming raw RAW10 (`pgAA` `3264x2448` & `1632x1224`) on `camera-wip` (`gf3be9fb6de08`); `libcamerasrc`/SoftISP WIP |
 | Camera: other 3 sensors | ⏳ | IMX555, S5K3L6, IMX616 — no mainline drivers yet |
 | `tools/r8q-install` alignment | ✅ | `monitors.lua` @60, `vrr=0`, scale 2.25 |
 

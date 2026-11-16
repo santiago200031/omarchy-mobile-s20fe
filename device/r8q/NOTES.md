@@ -149,3 +149,13 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   - Stock `live.dts` (`gpio_keys/vol_up` + `pinctrl@c000`) wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (`pm8150l_gpio3`), whereas `sm8250-samsung-common.dtsi` had `&pm8150_gpios 3`. Added `device/r8q/overlays/vol-up.dtso` and verified on hardware (`gpiochip1` `gpio3` `in high pull-up`, `/proc/interrupts` IRQ `179` `spmi-gpio 2 Edge Volume Up`).
   - Raised `HiFi.conf` speaker gains (`Analog PCM Volume` `10` → `18`, `Digital PCM Volume` `790` → `817` = `0.00 dB`) to match stock `GAIN_CTRL = 0x253` / `DIG_VOL_CTRL = 0x8001` (`+11.4 dB`), verified live on both `11-0040` and `11-0041`.
   - **Reboot USB quirk:** After warm `reboot-to recovery`, the host USB-C link may not re-enumerate `a600000.usb` until the USB-C cable is unplugged and replugged once.
+
+---
+
+## 10. Rear Telephoto Camera (`hi847` + `qcom-camss`) Raw Streaming (`2026-11-16`, `camera-wip`)
+
+- **Fixed three blockers (`wt-r8q` `camera-wip` @ `f3be9fb6d`, `7.3.0-rc6-omamobile-push1-gf3be9fb6de08`, `recovery-omamobile-camera.img` sha256 `4ce46855…`):**
+  1. `vreg_l7c_1p8` (`L7C` `1.8 V`, not `L7A`) eliminated `i2c@a88000` timeouts.
+  2. `pinctrl-0 = <&cam_mclk3_default &cam_tele_active>` (`GPIO 97` `MCLK3`, `GPIO 78`, `GPIO 135`) allowed `hi847 10-0021` to probe (`0x0847`).
+  3. `&camss` `port@2` (`csiphy2_ep`) needed `clock-lanes = <7>;`, 0-based `data-lanes = <0 1 2 3>;`, and `bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;` (matching `camss-csiphy-3ph-1-0.c` `BIT(pos * 2)` and `camss-csid.c`), plus explicit `DEVICE=r8q` for `bin/omamobile kernel|modules`.
+- **Verified raw capture on `/dev/video0`:** after enabling `media-ctl` links (`msm_csiphy2:1 -> msm_csid0:0` and `msm_csid0:1 -> msm_vfe0_rdi0:0`), `v4l2-ctl --stream-mmap=4 --stream-count=2` captured `19,975,680` bytes at `3264x2448` (`pgAA`) and `5,013,504` bytes at `1632x1224` (`pgAA`) cleanly (`rc=0`, `vfe0` and `csid0` IRQs active). `libcamera v0.7.2` discovers the sensor (`FD650` SoftISP); `libcamerasrc` frame delivery and sensor crop/rotation metadata remain follow-ups.

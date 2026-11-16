@@ -236,23 +236,15 @@ writing `sda24`. Byte-exact pre-camera backup of `sda24` is in
     `modules-7.3.0-rc6-omamobile-push1-gf3be9fb6de08.tar.zst`, and packed 7-overlay
     `recovery-omamobile-camera.img` (sha256 `4ce468555bf345299a54119685514fbd33a1a07190ca35d591b7abb1ab5ff10b`).
 
-### 6.3 Gated step: install modules, flash `sda24`, reboot, capture raw frame
+### 6.3 Gated step: install modules, flash `sda24`, reboot, capture raw frame (VERIFIED PASS — 2026-11-16)
 
-- **Risk:** Writes `/usr/lib/modules/7.3.0-rc6-omamobile-push1-gf3be9fb6de08` on `userdata`,
-  writes `recovery` (`sda24`), and reboots into Omarchy. Require human go-ahead (`AGENTS.md` §1).
-- **Commands (once approved):**
-  1. Flash `recovery-omamobile-camera.img` (`4ce46855…`) to `/dev/sda24` (`tools/r8q-boot flash-recovery`
-     from LineageOS over `adb`, or `heimdall flash --RECOVERY` in Download Mode, or
-     `tools/r8q-flash-recovery` from running Omarchy) and verify readback.
-  2. Stream & unpack `modules-7.3.0-rc6-omamobile-push1-gf3be9fb6de08.tar.zst` to
-     `/usr/lib/modules/` and run `depmod -a 7.3.0-rc6-omamobile-push1-gf3be9fb6de08`.
-  3. Over fresh SSH: set `media-ctl` `3264x2448` / `SGRBG10_1X10`, capture 2 frames with
-     `timeout 5 v4l2-ctl -d /dev/video0 --set-fmt-video=width=3264,height=2448,pixelformat=pgAA --stream-mmap=4 --stream-count=2 --stream-to=/tmp/hi847.raw`,
-     and verify `/proc/interrupts` (`csiphy2`, `csid0`, `vfe0`).
-- **Pass:** Non-empty `/tmp/hi847.raw` (expected `~19.9 MB` for 2 packed `pgAA` `3264x2448`
-  frames) and increasing `csiphy2`/`csid0`/`vfe0` IRQs without oops or I2C timeouts.
-- **Stop / Rollback:** If USB fails to return, button-boot LineageOS (`boot` untouched) and
-  restore `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`) to `sda24`.
+- **Tested on `7.3.0-rc6-omamobile-push1-gf3be9fb6de08` (`recovery-omamobile-camera.img`, sha256 `4ce468555bf345299a54119685514fbd33a1a07190ca35d591b7abb1ab5ff10b`):**
+  - Build note: `omamobile.conf` defaults `DEVICE=cheetah`, so always invoke `DEVICE=r8q bin/omamobile kernel|modules`; building without `DEVICE=r8q` skipped `device/r8q/kernel.config` (`CONFIG_SCSI_UFS_QCOM=m`) and failed to mount `userdata`.
+  - Flashed `RECOVERY` (`sda24`) with `heimdall flash --resume --RECOVERY .../recovery-omamobile-camera.img`, refreshed `/usr/lib/modules/7.3.0-rc6-omamobile-push1-gf3be9fb6de08` (`1821` modules, `depmod -a`), loaded `hi847`, and confirmed live DT `csiphy2_ep` has `clock-lanes = 7`, `data-lanes = 0 1 2 3`, `bus-type = 4`.
+  - **Raw capture (`3264x2448`, `pgAA`):** after enabling `media-ctl` links (`"msm_csiphy2":1->"msm_csid0":0[1],"msm_csid0":1->"msm_vfe0_rdi0":0[1]`), `v4l2-ctl --set-fmt-video=width=3264,height=2448,pixelformat=pgAA --stream-mmap=4 --stream-count=2 --stream-to=/tmp/hi847.raw` returned `rc=0` with `19,975,680` bytes (exact 2 packed RAW10 frames; first 1 MiB stats: `226` unique byte values, `min=0`, `max=255`, `mean=21.96`), `vfe0` `2 -> 9` IRQs, `csid0` `0 -> 1` IRQs, zero kernel/I2C errors.
+  - **Raw capture (`1632x1224`, `pgAA`):** returned `5,013,504` bytes (`rc=0`).
+  - **libcamera probe:** `libcamera v0.7.2` (`SimplePipeline` + `EGL GL_RENDERER: FD650`) discovers `/base/soc@0/geniqup@ac0000/i2c@a88000/camera@21` and drives `vfe0` (`9 -> 42` IRQs) and `csid0` (`1 -> 4` IRQs); `gst-launch-1.0 libcamerasrc ! fakesink` still times out at latency negotiation and `hi847` logs missing `get_selection` / `orientation` / `rotation` props (tracked in §7 item 3).
+- **Rollback backup preserved:** `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
 
 ## 7. Follow-ups for the other three sensors
 

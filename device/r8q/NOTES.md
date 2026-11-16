@@ -4,6 +4,9 @@
 
 Chronological diagnostic archive split out of [PORT-PLAN.md](PORT-PLAN.md) so the main port plan stays short and actionable.
 
+**Dashboard:** See [FILE-DASHBOARD.md](FILE-DASHBOARD.md) for a complete file inventory, status overview, and what's missing.
+**Board:** See [board/README.md](board/README.md) for the Kanban-style success/failed/missing columns.
+
 ---
 
 ## 1. Kernel Fix for the RPMh / RCU Wedge (Crashes #1–#14, 2026-11-12 – 2026-11-14)

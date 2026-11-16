@@ -28,6 +28,10 @@ die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
 
 SSH=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
      -o ConnectTimeout=8 -o ServerAliveInterval=5 -q)
+SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
+if [[ -f "$SSH_KEY" ]]; then
+  SSH+=(-i "$SSH_KEY" -o IdentitiesOnly=yes)
+fi
 
 [[ -f $IMG ]] || die "image not found: $IMG (run tools/r8q-boot pack)"
 sha=$(sha256sum "$IMG" | awk '{print $1}')

@@ -2,11 +2,45 @@
 /*
  * Bring-up overlay (PORT-PLAN M7): enable the SM8250 ASoC sound card
  * linking ADSP Q6AFE TERTIARY_TDM_RX_0 to CS35L41 Left/Right amps.
- * Requires remoteprocs.dtso and audio-amps.dtso.
+ *
+ * Usage: tools/r8q-boot pack --dual-boot --overlay display --overlay remoteprocs --overlay audio-amps --overlay audio-sound
+ * Must be loaded AFTER remoteprocs.dtso and audio-amps.dtso.
+ *
+ * Hardware path:
+ *   ADSP (running firmware) → Q6AFE TERTIARY_TDM_RX_0 →
+ *   GPI DMA1 → CS35L41 Left (earpiece) / Right (speaker)
+ *
+ * UCM2 profile: Samsung-Galaxy-S20-FE (installed in device package)
+ *   - HiFi verb routes to hw:0,0 (SM8250 sound card, PCM 0)
+ *   - Speaker device: 2-channel stereo, priority 200
+ *   - Earpiece device: 1-channel mono, priority 100
+ *
+ * Testing:
+ *   aplay -l          # List sound cards and PCM devices
+ *   speaker-test -c 2 -t wav -l 1  # Play stereo test tone
+ *   Check dmesg for: snd_soc_sm8250, cs35l41, lpass
+ *
+ * Safety:
+ *   - Volume starts low (UCM2 HiFi.conf: Digital PCM Volume 817)
+ *   - CS35L41 protection firmware must be loaded before playback
+ *   - If ADSP is not running, the sound card probe will fail gracefully
+ *   - The overlay can be removed and the boot continues
+ *
+ * Prerequisites:
+ *   - remoteprocs.dtso loaded (ADSP must be in running state)
+ *   - audio-amps.dtso loaded (I2C11 and GPI DMA1 enabled)
+ *   - cs35l41_i2c module loaded (usually auto-probed from I2C bus)
  */
 /dts-v1/;
 /plugin/;
 
+/* SM8250 ASoC sound card — TDM interface to CS35L41 amps */
 &{/sound} {
 	status = "okay";
+	/*
+	 * The sound card is defined in the base DTB (d469bd3bf).
+	 * This overlay simply enables it.
+	 * The card uses TDM slot 0 on the ADSP's Q6AFE.
+	 * Channel map and clock ops are in 8e889264e.
+	 */
 };

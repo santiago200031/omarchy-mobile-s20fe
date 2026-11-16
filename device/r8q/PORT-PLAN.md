@@ -7,9 +7,21 @@
 
 ---
 
+## File Dashboard ([FILE-DASHBOARD.md](FILE-DASHBOARD.md))
+
+A comprehensive file-based dashboard tracking all subsystems, their status, and what files are involved:
+
+| File | Purpose |
+|------|--------|
+| [FILE-DASHBOARD.md](FILE-DASHBOARD.md) | Master dashboard — all files, their status, and what's missing |
+| [board/README.md](board/README.md) | Kanban board overview |
+| [board/SUCCESS.md](board/SUCCESS.md) | 6 verified-success cards |
+| [board/FAILED.md](board/FAILED.md) | 7 known failures with permanent rules |
+| [board/MISSING.md](board/MISSING.md) | 5 missing items in priority order |
+
 ## File-Based Porting Board ([board/](board/README.md))
 
-The porting state is maintained as a file-based Kanban board under [`device/r8q/board/`](board/README.md):
+The porting state is also maintained as a file-based Kanban board under [`device/r8q/board/`](board/README.md):
 
 | Column | Summary | Cards |
 | --- | --- | --- |

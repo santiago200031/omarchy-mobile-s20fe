@@ -152,6 +152,31 @@ cmd_pack() {
     mkdir -p "$stage/overlays"
     local -a ov_dtbos=()
     local dtso dtbo
+
+    # Check overlay dependency order:
+    # audio-sound requires remoteprocs + audio-amps
+    # camera requires kernel modules (camcc_sm8250, qcom-camss, hi847)
+    local has_remoteprocs=0 has_audio_amps=0 has_audio_sound=0 has_camera=0
+    for ov in "${overlays[@]}"; do
+      case "$ov" in
+        remoteprocs) has_remoteprocs=1 ;;
+        audio-amps) has_audio_amps=1 ;;
+        audio-sound) has_audio_sound=1 ;;
+        camera) has_camera=1 ;;
+      esac
+    done
+
+    # Validate dependency order
+    if [[ $has_audio_sound -eq 1 ]]; then
+      [[ $has_remoteprocs -eq 1 ]] || die "audio-sound requires remoteprocs overlay (ADSP must run first)"
+      [[ $has_audio_amps -eq 1 ]] || die "audio-sound requires audio-amps overlay (I2C11 + GPI DMA1 must be enabled)"
+      say "audio-sound: dependency check passed (remoteprocs + audio-amps present)"
+    fi
+    if [[ $has_camera -eq 1 ]]; then
+      # Camera overlay needs camcc_sm8250, qcom-camss, hi847 modules installed
+      say "camera: overlay enables CAMSS/CCI10/HI-847 — modules must be installed on target"
+    fi
+
     for ov in "${overlays[@]}"; do
       [[ $ov =~ ^[a-z0-9-]+$ ]] || die "Invalid overlay name: '$ov'"
       dtso="$ROOT/device/r8q/overlays/$ov.dtso"

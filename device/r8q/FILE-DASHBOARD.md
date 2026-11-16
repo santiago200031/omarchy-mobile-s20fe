@@ -179,7 +179,7 @@
 |------|--------|-------|
 | `display.dtso` | ✅ | Enables MDSS, DSI0, PHY, panel; clears `protected-clocks` |
 | `display-mdss.dtso` | ⚠️ | DO NOT USE — leaves `protected-clocks` intact |
-| `display-clocks.dtso` | ✅ | Bisect overlay — clears `protected-clocks` alone |
+| `display-clocks.dtso` | ⚠️ | DO NOT USE — 0-byte `protected-clocks` triggers `of_prop_next_u32()` OOB drop of `DISP_CC_MDSS_BYTE0_CLK_SRC` |
 | `remoteprocs.dtso` | ✅ | Verified — enables ADSP, CDSP, SLPI |
 | `audio-amps.dtso` | ✅ | Verified — enables `gpi_dma1`, `i2c11` (`cs35l41` `@40`/`@41`) |
 | `audio-sound.dtso` | ✅ | Verified — `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` + `MultiMedia1` |

@@ -5,7 +5,7 @@
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
 **Live Kernel:** `7.3.0-rc6-omamobile-push1-gf3a5609d121b` (`fold-overlay-dt` — overlay-free boot with display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q` spk-prot, SLPI sensors, VolUp, and HI-847 camera verified on hardware)
 **Kernel Branch:** `fold-overlay-dt` (`f3a5609d1` — overlays folded into base DTS; booted & verified on `sda24`)
-**Device Package:** `omamobile-device-r8q` `0.1.24` + `hexagonrpc` `0.5.0-2` + `libcamera 0.7.2-4.24` (installed & verified on phone)
+**Device Package:** `omamobile-device-r8q` `0.1.25` (with `zram-generator` `2.7 GiB zstd`) + `hexagonrpc` `0.5.0-2` + `libcamera 0.7.2-4.24` (installed & verified on phone)
 **Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
 **Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
 
@@ -88,7 +88,7 @@
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | ⏳ | Fresh RO NV backup in `~/omamobile-kernel/reference-r8q/nv-backup-20261117` (10/10 `SAME`); `MODEM-PLAN.md` merged (`omamobile-modem` not yet installed) |
+| Modem/cellular | ⏳ Stage 1 PASS | `pcie2` Gen.3 x2 link up, SDX55M `[17cb:0306]`/`[17cb:010c]` bound to `mhi-pci-generic` (`mhi0`); Stage 2 blocked on `.fw = "qcom/sdx55m/sbl1.mbn"` quirk + Sahara; `nv-backup-20261117` 10/10 `SAME` |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)

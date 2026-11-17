@@ -276,3 +276,19 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   (candidates: the SBL→AMSS MHI handshake, downstream PM/LPM hooks, or
   a flashless AMSS load step). Unresolved; needs vendor source study or
   a stock-capture comparison, not more blind rebinding.
+
+- **Root cause of the AMSS stall found in the Black Shark 3 docs (`2026-11-17`).**
+  Caullen Sasnett's postmarketos-blackshark-klein documents the identical
+  SM8250+SDX55M combination and reaches AMSS with two MHI core patches that
+  mainline lacks: (1) SBL is a real EE — mainline rejects it at power-up
+  ("SECONDARY BOOTLOADER is not a valid EE for power on", our exact rebind
+  error), loses the EE event when SBL is reached during BHI, and leaves stale
+  ring base registers for the SBL to read; (2) at the SBL->AMSS jump the
+  modem moves its doorbell offsets (CHDBOFF 0x0 -> 0x300), and mainline
+  keeps ringing the cached SBL doorbells so every AMSS channel START is
+  invisible. The r8q runs fit both: the channel EIO after apps.mbn was the
+  transition beginning, not failing. Both patches ported to 7.3.0-rc6
+  (kernel commit `0f77e4da5`), build clean. The vendor loader itself
+  (libmdmimgload.so, inspected from the extracted vendor EROFS) is a pure
+  Sahara server — no post-Sahara magic step exists on stock; the stock
+  mdm_helper just waits for the MDM2AP_STATUS GPIO.

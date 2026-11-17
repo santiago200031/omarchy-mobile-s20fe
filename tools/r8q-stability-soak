@@ -1,0 +1,313 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# r8q-stability-soak: GUI + storage writeback + wireless soak test for r8q
+#
+# Usage:
+#   tools/r8q-stability-soak [--duration MINUTES] [--interval SECONDS] [--verbose] [--here]
+#
+# When invoked from the host laptop (default), streams itself to the phone over
+# tools/phone-ssh. Use --here when running directly on the phone.
+#
+# Exercises on-phone subsystems and monitors dmesg/journal/remoteproc:
+# - Hyprland IPC responsiveness (session user alarm)
+# - Rootfs storage writeback (/var/tmp on /omarchy-r8q.img, not tmpfs /tmp)
+# - Wi-Fi connectivity (wlp1s0)
+# - Bluetooth hci0 runtime power status
+# - Battery telemetry (max170xx_battery)
+# - Remoteprocs (adsp, cdsp, slpi), RPMh timeouts (-110), RCU stalls, UFS errors,
+#   watchdogs, oops/panic, and OOM kills.
+#
+# Exit 0 = clean, Exit 1 = issues found
+set -euo pipefail
+
+DURATION=30
+INTERVAL=300
+MAX_ITERATIONS=0
+VERBOSE=0
+HERE=0
+
+usage() {
+    cat <<'EOF'
+Usage: tools/r8q-stability-soak [OPTIONS]
+
+Options:
+  --duration MINUTES   Soak duration in minutes (default: 30; 0 = initial/final checks only)
+  --interval SECONDS   Wait interval between iterations in seconds (default: 300)
+  --iterations N       Run at most N loop iterations (0 = unlimited within --duration)
+  --verbose            Print extra diagnostic lines
+  --here               Run locally on the current machine (default when already on r8q)
+  -h, --help           Show this help message
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --duration)
+            [ $# -ge 2 ] || { echo "error: --duration requires a value" >&2; exit 2; }
+            DURATION="$2"
+            shift 2
+            ;;
+        --duration=*)
+            DURATION="${1#--duration=}"
+            shift
+            ;;
+        --interval)
+            [ $# -ge 2 ] || { echo "error: --interval requires a value" >&2; exit 2; }
+            INTERVAL="$2"
+            shift 2
+            ;;
+        --interval=*)
+            INTERVAL="${1#--interval=}"
+            shift
+            ;;
+        --iterations)
+            [ $# -ge 2 ] || { echo "error: --iterations requires a value" >&2; exit 2; }
+            MAX_ITERATIONS="$2"
+            shift 2
+            ;;
+        --iterations=*)
+            MAX_ITERATIONS="${1#--iterations=}"
+            shift
+            ;;
+        --verbose)
+            VERBOSE=1
+            shift
+            ;;
+        --here)
+            HERE=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "error: unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "$DURATION" in
+    ''|*[!0-9]*)
+        echo "error: --duration must be a non-negative integer, got: $DURATION" >&2
+        exit 2
+        ;;
+esac
+case "$INTERVAL" in
+    ''|*[!0-9]*|0)
+        echo "error: --interval must be a positive integer, got: $INTERVAL" >&2
+        exit 2
+        ;;
+esac
+
+case "$MAX_ITERATIONS" in
+    ''|*[!0-9]*)
+        echo "error: --iterations must be a non-negative integer, got: $MAX_ITERATIONS" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$HERE" -eq 0 ] && ! grep -q 'samsung,r8q' /proc/device-tree/compatible 2>/dev/null; then
+    ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+    exec "$ROOT/tools/phone-ssh" bash -s -- --here --duration "$DURATION" --interval "$INTERVAL" --iterations "$MAX_ITERATIONS" $([ "$VERBOSE" -eq 1 ] && printf -- '--verbose') < "$0"
+fi
+
+LOG_DIR="/var/log/omamobile"
+if ! mkdir -p "$LOG_DIR" 2>/dev/null || [ ! -w "$LOG_DIR" ]; then
+    LOG_DIR="/var/tmp"
+fi
+LOGFILE="$LOG_DIR/r8q-stability-soak-$(date +%Y%m%d-%H%M%S).log"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log() {
+    local msg="[$(date +%H:%M:%S)] $*"
+    printf '%b\n' "$msg" | tee -a "$LOGFILE"
+}
+
+log_ok() { log "${GREEN}OK${NC} $*"; }
+log_warn() { log "${YELLOW}WARN${NC} $*"; }
+log_err() { log "${RED}ERR${NC} $*"; }
+
+check_errors() {
+    local matches count
+    matches=$(dmesg | grep -i -E "RPMH.*-110|RCU.*stall|ufshcd_err_handler|soft lockup|hard LOCKUP|Watchdog.*(bark|bite)|\bOops:|Kernel panic" || true)
+    count=$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l)
+
+    if [ "$count" -gt 0 ]; then
+        log_err "Found $count error line(s) in dmesg:"
+        printf '%s\n' "$matches" | tail -n 20 | tee -a "$LOGFILE"
+        return 1
+    fi
+    return 0
+}
+
+check_journal() {
+    local since_epoch="${1:-0}"
+    local matches count
+    matches=$(journalctl -b --since "@$since_epoch" --no-pager | grep -i -E "RPMH.*-110|RCU.*stall|ufshcd_err_handler|soft lockup|hard LOCKUP|Watchdog.*(bark|bite|timed out)|Out of memory|Killed process" || true)
+    count=$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l)
+
+    if [ "$count" -gt 0 ]; then
+        log_err "Found $count error line(s) in journal since test start:"
+        printf '%s\n' "$matches" | tail -n 20 | tee -a "$LOGFILE"
+        return 1
+    fi
+    return 0
+}
+
+run_gui_test() {
+    log "Running GUI IPC responsiveness check..."
+    if pgrep -x Hyprland > /dev/null 2>&1; then
+        local sig
+        sig=$(ls -1 /run/user/1000/hypr/ 2>/dev/null | head -n 1 || true)
+        if [ -n "$sig" ] && su - alarm -c "XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE='$sig' hyprctl monitors >/dev/null 2>&1"; then
+            log_ok "Hyprland running and IPC responsive ($sig)"
+        else
+            log_warn "Hyprland process present but IPC query failed"
+        fi
+    else
+        log_warn "Hyprland not running, skipping GUI check"
+    fi
+}
+
+run_storage_test() {
+    log "Running persistent rootfs writeback test..."
+    local testdir="/var/tmp/soak-test-$$"
+    mkdir -p "$testdir"
+
+    local i
+    for i in $(seq 1 10); do
+        dd if=/dev/urandom of="$testdir/file_$i" bs=1M count=1 status=none
+    done
+    (cd "$testdir" && tar -cf archive.tar file_*)
+    sync
+    rm -rf "$testdir"
+    sync
+    log_ok "Wrote 10 MiB + tar + synced on /var/tmp"
+}
+
+run_wifi_test() {
+    log "Running Wi-Fi connectivity check..."
+    if ip link show wlp1s0 > /dev/null 2>&1; then
+        if curl -fsSL --max-time 10 https://example.com > /dev/null 2>&1; then
+            log_ok "Wi-Fi HTTPS check succeeded (wlp1s0)"
+        else
+            log_warn "Wi-Fi HTTPS check failed (offline or DNS unreachable)"
+        fi
+    else
+        log_warn "Wi-Fi interface wlp1s0 not found"
+    fi
+}
+
+run_bt_test() {
+    log "Running Bluetooth check..."
+    if [ -d /sys/class/bluetooth/hci0 ]; then
+        local rt_status="unknown"
+        if [ -r /sys/class/bluetooth/hci0/power/runtime_status ]; then
+            rt_status=$(cat /sys/class/bluetooth/hci0/power/runtime_status 2>/dev/null || echo "unknown")
+        fi
+        log_ok "Bluetooth hci0 present (runtime_status=$rt_status)"
+    else
+        log_warn "Bluetooth hci0 not found"
+    fi
+}
+
+check_remoteprocs() {
+    log "Checking remoteproc states..."
+    local rp bad=0
+    for rp in /sys/class/remoteproc/remoteproc*; do
+        [ -f "$rp/state" ] || continue
+        local rname label state
+        rname=$(basename "$rp")
+        label=$(cat "$rp/name" 2>/dev/null || echo "$rname")
+        state=$(cat "$rp/state" 2>/dev/null || echo "unknown")
+        if [ "$VERBOSE" -eq 1 ] || [ "$state" != "running" ]; then
+            log "  $rname ($label): $state"
+        fi
+        if [ "$state" = "crashed" ] || [ "$state" = "error" ]; then
+            log_err "$rname ($label) is in bad state: $state"
+            bad=1
+        fi
+    done
+    [ "$bad" -eq 0 ] && log_ok "Remoteprocs healthy"
+    return "$bad"
+}
+
+check_battery() {
+    log "Checking battery status..."
+    local ps="/sys/class/power_supply/max170xx_battery"
+    if [ ! -d "$ps" ]; then
+        ps=$(find /sys/class/power_supply -maxdepth 1 -mindepth 1 -exec test -f '{}/capacity' ';' -print 2>/dev/null | head -n 1 || true)
+    fi
+    if [ -n "$ps" ] && [ -d "$ps" ]; then
+        local cap status volt
+        cap=$(cat "$ps/capacity" 2>/dev/null || echo "unknown")
+        status=$(cat "$ps/status" 2>/dev/null || echo "unknown")
+        volt=$(cat "$ps/voltage_now" 2>/dev/null || echo "")
+        log_ok "Battery ($(basename "$ps")): ${cap}% ($status${volt:+, ${volt} uV})"
+    else
+        log_warn "No battery capacity sysfs node found"
+    fi
+}
+
+main() {
+    local failures=0
+    log "========================================="
+    log "r8q Stability Soak Test"
+    log "Kernel: $(uname -r)"
+    log "Duration: $DURATION min (interval: ${INTERVAL}s)"
+    log "Log: $LOGFILE"
+    log "========================================="
+
+    local start_time end_time
+    start_time=$(date +%s)
+    end_time=$((start_time + DURATION * 60))
+
+    check_remoteprocs || failures=$((failures + 1))
+    check_battery
+    run_wifi_test
+    run_bt_test
+
+    local iteration=0
+    while [ "$(date +%s)" -lt "$end_time" ]; do
+        iteration=$((iteration + 1))
+        log "--- Iteration $iteration ---"
+        run_gui_test
+        run_storage_test
+        run_wifi_test
+        run_bt_test
+        check_errors || failures=$((failures + 1))
+        check_remoteprocs || failures=$((failures + 1))
+        check_battery
+
+        local now remaining sleep_secs
+        [ "$MAX_ITERATIONS" -gt 0 ] && [ "$iteration" -ge "$MAX_ITERATIONS" ] && break
+        now=$(date +%s)
+        remaining=$((end_time - now))
+        [ "$remaining" -gt 0 ] || break
+        sleep_secs=$(( remaining < INTERVAL ? remaining : INTERVAL ))
+        log "Waiting ${sleep_secs}s before next iteration..."
+        sleep "$sleep_secs"
+    done
+
+    log "========================================="
+    log "Final checks..."
+    check_errors || failures=$((failures + 1))
+    check_journal "$start_time" || failures=$((failures + 1))
+    check_remoteprocs || failures=$((failures + 1))
+
+    local elapsed=$(( $(date +%s) - start_time ))
+    log "Soak test complete: ${elapsed}s, $iteration iteration(s), failures=$failures"
+    log "========================================="
+
+    [ "$failures" -eq 0 ]
+}
+
+main

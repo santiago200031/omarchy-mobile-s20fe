@@ -2,7 +2,7 @@
 
 # Modem & Cellular — Samsung Galaxy S20 FE (r8q)
 
-**Status:** Phase 1 PASS; Phase 2 prepared offline (kernel `modem-stage2` built + `kernel-pr-check` clean, modules/recovery image packed, Sahara loader written and dry-run verified). Awaiting the human's go for the writes (modules install, `sda24` flash, reboot) and the first attended Sahara run.
+**Status:** Phase 1 PASS; Phase 2 first run stalled (device stayed in PRIMARY BOOTLOADER, no SAHARA channel; recovered cleanly, NV 15/15 safe). Stage 3A prepared offline: a PCIe2 MSI-in-IOMMU fix on kernel `modem-stage3`, built and `kernel-pr-check` clean, awaiting the human's go to flash and test.
 **Safety:** All 77 UFS partitions read-only (`ro=1`); single-slot recovery boot (`sda24`) leaves LineageOS untouched; 15/15 NV partitions match the full off-repo backup
 **Last Updated:** 2026-11-17
 
@@ -208,3 +208,88 @@ If an attended overlay test breaks boot or stability:
 | `tools/r8q-sahara` | ✅ Dry-run passed | All r8q image sources present/readable on the phone |
 | BHI `sbl1.mbn` load & Sahara handshake | ⏳ Runbook §4 | Needs human go for writes and an attended run |
 | `omamobile-modem` (`rmtfs`/`pd-mapper`) & `ModemManager` | ⏳ Pending | Follows a successful Sahara transfer |
+
+---
+
+## 8. Stage 3A — PCIe2 MSI in the endpoint IOMMU domain (2026-11-17)
+
+**Why the first Stage 2 run stalled.** `mhi1` powered on and BHI loaded `sbl1.mbn`, but the device stayed in `EE: PRIMARY BOOTLOADER` and no `/dev/wwan*sahara*` channel appeared. `pci 0002:01:00.0: Adding to iommu group 13` shows the endpoint is behind `apps_smmu`. The DWC host's iMSI-RX uses the RC's cfg0 address (`0x64100000`) as the MSI target, and that address is not mapped in the endpoint's IOMMU domain, so the endpoint's MSI writes fault. MHI event rings therefore never raise an interrupt, the SBL execution-environment transition never completes, and the SAHARA channels are never created. This matches the MHI documentation's BHI/SBL flow (the host must observe the device's state transitions) and the same failure has been reproduced on another SM8250 SDX55M device with these PCI IDs.
+
+**Change (kernel `modem-stage3`, commit `5be4efd5e`):** `drivers/pci/controller/dwc/pcie-designware-host.c` calls `iommu_dma_prepare_msi()` when allocating the endpoint's MSI on PCIe2 (cfg0 `0x64100000`) and lets `msi_msg_set_addr()` place the allocated IOVA in the message. PCIe0 (the QCA6390 Wi-Fi card) keeps the raw iMSI-RX path it already works on. `CONFIG_IRQ_MSI_IOMMU=y` is already set in `device/r8q/kernel.config`'s build.
+
+**Artifacts** (`~/omamobile-kernel/out-r8q-modem3/`):
+- `modules-7.3.0-rc6-omamobile-push1-g5be4efd5e298.tar.zst`
+- `recovery-modem-s3-msi.img` — sha256 `19a203d747df775d1b5583c0ee408fe2dd9f39697f7054d1ab098f93a0e89c52`
+
+### Step 0 — read-only preflight (no approval needed)
+
+```sh
+cd ~/Work/omarchy-mobile-s20fe
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'r8q-preflight --json'
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/nv-backup -d r8q --check \
+  ~/omamobile-kernel/reference-r8q/nv-backup-20261117-full
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh \
+  'cat /etc/modprobe.d/omamobile-r8q-sahara-bringup.conf; mount | grep " / "'
+sha256sum ~/omamobile-kernel/out-r8q-modem3/recovery-modem-s3-msi.img
+```
+
+- **Expect / Pass:** guard `77 UFS partitions read-only`; `15/15 SAME`; the blacklist still present; `/` mounted `rw`; image hash `19a203d7…`.
+- **Stop condition:** backup mismatch, guard not ok, root not `rw`, or the blacklist missing.
+- **Rollback:** none. **Risk:** none (read-only).
+
+### Step 1 — install the new modules (WRITE — needs go)
+
+```sh
+DEVICE=r8q KERNEL_DIR=~/omamobile-kernel/wt-r8q KERNEL_OUT=~/omamobile-kernel/out-r8q-modem3 \
+  OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./bin/omamobile modules-push
+```
+
+- **Expect / Pass:** installs `/usr/lib/modules/7.3.0-rc6-omamobile-push1-g5be4efd5e298` and runs `depmod`.
+- **Stop condition:** `modules-push` refuses (hand-installed modules in the folder). Stop and ask; do not set `OMAMOBILE_MODULES_REPLACE=1`.
+- **Rollback:** the old module tree stays. **Risk:** low.
+
+### Step 2 — flash the Stage 3A image to `sda24` (WRITE — needs go)
+
+```sh
+KERNEL_OUT=~/omamobile-kernel/out-r8q-modem3 OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" \
+  ./tools/r8q-flash-recovery ~/omamobile-kernel/out-r8q-modem3/recovery-modem-s3-msi.img
+```
+
+- **Expect / Pass:** `PARTNAME=recovery`, staged and sha256-verified, written, read back at `19a203d7…`, `sda24 ro=1` afterwards.
+- **Stop condition:** partition name/size check fails or the staged hash differs (the tool stops before writing).
+- **Rollback:** re-flash the previous verified image (`out-r8q-modem/recovery-modem-s2.img`). **Risk:** medium (recovery slot only).
+
+### Step 3 — reboot (needs go; affects the screen)
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'systemctl reboot'
+```
+
+Start `tools/r8q-boot-watch --key ~/.ssh/omamobile-r8q --log logs/r8q/stage3a-reboot.log` first. USB re-enumeration after a reboot has taken several minutes before; allow time and check the screen before assuming a hang.
+
+- **Expect / Pass:** phone returns with `uname -r` = `7.3.0-rc6-omamobile-push1-g5be4efd5e298`; guard ok; root `rw`.
+- **Stop condition:** no return after several minutes and a dark screen — ask the human to force-restart (Power ~30 s, then Power; or Power + Volume Down ~10 s).
+- **Rollback:** Step 2 rollback, then reboot. **Risk:** medium.
+
+### Step 4 — attended SBL/MSI check (loader writes only to the modem port)
+
+Start the log stream first:
+
+```sh
+mkdir -p logs/r8q
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'dmesg -w' \
+  > logs/r8q/stage3a-dmesg.log 2>&1 &
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh \
+  'python3 /usr/local/bin/r8q-sahara --device /dev/wwan0sahara0 --wait 180 --max-images 4' \
+  2>&1 | tee logs/r8q/stage3a-sahara.log
+```
+
+Then release the driver in a second terminal:
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'modprobe mhi_pci_generic'
+```
+
+- **Expect / Pass:** `MHI PCI device found: qcom-sdx55m`; `mhi1` reaches `EE: SECONDARY_BOOTLOADER` (or beyond) instead of staying in PRIMARY BOOTLOADER; `/dev/wwan0sahara0` appears; the loader logs `HELLO` and the first `READ_DATA` image IDs. Check `dmesg | grep -iE "mhi|sahara|iommu"` and `/proc/interrupts | grep -i mhi` to confirm the MHI event IRQs now increment.
+- **Stop condition:** the device still reads PRIMARY BOOTLOADER after the MSI fix, or no event interrupts appear; any `I/O error`/`emergency_ro` on the root filesystem; a request for a cross-platform image ID (28/30/31/37).
+- **Rollback:** unbind/remove the module, remove the bringup blacklist, re-check the 15-partition backup. **Risk:** low to the phone; the root image is on the SD card, so keep journald quiet and stop on any storage error.

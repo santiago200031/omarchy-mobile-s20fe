@@ -509,3 +509,94 @@ reboot, so it waits for a go; it is **not** required before Design A.
   showed one boot without `/dev/mmcblk0p1`). Do not power-cycle a phone that is
   still answering, and check the guard and the 15-partition NV checksums after
   any reset.
+
+---
+
+## 10. Stage 4 Runbook — the qcom,pci-msi doorbell (NOT RUN)
+
+**Gated and attended. Every write, flash and reboot below needs the human's
+go.** The kernel is `r8q-modem-msi` (binding + driver, off `modem-stage2`
+`4d5ae30a8`, without `5be4efd5e`); the s20fe side is this branch
+(`CONFIG_QCOM_PCI_MSI=y`). Pack from its own output tree
+(`~/omamobile-kernel/out-r8q-msi`); never reuse a Stage 3A artifact.
+
+**Artifacts (fill in when packed):**
+- `modules-<release>.tar.zst` — sha256 `TBD`
+- `recovery-modem-s4-msi.img` — sha256 `TBD`
+
+### Step 0 — read-only preflight (no approval needed)
+
+Same as §8 Step 0, plus: `uname -r` is the recorded stable release and
+`mhi_pci_generic` is not loaded. Rebuild the images only from
+`KERNEL_OUT=~/omamobile-kernel/out-r8q-msi` and confirm the new sha256
+matches the record above before flashing.
+
+- **Expect / Pass:** guard `77 UFS partitions read-only`; NV 15/15 `SAME`;
+  root `rw`; image hash matches the record.
+- **Stop condition:** any mismatch. **Rollback:** none. **Risk:** none.
+
+### Step 1 — install the new modules (WRITE — needs go)
+
+`DEVICE=r8q KERNEL_DIR=~/omamobile-kernel/wt-r8q KERNEL_OUT=~/omamobile-kernel/out-r8q-msi ./bin/omamobile modules-push`
+(plus the r8q Sahara bringup blacklist from §8, re-applied).
+
+- **Expect / Pass:** modules for the new release install, `depmod` clean.
+- **Stop condition:** `modules-push` refuses (hand-installed modules).
+  Stop and ask. **Rollback:** the old module tree stays.
+
+### Step 2 — flash the Stage 4 image to `sda24` (WRITE — needs go)
+
+`tools/r8q-flash-recovery` with the Stage 4 image from the record above.
+
+- **Expect / Pass:** staged and sha256-verified, written, read back
+  identical, `sda24 ro=1` afterwards (check `/sys/block/sda/sda24/ro`).
+- **Stop condition:** hash differs. The tool stops before writing.
+  **Rollback:** re-flash the stable image (`tools/r8q-flash-recovery --stable`).
+
+### Step 3 — reboot (needs go; affects the screen)
+
+`tools/phone-ssh 'systemctl reboot'` with `tools/r8q-boot-watch` running
+first, as in §8 Step 3.
+
+- **Expect / Pass:** `uname -r` is the new release; guard ok; root `rw`;
+  `dmesg | grep -i "qcom-pci-msi"` shows the probe line with the doorbell
+  readback and `32 SPIs from 832`; **no reset**.
+- **Stop condition:** no return after several minutes (ask the human;
+  Power ~30 s, never send commands to a silent phone); a reset at any
+  point; an SMMU context fault naming `0x17a10040`.
+  **Rollback:** Step 2 rollback, then reboot. **Risk:** medium.
+
+### Step 4 — first MSI vector, no modem bind yet (attended)
+
+With the log stream running (`dmesg -w` to `logs/r8q/stage4-dmesg.log`),
+allocate **one** MSI vector without binding the modem: e.g.
+`pci_alloc_irq_vectors()` on the PCIe2 port via debugfs if available, else
+bind `mhi_pci_generic` only after Step 4b passes. (Detail to be filled
+once the packed kernel's debugfs/port layout is known.)
+
+- **Expect / Pass:** one parent SPI (832) is requested; `/proc/interrupts`
+  shows the `QCOM-PCI-MSI` domain; no fault, no reset.
+- **Stop condition:** SMMU fault, `I/O error` on the root, or a reset.
+  **Rollback:** unbind, restore the blacklist, re-check the 15-partition
+  backup.
+
+### Step 4b — attended SBL/MSI check (loader writes only to the modem port)
+
+Only after Step 4 passes. Same shape as §8 Step 4: the Sahara loader
+waiting on `/dev/wwan0sahara0`, then `modprobe mhi_pci_generic` in a
+second terminal, under the log stream and a dead-man switch.
+
+- **Expect / Pass:** `MHI PCI device found: qcom-sdx55m`;
+  `Wait for device to enter SBL or Mission mode`; then an SBL transition
+  (`EE: SECONDARY_BOOTLOADER` or beyond), `/dev/wwan0sahara0`, and the
+  loader's first `IMAGE ID`s — with the MHI event IRQs incrementing in
+  `/proc/interrupts`.
+- **Stop condition:** still PRIMARY BOOTLOADER after the MSI fix; no event
+  interrupts; any `I/O error`/`emergency_ro`; a cross-platform image ID
+  (28/30/31/37); a reset.
+  **Rollback:** unbind/remove the module, remove the bringup blacklist,
+  re-check the 15-partition backup — then reflash the stable image, as in §8.
+
+### Results — Stage 4 (NOT RUN)
+
+_To be filled with the date, the release string, and the outcome._

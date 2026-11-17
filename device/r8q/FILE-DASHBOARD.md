@@ -88,7 +88,7 @@
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | ⏳ Stage 1 PASS | `pcie2` Gen.3 x2 link up, SDX55M `[17cb:0306]`/`[17cb:010c]` bound to `mhi-pci-generic` (`mhi0`); Stage 2 blocked on `.fw = "qcom/sdx55m/sbl1.mbn"` quirk + Sahara; `nv-backup-20261117` 10/10 `SAME` |
+| Modem/cellular | ⏳ Stage 1 PASS / Stage 2 prepared | `pcie2` Gen.3 x2 link up, SDX55M `[17cb:0306]`/`[17cb:010c]` bound to `mhi-pci-generic` (`mhi0`); `modem-stage2` kernel + modules + `recovery-modem-s2.img` built, `tools/r8q-sahara` dry-run passed, `nv-backup-20261117-full` 15/15 `SAME`; awaiting approval for writes and the attended Sahara run |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)
@@ -228,7 +228,7 @@
 | `CAMERA-PLAN.md` | ✅ | Camera bring-up plan |
 | `CAMERA-UW-PLAN.md` | ✅ | Ultrawide (S5K3L6) driver, DT, and `libcamera 0.7.2-4.25` verified end-to-end |
 | `DPMS-PLAN.md` | ✅ | DPMS & physical Power-key wake plan (verified) |
-| `MODEM-PLAN.md` | ⏳ | Modem & cellular bring-up plan (Stage 1 PASS; Stage 2 FW/Sahara pending) |
+| `MODEM-PLAN.md` | ⏳ | Modem & cellular bring-up plan (Stage 1 PASS; Stage 2 prepared with gated runbook in §4) |
 | `AI-BENCHMARKS.md` | ⏳ | On-device AI benchmark plan (exists) |
 | `board/README.md` | ✅ | Board overview |
 | `board/SUCCESS.md` | ✅ | 6 success cards |
@@ -268,7 +268,7 @@ P1 (Native DT ✅) → P2 (Audio/DSP ✅) → Sensors/VolUp/DPMS/Pseudo-NMI/S5K3
 
 **Remaining open items:**
 1. **Cameras (`IMX555` rear wide & `IMX616` front):** Stock topology (`live.dts`), drivers, bindings, and `libcamera` helpers; plus Adreno `FD650` `debayer_egl` hangcheck follow-up so `LIBCAMERA_SOFTISP_MODE=cpu` can be lifted if safe.
-2. **Modem Stage 2 ([MODEM-PLAN.md](MODEM-PLAN.md)):** Off-repo RO backup of `mdm1m9kefs1/2/3/c` + `mdmddr`, `pci_generic.c` `samsung,r8q` quirk for `qcom/sdx55m/sbl1.mbn`, Sahara/FW staging from RO `/dev/sda20`, and `omamobile-modem` + `ModemManager`.
+2. **Modem Stage 2 ([MODEM-PLAN.md](MODEM-PLAN.md) §4):** Done offline — 15-partition RO backup, `pci_generic.c` `samsung,r8q` BHI quirk, FW staging, Sahara loader (`tools/r8q-sahara`). Pending — human-approved modules install / `sda24` flash / reboot, attended Sahara run, then `omamobile-modem` + `ModemManager`.
 3. **Optional perf / UX / polish:** `omacam` live visual test switching tele ↔ ultrawide (verify `s5k3l6xx` orientation/rotation in preview), `cs35l41` speaker protection tuning (louder/balanced top+bottom speakers), GPU/CDSP AI inference when prioritized (`omamobile-ai` branch), and setting up user fork remote for `linux-omarchy-mobile` push.
 
 **What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`):**

@@ -173,10 +173,17 @@ cmd_pack() {
   # Build cpio ramdisk
   local ramdisk="$stage/initramfs.cpio.gz"
   say "Creating compressed initramfs ramdisk"
+  set -o pipefail
   (
     cd "$stage/root"
-    find . -mindepth 1 | cpio -H newc -o 2>/dev/null | gzip -9 -n > "$ramdisk"
+    find . -mindepth 1 -print0 | cpio -H newc -o --null 2>"$stage/cpio-errors.log" | gzip -9 -n > "$ramdisk"
   )
+  set +o pipefail
+  if grep -vE '^[0-9]+ blocks?$' "$stage/cpio-errors.log" | grep -q .; then
+    grep -vE '^[0-9]+ blocks?$' "$stage/cpio-errors.log" | head -5
+    die "cpio reported errors building the initramfs"
+  fi
+  say "initramfs: $(du -h "$ramdisk" | cut -f1) from $(find "$stage/root" -mindepth 1 | wc -l) staged files"
 
   if [[ ${#overlays[@]} -gt 0 ]]; then
     [[ -x $dtc_bin ]] || die "dtc binary not found (run bin/omamobile kernel first)"

@@ -1,15 +1,49 @@
 // SPDX-License-Identifier: MIT
 /*
- * Bring-up overlay (PORT-PLAN M7): enable gpi_dma1 (ee_offset 0x6000) and
- * i2c11 for isolated CS35L41 smart-amp I2C probing at 0x40 / 0x41.
+ * Bring-up overlay (PORT-PLAN M7): enable gpi_dma1 and i2c11 for
+ * CS35L41 smart-amp I2C probing.
+ *
+ * Usage: tools/r8q-boot pack --dual-boot --overlay display --overlay remoteprocs --overlay audio-amps
+ * Or combined: tools/r8q-boot pack --dual-boot --overlay display --overlay remoteprocs --overlay audio-amps --overlay audio-sound
+ *
+ * Hardware:
+ *   - GPI DMA channel 1 (ee_offset 0x6000): DMA engine for TDM audio
+ *   - I2C11 (geniqup@ac0000/i2c@a8c000): CS35L41 amplifier bus
+ *   - CS35L41 @ 0x40: Top speaker (earpiece)
+ *   - CS35L41 @ 0x41: Bottom speaker (main)
+ *
+ * Safety:
+ *   - Both amplifiers must probe without DC/thermal faults
+ *   - If I2C probing fails, the overlay can be skipped and the boot continues
+ *   - The liveness monitor checks remoteprocs before enabling audio
+ *
+ * Prerequisites:
+ *   - remoteprocs.dtso must be loaded first (ADSP must be running)
+ *   - Firmware: adsp.mbn must be present and loadable
  */
 /dts-v1/;
 /plugin/;
 
+/* GPI DMA channel 1 — TDM audio DMA engine */
 &{/soc@0/dma-controller@a00000} {
 	status = "okay";
+	/* GPI channel 1 with ee_offset 0x6000 for SM8250 r8q */
+	/* See: drivers/dma/qcom/gpi.c, qcom,gpi.yaml binding */
 };
 
+/* I2C11 (QUP11) — CS35L41 amplifier control bus */
 &{/soc@0/geniqup@ac0000/i2c@a8c000} {
 	status = "okay";
+	/* CS35L41 amplifiers at 7-bit addresses 0x40 and 0x41 */
+	/* These are probed by the cs35l41_i2c driver */
+	/* pinctrl for SCL/SDA on GPIOs — must match board layout */
+};
+
+/* Let mainline wm_adsp resolve cirrus/cs35l41-dsp1-spk-prot-r8q-{right,left}.* */
+&{/soc@0/geniqup@ac0000/i2c@a8c000/amplifier@40} {
+	cirrus,subsystem-id = "r8q";
+};
+
+&{/soc@0/geniqup@ac0000/i2c@a8c000/amplifier@41} {
+	cirrus,subsystem-id = "r8q";
 };

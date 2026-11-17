@@ -1,0 +1,218 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-audio-bringup: Gated audio bring-up sequence for Samsung Galaxy S20 FE (r8q).
+#
+# Automates Gate C (one overlay added per boot, keeping --dual-boot and display):
+#   1. Pack recovery image with display + remoteprocs overlays
+#   2. Flash to sda24 and reboot into recovery
+#   3. Verify ADSP/CDSP/SLPI remoteprocs are running
+#   4. Pack recovery image with display + remoteprocs + audio-amps overlays
+#   5. Flash to sda24 and reboot into recovery
+#   6. Verify CS35L41 amplifiers on I2C11 (11-0040, 11-0041)
+#   7. Pack recovery image with display + remoteprocs + audio-amps + audio-sound
+#   8. Flash to sda24 and reboot into recovery
+#   9. Verify ALSA card and test low-volume playback
+#
+# Usage: tools/r8q-audio-bringup [--step N] [--dry-run] [--yes]
+#
+# Rollback:
+#   tools/r8q-boot pack --dual-boot --overlay display
+#   tools/r8q-flash-recovery
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
+STEP="${STEP:-1}"
+DRY_RUN="${DRY_RUN:-0}"
+AUTO_YES="${AUTO_YES:-0}"
+SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
+
+say() { printf '\e[1m==> %s\e[0m\n' "$*"; }
+die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+dry() { [[ $DRY_RUN -eq 1 ]] && { say "[DRY RUN] $*"; return 0; } || return 1; }
+
+usage() {
+  cat <<EOF
+Usage: tools/r8q-audio-bringup [OPTIONS]
+
+Options:
+  --step N     Start at step N (1-9, default: 1)
+  --dry-run    Print commands without executing
+  --yes        Skip interactive flash/reboot confirmation prompts
+  --help       Show this help
+
+Steps:
+  1-2. Pack + flash display,remoteprocs to sda24 and reboot
+  3.   Verify ADSP/CDSP/SLPI remoteprocs running
+  4-5. Pack + flash display,remoteprocs,audio-amps to sda24 and reboot
+  6.   Verify CS35L41 amplifiers on I2C11 (11-0040, 11-0041)
+  7-8. Pack + flash display,remoteprocs,audio-amps,audio-sound to sda24 and reboot
+  9.   Verify ALSA sound card and test audio playback
+
+Rollback:
+  tools/r8q-boot pack --dual-boot --overlay display
+  tools/r8q-flash-recovery
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --step) STEP="${2:?--step requires a number}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --yes) AUTO_YES=1; shift ;;
+    --help) usage; exit 0 ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+phone_ssh() {
+  if [[ -f "$SSH_KEY" ]]; then
+    OMAMOBILE_SSH_KEY="$SSH_KEY" "$ROOT/tools/phone-ssh" "$@"
+  else
+    "$ROOT/tools/phone-ssh" "$@"
+  fi
+}
+
+confirm_action() {
+  local prompt="$1"
+  [[ $AUTO_YES -eq 1 ]] && return 0
+  read -r -p "$prompt [y/N] " reply
+  [[ "$reply" =~ ^[Yy]$ ]] || die "Aborted by user"
+}
+
+wait_for_phone() {
+  say "Waiting for phone (172.16.42.1)..."
+  for _ in $(seq 1 30); do
+    phone_ssh true 2>/dev/null && return 0
+    sleep 4
+  done
+  die "Phone did not answer over SSH after 2 minutes"
+}
+
+check_remoteprocs() {
+  say "Checking remoteprocs..."
+  local result
+  result=$(phone_ssh '
+    found=0
+    for rp in /sys/class/remoteproc/remoteproc*; do
+      [ -d "$rp" ] || continue
+      found=1
+      name=$(cat "$rp/name" 2>/dev/null || echo "unknown")
+      state=$(cat "$rp/state" 2>/dev/null || echo "unknown")
+      echo "${rp##*/} ($name): $state"
+    done
+    [ "$found" -eq 1 ] || echo "none found"
+  ' 2>&1) || true
+  echo "$result"
+  for target in adsp cdsp slpi; do
+    if ! echo "$result" | grep -q "($target): running"; then
+      say "WARNING: remoteproc $target is not running"
+      return 1
+    fi
+  done
+  say "All three remoteprocs (adsp, cdsp, slpi) are running"
+  return 0
+}
+
+check_cs35l41() {
+  say "Checking CS35L41 amplifiers on I2C11..."
+  phone_ssh '
+    for addr in 0040 0041; do
+      i2c_dev="/sys/bus/i2c/devices/11-${addr}"
+      if [ -d "$i2c_dev" ]; then
+        name=$(cat "$i2c_dev/name" 2>/dev/null || echo "unknown")
+        drv="unbound"
+        [ -L "$i2c_dev/driver" ] && drv=$(basename "$(readlink "$i2c_dev/driver")")
+        echo "11-${addr}: $name (driver: $drv)"
+      else
+        echo "11-${addr}: not found"
+      fi
+    done
+  '
+}
+
+check_alsa() {
+  say "Checking ALSA sound card..."
+  phone_ssh 'aplay -l 2>/dev/null || echo "No ALSA cards"'
+}
+
+test_audio() {
+  say "Testing low-volume audio playback..."
+  phone_ssh '
+    if command -v speaker-test >/dev/null 2>&1; then
+      timeout 6 speaker-test -c 2 -t sine -f 440 -l 1 2>&1 | head -20 || true
+    elif command -v aplay >/dev/null 2>&1; then
+      aplay /usr/share/sounds/alsa/Front_Center.wav 2>&1 || echo "Audio test failed"
+    else
+      echo "Neither speaker-test nor aplay found"
+    fi
+  '
+}
+
+flash_with_overlays() {
+  local tag="$1"; shift
+  local img="${KERNEL_OUT}/recovery-omamobile-${tag}.img"
+  local -a ov_args=(--dual-boot --overlay display)
+  local ov
+  for ov in "$@"; do
+    ov_args+=(--overlay "$ov")
+  done
+
+  say "Packing recovery image (${ov_args[*]}) -> $img"
+  if ! dry "tools/r8q-boot pack ${ov_args[*]} $img"; then
+    "$ROOT/tools/r8q-boot" pack "${ov_args[@]}" "$img"
+  fi
+
+  say "Flashing $img to sda24 and rebooting into recovery..."
+  if ! dry "OMAMOBILE_SSH_KEY=$SSH_KEY tools/r8q-flash-recovery $img && reboot recovery"; then
+    confirm_action "Flash $img to /dev/sda24 and reboot the phone into recovery?"
+    OMAMOBILE_SSH_KEY="$SSH_KEY" "$ROOT/tools/r8q-flash-recovery" "$img"
+    phone_ssh "reboot recovery" || true
+    sleep 5
+    wait_for_phone
+  fi
+}
+
+say "=== r8q Audio Bring-Up Sequence (Gate C) ==="
+say "Starting at step $STEP"
+
+if [[ $STEP -le 2 ]]; then
+  say "Step 1-2: Enable remoteprocs (ADSP/CDSP/SLPI)"
+  flash_with_overlays "remoteprocs" remoteprocs
+fi
+
+if [[ $STEP -le 3 ]]; then
+  [[ $DRY_RUN -eq 1 ]] && say "[DRY RUN] Verify remoteprocs" || {
+    wait_for_phone
+    check_remoteprocs || die "Remoteprocs failed to reach running state — inspect dmesg before audio-amps"
+  }
+fi
+
+if [[ $STEP -le 5 ]]; then
+  say "Step 4-5: Enable audio-amps (gpi_dma1 + i2c11 CS35L41)"
+  flash_with_overlays "audio-amps" remoteprocs audio-amps
+fi
+
+if [[ $STEP -le 6 ]]; then
+  [[ $DRY_RUN -eq 1 ]] && say "[DRY RUN] Verify CS35L41 amps" || {
+    wait_for_phone
+    check_cs35l41
+  }
+fi
+
+if [[ $STEP -le 8 ]]; then
+  say "Step 7-8: Enable audio-sound (SM8250 ASoC card)"
+  flash_with_overlays "audio-sound" remoteprocs audio-amps audio-sound
+fi
+
+if [[ $STEP -le 9 ]]; then
+  [[ $DRY_RUN -eq 1 ]] && say "[DRY RUN] Verify ALSA and play test tone" || {
+    wait_for_phone
+    check_alsa
+    test_audio
+  }
+fi
+
+say "=== Audio Bring-Up Sequence Complete ==="
+say "Rollback: tools/r8q-boot pack --dual-boot --overlay display && tools/r8q-flash-recovery"

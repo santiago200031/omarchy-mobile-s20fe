@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay (CAMERA-UW-PLAN Phase 2/3): enable CAMSS CSIPHY1 port@1,
+ * QUPv3 I2C2 (988000.i2c), and the rear ultrawide Samsung S5K3L6 sensor.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/camss@ac6a000/ports/port@1} {
+	status = "okay";
+};
+
+&{/soc@0/geniqup@9c0000/i2c@988000} {
+	status = "okay";
+};
+
+&{/soc@0/geniqup@9c0000/i2c@988000/camera@2d} {
+	status = "okay";
+};

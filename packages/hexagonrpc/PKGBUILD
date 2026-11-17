@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: 0BSD
+# Upstream FastRPC reverse-tunnel daemon (linux-msm/hexagonrpc). Serves
+# device-local sensor configs, registry files, and DSP libraries to Qualcomm
+# DSPs (such as SM8250 SDSP/SLPI) over /dev/fastrpc-* so libssc and
+# iio-sensor-proxy can enumerate hardware sensors.
+# Maintainer: Santiago <villavicencioandrs@gmail.com>
+
+pkgname=hexagonrpc
+pkgver=0.5.0
+pkgrel=2
+pkgdesc='FastRPC ioctl wrapper and reverse-tunnel daemon for Qualcomm Hexagon DSPs'
+arch=(aarch64)
+url='https://github.com/linux-msm/hexagonrpc'
+license=(GPL-3.0-or-later)
+depends=(glibc)
+makedepends=(meson ninja linux-api-headers)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/linux-msm/hexagonrpc/archive/refs/tags/v$pkgver.tar.gz"
+        hexagonrpc.sysusers
+        60-hexagonrpc.rules
+        0001-rpcd-builder-map-sns_reg_version-and-ssc_hw_rev.patch)
+sha256sums=('2173985932ab68d8ac593f9954357123bdbbbe9ba5f1b17a098d9cbcec22c5d5'
+            'e0a6b4f3b70a29adcf16566b40006fe5c7c5d8314fdf8ff19abe9bd67e39511b'
+            '1d4bda3814eb1e0134848d260c62eae181cf851755423ec01d409b69d3525263'
+            '786b1e67cd8d465a830a8687dbb447ed75c96fae958e376f4c1a3a75d97a75d5')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  patch -Np1 -F0 -i ../0001-rpcd-builder-map-sns_reg_version-and-ssc_hw_rev.patch
+}
+
+build() {
+  arch-meson "$pkgname-$pkgver" build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  install -Dm644 hexagonrpc.sysusers "$pkgdir/usr/lib/sysusers.d/hexagonrpc.conf"
+  install -Dm644 60-hexagonrpc.rules "$pkgdir/usr/lib/udev/rules.d/60-hexagonrpc.rules"
+}

@@ -3,12 +3,14 @@
 pkgname=omamobile-device-r8q
 pkgver=$(cat "${startdir:-.}/version")
 pkgrel=1
-pkgdesc="Omarchy Mobile support for Samsung Galaxy S20 FE (r8q): reboot-to and USB networking"
+pkgdesc="Omarchy Mobile support for Samsung Galaxy S20 FE (r8q): reboot-to, USB networking, liveness watchdog, overlays, and UCM2 audio"
 arch=(aarch64)
 url="https://github.com/derekross/omarchy-mobile"
 license=(MIT)
-depends=(bash systemd)
-optdepends=('omamobile-ai: on-device AI with lazy llama-server management')
+depends=(bash systemd zram-generator)
+optdepends=('hexagonrpc: SLPI FastRPC reverse-tunnel daemon for sensors'
+            'iio-sensor-proxy: D-Bus sensor proxy via libssc'
+            'omamobile-ai: on-device AI with lazy llama-server management')
 backup=(etc/pacman.d/omamobile-mirrorlist)
 install=omamobile-device-r8q.install
 
@@ -129,6 +131,24 @@ package() {
     "$pkgdir/usr/share/alsa/ucm2/conf.d/sm8250/Samsung-Galaxy-S20-FE.conf"
   install -Dm644 "$startdir/ucm2/Samsung/r8q/HiFi.conf" \
     "$pkgdir/usr/share/alsa/ucm2/Samsung/r8q/HiFi.conf"
+  # SLPI sensors (P4): point hexagonrpcd-sdsp at r8q's sensor root and tag
+  # /dev/fastrpc-sdsp* with ssc-accel ahead of 80-iio-sensor-proxy.rules.
+  install -Dm644 "$startdir/10-r8q-hexagonrpcd.conf" \
+    "$pkgdir/usr/lib/systemd/system/hexagonrpcd-sdsp.service.d/10-r8q.conf"
+  install -Dm644 "$startdir/79-r8q-iio-sensor-proxy.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/79-r8q-iio-sensor-proxy.rules"
+  install -Dm644 "$startdir/70-omamobile-dma-heap.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/70-omamobile-dma-heap.rules"
+  install -Dm644 "$startdir/70-r8q-libcamera.conf" \
+    "$pkgdir/usr/lib/environment.d/70-r8q-libcamera.conf"
+  # Bring-up overlays (device/r8q/overlays/): enable nodes disabled in the
+  # base DTB one boot at a time. Each overlay is self-contained and can be
+  # tested independently via tools/r8q-boot --overlay NAME.
+  install -d "$pkgdir/usr/share/omamobile/device/r8q/overlays"
+  for ov in "$startdir"/../../device/r8q/overlays/*.dtso; do
+    [ -f "$ov" ] || continue
+    install -Dm644 "$ov" "$pkgdir/usr/share/omamobile/device/r8q/overlays/$(basename "$ov")"
+  done
   install -Dm644 "$startdir/LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   # Device-specific omamobile-ai tuning (CPU affinity, thread count for sm8250).
@@ -150,4 +170,5 @@ package() {
   ln -s ../omamobile-r8q-wifi.service "$wants/omamobile-r8q-wifi.service"
   ln -s ../omamobile-r8q-liveness.service "$wants/omamobile-r8q-liveness.service"
   ln -s ../omamobile-r8q-battery.service "$wants/omamobile-r8q-battery.service"
+  ln -s ../hexagonrpcd-sdsp.service "$wants/hexagonrpcd-sdsp.service"
 }

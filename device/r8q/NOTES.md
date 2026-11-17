@@ -4,6 +4,9 @@
 
 Chronological diagnostic archive split out of [PORT-PLAN.md](PORT-PLAN.md) so the main port plan stays short and actionable.
 
+**Dashboard:** See [FILE-DASHBOARD.md](FILE-DASHBOARD.md) for a complete file inventory, status overview, and what's missing.
+**Board:** See [board/README.md](board/README.md) for the Kanban-style success/failed/missing columns.
+
 ---
 
 ## 1. Kernel Fix for the RPMh / RCU Wedge (Crashes #1–#14, 2026-11-12 – 2026-11-14)
@@ -112,3 +115,74 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   3. **`btmgmt --timeout` & unconfigured `hci0`:** After `hci_qca` downloads `qca/htbtfw20.tlv` and `qca/htnv20.bin`, QCA6390 sets `HCI_QUIRK_USE_BDADDR_PROPERTY` and waits in `Unconfigured controller` (`missing options: public-address`). `ensure_r8q_bt_uart()` in `r8q-liveness-monitor` generates a `02:XX:XX:XX:XX:XX` address (`0600`) in `/var/lib/omamobile/bt-public-addr`, configures `btmgmt --timeout 3 --index 0 public-addr`, and powers `hci0` on (`BR/EDR` + `LE`). Always pass `--timeout` to `btmgmt` (`v5.88`) and `--index none` for `config`, because `-i 0 config` prints `hci62528` and non-timeout `btmgmt` blocks SSH shells.
 - **Why `mise` / `pacman-key` failed with TLS / key-in-the-future errors on reboot:** `omamobile-r8q-rtc.service` previously had `DefaultDependencies=yes` + `WantedBy=multi-user.target` while declaring `Before=systemd-timesyncd.service`, creating a `sysinit.target` ordering cycle that made systemd delete `systemd-timesyncd.service` and skip timely clock sync (leaving the PM8150 RTC at `May 1975`). Fixed with `DefaultDependencies=no`, `WantedBy=sysinit.target`, `Before=sysinit.target time-sync.target systemd-timesyncd.service`, `ensure_r8q_clock()` (60 s epoch save + NTP kick), and `r8q-rtc-epoch` `timesync/clock` / `2026-11-15` floor. Verified `curl -fsSI https://mise.jdx.dev/releases.tsv` (`HTTP/2 200`), `mise doctor`, and `pacman-key --list-sigs` clean.
 - **Boot GUI with `systemd.unit=multi-user.target`:** Symlinked `sddm.service` under `multi-user.target.wants` and added `ensure_r8q_desktop()` to `r8q-liveness-monitor` (`0.1.18`) and `tools/r8q-install`.
+
+---
+
+## 8. P1 Native Kernel & Gate C Remoteprocs + Audio (`2026-11-16`)
+
+- **P1 verified (`7.3.0-rc6-omamobile-push1-gcaa38517520a`, `omamobile-r8q-p1-signoff`):**
+  - Built into `~/omamobile-kernel/out-r8q-p1`, modules pushed, packed (`recovery-omamobile.img`), and flashed to `sda24` over USB SSH (`tools/r8q-flash-recovery`).
+  - `/proc/iomem` XPU regions properly reserved (`HardwareCorrupted: 0 kB`); `stmfts` and `qcom_geni_serial` (`998000.serial` → `hci0`) bound natively without OOT `.ko` workarounds.
+  - Updated `r8q-liveness-monitor` (`0.1.19`) to retry `hci0` `public-addr` configuration until `hci_qca` creates `hci0` (~9.5 s post-boot).
+- **Gate C Step 1 (`display,remoteprocs`) & Step 2 (`+audio-amps`):**
+  - `remoteproc0` (`slpi`), `remoteproc1` (`cdsp`), `remoteproc2` (`adsp`) all reached `running`; `a00000.dma-controller` (`gpi_dma1`) and `a8c000.i2c` (`i2c11`) probed dual `cs35l41` (`11-0040`, `11-0041`, Rev A0).
+- **Gate C Step 3 (`+audio-sound`) — Why `TERTIARY_TDM_RX_0` failed `-110` (`PLL_UNLOCK`) & Fix:**
+  - Base DT `d469bd3bf` wired `&sound` to `TERTIARY_TDM_RX_0` (`0x38`, `mi2s2_*` `gpio133..137`, 2 slots, `tdm-sync-mode=1`, `tdm-invert-sync=1`), leaving `cs35l41` without BCLK (`Enable(1) failed: -110`, `PLL_UNLOCK=1`).
+  - Stock `live.dts` and `dmesg` proved `r8q` routes speaker amps via `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` (`gpio138..141`), `4x32-bit` slots (`6.144 MHz` BCLK), `tdm-sync-mode=0`, `tdm-sync-src=1`, `tdm-invert-sync=0`, `tdm-data-delay=1`.
+  - Updated `device/r8q/overlays/audio-sound.dtso` (`pri_tdm_active`/`pri_tdm_sleep`, `dai@18`, `&q6afedai 0x18`, `4x32-bit`) and `packages/omamobile-device-r8q/ucm2/Samsung/r8q/HiFi.conf` (`PRIMARY_TDM_RX_0 Audio Mixer MultiMedia1`, `ASP`, `Left/Right Analog/Digital PCM Volume`).
+  - **Verified end-to-end (`pw-cat --playback` → `Built-in Audio Stereo Speakers` → `MultiMedia1` → `PRIMARY_TDM_RX_0` → `11-0040`/`11-0041`):** both `cs35l41` amps reported `GLOBAL_EN=1`, `AMP_EN=1` (`0002018=0x21`), `PUP_DONE=1` (`0010090=0x41404000`), and `PLL_LOCK=1` / `PLL_UNLOCK=0` (`0010098=0x2000000f`) with zero kernel errors.
+
+---
+
+## 9. P4 SLPI Sensors (`hexagonrpc` + `vreg_l8c_1p8`) & Volume Up Root Cause (`2026-11-16`)
+
+- **SLPI Sensors (`slpi-sensors.dtso`, `hexagonrpc 0.5.0-2`, `omamobile-device-r8q 0.1.20`):**
+  - Initial `ssccli --sensor accelerometer` found QRTR node `9` (`ssc` service `400`) but failed on `'registry' sensor unavailable, is hexagonrpcd running?`.
+  - After packaging `linux-msm/hexagonrpc` `0.5.0`, verbose tracing revealed three blockers causing SLPI `sns_registry_sensor.c:99` (`SNS_REG_INIT`) and `sns_thread_manager.c:437` (`SEE Sensor exceeded processing time limit`) crashes:
+    1. `rpcd_builder.c` did not map `/persist/sensors/registry/sns_reg_version` or `/sys/class/sensors/ssc_core/ssc_hw_rev`; patched in `packages/hexagonrpc/0001-rpcd-builder-map-sns_reg_version-and-ssc_hw_rev.patch`.
+    2. Leaving LineageOS/vendor `.json` files in `/usr/share/qcom/.../sensors/config/` caused `sns_registry` to attempt writing `temp.json` on the read-only HexagonFS; using the pre-parsed `persist` registry (`191` files from `/dev/sda8` read-only) with an empty `sensors/config/` dir avoids `temp.json` writes.
+    3. `sm8250-samsung-r8q.dts` omitted `vreg_l8c_1p8` (`PM8150L L8C`, `1.8 V`, bound as `sensor_vdd-supply` on `qcom,ssc@5c00000` in stock `live.dts`), leaving the I3C/I2C sensor bus unpowered. Added `device/r8q/overlays/slpi-sensors.dtso` (`vdd-l1-l8-supply = <&vreg_s4a_1p8>`, `vreg_l8c_1p8: ldo8`).
+  - **Verified live on hardware (`7.3.0-rc6-omamobile-push1-gcaa38517520a`):**
+    - `ssccli`: `accelerometer` (`LSM6DSO`), `light` (`TCS3407`), `magnetometer` & `compass` (`AK0991X`) all stream real readings; `proximity` returns `UNKNOWN` (Samsung optical/virtual proximity on `stk31610`).
+    - Added `79-r8q-iio-sensor-proxy.rules` (`ssc-accel ssc-light ssc-compass` on `fastrpc-sdsp*`) and `10-r8q-hexagonrpcd.conf` (`ConditionPathExists` + `-R /usr/share/qcom/sm8250/samsung/r8q`); `monitor-sensor` reports `Has accelerometer`, `Has ambient light sensor`, and `Has compass` with live updates.
+- **Volume Up key & speaker gain fixes (`vol-up.dtso`, `omamobile-device-r8q 0.1.21`):**
+  - Stock `live.dts` (`gpio_keys/vol_up` + `pinctrl@c000`) wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (`pm8150l_gpio3`), whereas `sm8250-samsung-common.dtsi` had `&pm8150_gpios 3`. Added `device/r8q/overlays/vol-up.dtso` and verified on hardware (`gpiochip1` `gpio3` `in high pull-up`, `/proc/interrupts` IRQ `179` `spmi-gpio 2 Edge Volume Up`).
+  - Raised `HiFi.conf` speaker gains (`Analog PCM Volume` `10` → `18`, `Digital PCM Volume` `790` → `817` = `0.00 dB`) to match stock `GAIN_CTRL = 0x253` / `DIG_VOL_CTRL = 0x8001` (`+11.4 dB`), verified live on both `11-0040` and `11-0041`.
+  - **Reboot USB quirk:** After warm `reboot-to recovery`, the host USB-C link may not re-enumerate `a600000.usb` until the USB-C cable is unplugged and replugged once.
+
+---
+
+## 10. P3 Wireless/Modem Backup, P4 DPMS Cycle & CS35L41 Diagnostics (`2026-11-16`)
+
+- **Concurrent Wi-Fi + Bluetooth + USB NCM (`7.3.0-rc6-omamobile-push1-gcaa38517520a`):**
+  - `wlp1s0` (`ath11k_pci`, `omamobile-r8q-wifi.service` active) sustained `15/15` ICMP pings (`0%` loss, `rtt min/avg/max = 11.304/13.392/15.320 ms`) and 3 concurrent HTTPS fetches (`HTTP 200`) at `5180.0 MHz` (`576.4–720.6 MBit/s`, `-60 dBm`) alongside `btmgmt find -l` LE discovery on `hci0` (`br/edr` + `le` powered, zero missing options) and active USB NCM (`172.16.42.1`), with zero wireless errors in `dmesg`.
+  - Observed `dwc3 a600000.usb: remote wakeup not configured` and one transient 2-second USB NCM re-enumeration during a sustained 195 MiB read over SSH (`uptime` stayed continuous).
+- **DPMS & Lock Screen cycle (remote `hyprctl`):**
+  - Verified `hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'` and `'hl.dsp.dpms({ action = "disable" })'` cleanly transition `DSI-1` between `dpmsStatus: False` (`card1-DSI-1/dpms=Off`, `ae94000.dsi.0/bl_power=4`) and `dpmsStatus: True` (`card1-DSI-1/dpms=On`, `bl_power=0`, `brightness=1023`), with `omarchy-shell lock status` reporting `locked: true, secure: true` and zero DRM/DSI errors in `dmesg`. Attended Power-key wake check remains for the human.
+- **NV/Modem Off-Repo RO Backup (`AGENTS.md` §1):**
+  - Verified all 10 NV/modem UFS partitions (`modemst1`, `modemst2`, `fsc`, `mdm1m9kefs1`, `mdm1m9kefs2`, `mdm1m9kefsc`, `persist`, `efs`, `sec_efs`, `modem`) `ro=1` and backed them up read-only off-repo to `~/omamobile-kernel/reference-r8q/nv-backup/` (`sha256sum -c SHA256SUMS`: `10` ok). Confirmed `/lib/firmware/qcom/sm8250/samsung/r8q/modem.mbn` + `modemr.jsn` are staged, while `rmtfs`, `tqftpserv`, and `pd-mapper` daemons are not yet installed.
+- **CS35L41 Speaker State Inspection:**
+  - Live `regmap/11-004[01]/registers` + `amixer -c 0`: both amps run `PCM Source = ASP`, `PWR_CTRL3 = 0x01000000` (`wkfet_amp=Y`), `BSTCVRT_VCTRL1 = 0x00` (`bst_ctl=0`), `AMP_GAIN_CTRL = 0x240` (`Analog PCM Volume = 18`), `AMP_DIG_VOL_CTRL = 0x8000` (`Digital PCM Volume = 817`, `0.00 dB`). Stock `/lib/firmware/cirrus/cs35l40-{bot,rcv}-dsp1-spk-prot.{wmfw,bin}` exist on the phone, unused while `cs35l41.c` hardcodes `dsp->part = "cs35l41"` and `PCM Source = ASP`.
+
+---
+
+## 11. Rear Telephoto Camera (`hi847` + `qcom-camss`) Bring-Up (`2026-11-16` – `2026-11-17`, `camera-wip`)
+
+- **Fixed three blockers (`wt-r8q` `camera-wip` @ `f3be9fb6d`, `7.3.0-rc6-omamobile-push1-gf3be9fb6de08`, `recovery-omamobile-camera.img` sha256 `4ce46855…`):**
+  1. `vreg_l7c_1p8` (`L7C` `1.8 V`, not `L7A`) eliminated `i2c@a88000` timeouts.
+  2. `pinctrl-0 = <&cam_mclk3_default &cam_tele_active>` (`GPIO 97` `MCLK3`, `GPIO 78`, `GPIO 135`) allowed `hi847 10-0021` to probe (`0x0847`).
+  3. `&camss` `port@2` (`csiphy2_ep`) needed `clock-lanes = <7>;`, 0-based `data-lanes = <0 1 2 3>;`, and `bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;` (matching `camss-csiphy-3ph-1-0.c` `BIT(pos * 2)` and `camss-csid.c`), plus explicit `DEVICE=r8q` for `bin/omamobile kernel|modules`.
+- **Verified raw capture on `/dev/video0`:** after enabling `media-ctl` links (`msm_csiphy2:1 -> msm_csid0:0` and `msm_csid0:1 -> msm_vfe0_rdi0:0`), `v4l2-ctl --stream-mmap=4 --stream-count=2` captured `19,975,680` bytes at `3264x2448` (`pgAA`) and `5,013,504` bytes at `1632x1224` (`pgAA`) cleanly (`rc=0`, `vfe0` and `csid0` IRQs active).
+- **`display-clocks.dtso` black-screen root cause (`2026-11-16`):** Packing `--overlay display-clocks` added an empty 0-byte `protected-clocks;` property to `&dispcc` (`/soc@0/clock-controller@af00000`). In `drivers/of/property.c`, `of_prop_next_u32()` lacks a `length >= sizeof(__be32)` guard on `cur == NULL`, so `qcom_cc_drop_protected()` read index `3` (`DISP_CC_MDSS_BYTE0_CLK_SRC`) out of bounds and dropped `disp_cc_mdss_byte0_clk_src` (`55` clocks instead of `56`), orphaning `disp_cc_mdss_byte0_clk` (`status stuck at 'off'`, black screen after console). Repacked with `--overlay display --overlay remoteprocs --overlay audio-amps --overlay audio-sound --overlay slpi-sensors --overlay vol-up --overlay camera` (`0f195080…`, `protected-clocks` `FDT_ERR_NOTFOUND`).
+- **`omacam` viewfinder, SoftISP, timings & orientation (`2026-11-17`, `7.3.0-rc6-omamobile-push1-g7ca90963c426`, `omamobile-device-r8q 0.1.24`, `libcamera 0.7.2-4.24`):**
+  - `70-omamobile-dma-heap.rules` fixed `/dev/dma_heap` `0600` permissions; `70-r8q-libcamera.conf` defaults `LIBCAMERA_SOFTISP_MODE=cpu` (`FD650` `debayer_egl` hit GPU `hangcheck` lockups); `79-r8q-iio-sensor-proxy.rules` sets `ACCEL_MOUNT_MATRIX="-1, 0, 0; 0, -1, 0; 0, 0, 1"`.
+  - `libcamera` patch `0058` adds `CameraSensorHelperHi847` (`blackLevel_ = 4096`, `AnalogueGainLinear{ 1, 16, 0, 16 }`), `hi847.yaml`, and `CameraSensorProperties`.
+  - `wt-r8q` `63cbf400a` + `7ca90963c` scale `.llp` to `3680`/`1840` (`HBLANK=+416/+208`, `30.02`/`60.01` fps), implement `hi847_get_selection()` and `v4l2_fwnode_device_parse()`, and set `orientation = <1>; rotation = <270>;`. Verified live on `omacam` (`3256x2448` @ 30.02 fps, UI and viewfinder orientation confirmed normal).
+
+---
+
+## 12. SDX55M Stage 3A Reset and the Stable Baseline (`2026-11-17`)
+
+- **Stage 3A reset the phone at MHI power-on.** With the read-only Sahara loader waiting, `modprobe mhi_pci_generic` logged `MHI PCI device found: qcom-sdx55m` and `mhi mhi1: Power on setup success`, then USB dropped; the next boot was fresh, the phone never printed `Wait for device to enter SBL or Mission mode`, and no SAHARA port appeared. The MSI-in-IOMMU change (`5be4efd5e`) is line-for-line the reference port's, so the cause is likely this base or this device's PCIe2/IOMMU wiring. Do not repeat it as-is (`MODEM-PLAN.md` §8).
+- **The first boot after the reset missed the SD card** (`omamobile: loop: /dev/mmcblk0p1 not present`, initramfs rescue shell). A host-side `sdhci_msm` unbind/bind coincided with a second reset; the following boot enumerated `/dev/mmcblk0p1` and mounted the root image cleanly. A reset can cost more than one boot before USB and the SD card are back.
+- **The stable baseline is now a checked record, not a note.** `device/r8q/stable-image.conf` pins `7.3.0-rc6-omamobile-push1-g3667ab368ef9`, sha256 `66fe127f…d8503`, `--dual-boot --overlay camera-uw`, `sda24`. `tools/r8q-stable-check` verifies the image and the phone (release, `sda24` sha256, guard, root, PCIe2/PHY `disabled`, no SDX55M on `mhi_pci_generic`, no Sahara leftovers, modules), and `tools/r8q-flash-recovery --stable [--dry-run]` restores exactly those bytes. Restored on 2026-11-17 and verified: every check passes, `HardwareCorrupted: 0 kB`. `tools/phone-smoke` reports only the two r8q differences a generic test cannot know (root on `/dev/loop0`, boot-time UFS/DSI messages; storage mounted, display working).

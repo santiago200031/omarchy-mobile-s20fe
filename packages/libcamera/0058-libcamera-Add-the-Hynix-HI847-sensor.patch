@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Santiago <santiago@omamobile.local>
+Date: Mon, 16 Nov 2026 23:38:00 +0100
+Subject: [PATCH] libcamera: Add the Hynix HI-847 sensor
+
+The SK Hynix HI-847 is the rear telephoto camera on the Samsung Galaxy
+S20 FE (r8q), captured through Qualcomm CAMSS and the simple pipeline
+handler with the software ISP.
+
+Without a sensor helper the simple IPA used raw V4L2 analogue gain codes
+directly; because the HI-847 driver starts analogue gain at code 0 (1x),
+the IPA multiplied the total exposure by zero and pinned exposure at the
+minimum of 4 lines.
+
+Add CameraSensorHelperHi847 with the measured 10-bit black level of 64
+and linear analogue gain (code + 16) / 16 (code 0 is 1x, 240 is 16x),
+sensor properties with the HI-847 test pattern modes and two-frame
+control delays, and an uncalibrated simple-IPA tuning file under hi847.yaml.
+---
+ src/ipa/libipa/camera_sensor_helper.cpp          | 13 +++++++++++++
+ src/ipa/simple/data/hi847.yaml                   | 21 +++++++++++++++++++++
+ src/ipa/simple/data/meson.build                  |  1 +
+ src/libcamera/sensor/camera_sensor_properties.cpp | 16 ++++++++++++++++
+ 4 files changed, 51 insertions(+)
+ create mode 100644 src/ipa/simple/data/hi847.yaml
+
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index aab98a1..e4b1c20 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -896,6 +896,19 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("s5kgn8", CameraSensorHelperS5kgn8)
+ 
++class CameraSensorHelperHi847 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperHi847()
++	{
++		/* 64 at 10 bits, measured on the Galaxy S20 FE telephoto. */
++		blackLevel_ = 4096;
++		/* (code + 16) / 16: 0 is 1x, 240 is 16x. */
++		gain_ = AnalogueGainLinear{ 1, 16, 0, 16 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("hi847", CameraSensorHelperHi847)
++
+ class CameraSensorHelperVd55g1 : public CameraSensorHelper
+ {
+ public:
+diff --git a/src/ipa/simple/data/hi847.yaml b/src/ipa/simple/data/hi847.yaml
+new file mode 100644
+index 0000000..a8321b4
+--- /dev/null
++++ b/src/ipa/simple/data/hi847.yaml
+@@ -0,0 +1,21 @@
++# SPDX-License-Identifier: CC0-1.0
++#
++# SK Hynix HI-847 (Galaxy S20 FE telephoto), uncalibrated tuning stub.
++# The black level and gain curve come from CameraSensorHelperHi847.
++%YAML 1.1
++---
++version: 1
++algorithms:
++  - BlackLevel:
++  - Awb:
++  # Defaults for applications that do not set the controls.
++  - Adjust:
++      contrast: 1.2
++      saturation: 1.1
++  # Luma and chroma noise reduction and sharpening, scaled with the gain
++  - Detail:
++      sharpen: 0.6
++      denoise: 0.015
++      chromaDenoise: 0.03
++  - Agc:
++...
+diff --git a/src/ipa/simple/data/meson.build b/src/ipa/simple/data/meson.build
+index eaef79f..d42f839 100644
+--- a/src/ipa/simple/data/meson.build
++++ b/src/ipa/simple/data/meson.build
+@@ -5,6 +5,7 @@ conf_files = files([
+     's5kgm5.yaml',
+     's5kgn1.yaml',
+     's5kgn8.yaml',
++    'hi847.yaml',
+     'uncalibrated.yaml',
+ ])
+ 
+diff --git a/src/libcamera/sensor/camera_sensor_properties.cpp b/src/libcamera/sensor/camera_sensor_properties.cpp
+index a2502a2..90d7c41 100644
+--- a/src/libcamera/sensor/camera_sensor_properties.cpp
++++ b/src/libcamera/sensor/camera_sensor_properties.cpp
+@@ -559,6 +559,22 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
+ 				.hblankDelay = 2
+ 			},
+ 		} },
++		{ "hi847", {
++			.unitCellSize = {},
++			.testPatternModes = {
++				{ controls::draft::TestPatternModeOff, 0 },
++				{ controls::draft::TestPatternModeSolidColor, 1 },
++				{ controls::draft::TestPatternModeColorBars, 2 },
++				{ controls::draft::TestPatternModeColorBarsFadeToGray, 3 },
++				{ controls::draft::TestPatternModePn9, 4 },
++			},
++			.sensorDelays = {
++				.exposureDelay = 2,
++				.gainDelay = 2,
++				.vblankDelay = 2,
++				.hblankDelay = 2
++			},
++		} },
+ 		{ "vd55g1", {
+ 			.unitCellSize = { 2160, 2160 },
+ 			.testPatternModes = {
+-- 
+2.53.0

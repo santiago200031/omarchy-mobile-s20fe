@@ -10,6 +10,7 @@ grep -q "vm.dirty_background_bytes = 16777216" 90-r8q-vm.conf
 grep -q "vm.dirty_bytes = 67108864" 90-r8q-vm.conf
 grep -q "backup=(etc/pacman.d/omamobile-mirrorlist)" PKGBUILD
 grep -q "zram-size = ram / 2" 91-r8q-zram.conf
+grep -Eq '^depends=.*zram-generator' PKGBUILD
 grep -q "min_ttl_ms" 80-r8q-mglru.conf
 grep -q "simple_ondemand" 80-r8q-gpu.rules
 grep -q 'max_freq.*305000000' 80-r8q-gpu.rules
@@ -127,11 +128,44 @@ grep -q 'ensure_r8q_clock' r8q-liveness-monitor
 grep -q 'ensure_r8q_touch_driver' r8q-liveness-monitor
 grep -q 'ensure_r8q_bt_uart' r8q-liveness-monitor
 grep -q 'ensure_r8q_desktop' r8q-liveness-monitor
+grep -q 'ensure_r8q_remoteprocs' r8q-liveness-monitor
+grep -q 'ensure_r8q_audio' r8q-liveness-monitor
+grep -q 'ac0000.geniqup/a8c000.i2c' r8q-liveness-monitor
+grep -q 'a00000.dma-controller' r8q-liveness-monitor
+grep -q '11-\$addr' r8q-liveness-monitor
+! grep -q 'rpmsg' r8q-liveness-monitor
+! grep -q '3d000000.i2c' r8q-liveness-monitor
 grep -q '/sys/class/backlight' omamobile-r8q-panel.service
 test -f omamobile-device-r8q.install
 grep -q 'Samsung-Galaxy-S20-FE.conf' PKGBUILD
 test -f ucm2/conf.d/sm8250/Samsung-Galaxy-S20-FE.conf
 grep -q 'r8q-preflight' PKGBUILD
+# Bring-up overlays (device/r8q/overlays/): check DTSO headers and compile with dtc when available.
+for ov in ../../device/r8q/overlays/*.dtso; do
+  [ -f "$ov" ] || continue
+  grep -q 'SPDX-License-Identifier:' "$ov"
+  grep -q '/dts-v1/;' "$ov"
+  grep -q '/plugin/;' "$ov"
+  if command -v dtc >/dev/null 2>&1; then
+    dtc -q -@ -I dts -O dtb -o /dev/null "$ov"
+  fi
+done
+test -f ../../device/r8q/overlays/remoteprocs.dtso
+test -f ../../device/r8q/overlays/audio-amps.dtso
+test -f ../../device/r8q/overlays/audio-sound.dtso
+test -f ../../device/r8q/overlays/display.dtso
+test -f ../../device/r8q/overlays/camera.dtso
+test -f ../../device/r8q/overlays/slpi-sensors.dtso
+test -f ../../device/r8q/overlays/vol-up.dtso
+grep -q '10-r8q-hexagonrpcd.conf' PKGBUILD
+grep -q '79-r8q-iio-sensor-proxy.rules' PKGBUILD
+grep -q '70-omamobile-dma-heap.rules' PKGBUILD
+grep -q 'SUBSYSTEM=="dma_heap"' 70-omamobile-dma-heap.rules
+grep -q '70-r8q-libcamera.conf' PKGBUILD
+grep -qx 'LIBCAMERA_SOFTISP_MODE=cpu' 70-r8q-libcamera.conf
+grep -q 'ConditionPathExists=/usr/share/qcom/sm8250/samsung/r8q/sensors/sns_reg.conf' 10-r8q-hexagonrpcd.conf
+grep -q 'ssc-accel' 79-r8q-iio-sensor-proxy.rules
+grep -q 'ACCEL_MOUNT_MATRIX' 79-r8q-iio-sensor-proxy.rules
 if command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]; then
   PATH="$HOME/.cargo/bin:$PATH" cargo test --manifest-path rust/r8q-preflight/Cargo.toml --quiet
 fi

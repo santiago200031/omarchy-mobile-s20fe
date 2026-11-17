@@ -2,18 +2,35 @@
 /*
  * Bring-up overlay (PORT-PLAN M7): enable ADSP, CDSP, and SLPI remoteprocs
  * once qcom/sm8250/samsung/r8q/{adsp,cdsp,slpi}.mbn are staged in rootfs.
+ *
+ * Usage:
+ *   tools/r8q-boot pack --dual-boot --overlay display --overlay remoteprocs
+ *   tools/r8q-flash-recovery
+ *
+ * Remoteproc layout (SM8250):
+ *   0x17300000 = ADSP (Audio DSP, handles audio processing)
+ *   0x8300000  = CDSP (Compute DSP, handles AI/ML workloads)
+ *   0x5c00000  = SLPI (Sensor Low Power Island, handles sensors)
+ *
+ * Firmware paths (already set in sm8250-samsung-r8q.dts, checked by r8q-preflight):
+ *   /lib/firmware/qcom/sm8250/samsung/r8q/adsp.mbn
+ *   /lib/firmware/qcom/sm8250/samsung/r8q/cdsp.mbn
+ *   /lib/firmware/qcom/sm8250/samsung/r8q/slpi.mbn
  */
 /dts-v1/;
 /plugin/;
 
+/* ADSP — Audio Digital Signal Processor */
 &{/soc@0/remoteproc@17300000} {
 	status = "okay";
 };
 
+/* CDSP — Compute Digital Signal Processor */
 &{/soc@0/remoteproc@8300000} {
 	status = "okay";
 };
 
+/* SLPI — Sensor Low Power Island */
 &{/soc@0/remoteproc@5c00000} {
 	status = "okay";
 };

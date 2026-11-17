@@ -12,28 +12,56 @@
 # touched, and the image is staged and checksummed before the write.
 #
 #   tools/r8q-flash-recovery [IMAGE]
+#   tools/r8q-flash-recovery --stable [--dry-run] [IMAGE]
 #
-# IMAGE defaults to $KERNEL_OUT/recovery-omamobile.img. The write is the
-# human's call (AGENTS.md section 1): run it only after a go.
+# IMAGE defaults to $KERNEL_OUT/recovery-omamobile.img. --stable restores the
+# recorded stable baseline (device/r8q/stable-image.conf) and refuses to
+# write unless the image still hashes to its STABLE_SHA256. --dry-run does
+# every check up to the write and stops. The write is the human's call
+# (AGENTS.md section 1): run it only after a go.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
-IMG="${1:-$KERNEL_OUT/recovery-omamobile.img}"
-REMOTE="${REMOTE:-root@172.16.42.1}"
-PART=/dev/sda24
-
 say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
 die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
+STABLE=0
+DRY=0
+while [[ ${1:-} == --* ]]; do
+  case $1 in
+    --stable) STABLE=1; shift ;;
+    --dry-run) DRY=1; shift ;;
+    --) shift; break ;;
+    *) die "unknown option: $1 (try --stable or --dry-run)" ;;
+  esac
+done
+if ((STABLE)); then
+  # shellcheck disable=SC1091
+  . "$ROOT/device/r8q/stable-image.conf"
+  IMG="${1:-$HOME/omamobile-kernel/$STABLE_OUT/$STABLE_IMAGE}"
+  PART="$STABLE_PARTITION"
+else
+  IMG="${1:-$KERNEL_OUT/recovery-omamobile.img}"
+  PART=/dev/sda24
+fi
+REMOTE="${REMOTE:-root@172.16.42.1}"
 
 SSH=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
      -o ConnectTimeout=8 -o ServerAliveInterval=5 -q)
+SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
+if [[ -f "$SSH_KEY" ]]; then
+  SSH+=(-i "$SSH_KEY" -o IdentitiesOnly=yes)
+fi
 
 [[ -f $IMG ]] || die "image not found: $IMG (run tools/r8q-boot pack)"
 sha=$(sha256sum "$IMG" | awk '{print $1}')
 bytes=$(stat -c%s "$IMG")
 say "image: $IMG"
 say "  $bytes bytes, sha256 $sha"
+if ((STABLE)); then
+  [[ $sha == "$STABLE_SHA256" ]] || die "not the recorded stable image: $sha != $STABLE_SHA256 (a rebuild needs its own hardware pass and a new record)"
+  say "  matches the stable baseline $STABLE_RELEASE"
+fi
 
 say "Waiting for $REMOTE ..."
 for _ in $(seq 1 30); do
@@ -51,6 +79,16 @@ say "  $PART: $partsize bytes, ro=$curro, partname=${partname:-?}"
 ((partsize >= bytes)) || die "$PART ($partsize bytes) is smaller than the image ($bytes bytes)"
 [[ $curro == 1 ]] || say "  note: $PART was already writable"
 
+if ((DRY)); then
+  if [[ $cursha == "$sha" ]]; then
+    say "Dry run: $PART already holds this image; nothing to write"
+  else
+    say "Dry run: would write $sha to $PART (now ${cursha:-unreadable})"
+  fi
+  say "Dry run: no partition flag changed, no byte written"
+  exit 0
+fi
+
 say "Staging the image on the phone (/tmp, RAM) and verifying it"
 "${SSH[@]}" "$REMOTE" "cat > /tmp/omamobile-recovery.img" < "$IMG"
 read -r pushed < <("${SSH[@]}" "$REMOTE" "sha256sum /tmp/omamobile-recovery.img | cut -c1-64")
@@ -61,16 +99,21 @@ say "Writing $PART (the phone must stay awake; this is ~80 MB)"
 # partitions, so clearing the partition flag alone leaves $PART writable
 # looking but every write dropped (dd "succeeds" with 0 bytes). Clear the LUN
 # flag too, and set both back afterwards.
-DISK="${PART%[0-9]*}"
+DISK="${PART%%[0-9]*}"
 "${SSH[@]}" "$REMOTE" "set -e
+  cleanup() {
+    blockdev --setro $PART 2>/dev/null || true
+    blockdev --setro $DISK 2>/dev/null || true
+    rm -f /tmp/omamobile-recovery.img
+  }
+  trap cleanup EXIT
   blockdev --setrw $DISK
   blockdev --setrw $PART
   dd if=/tmp/omamobile-recovery.img of=$PART bs=4M conv=fsync
   sync
   blockdev --setro $PART
   blockdev --setro $DISK
-  rm -f /tmp/omamobile-recovery.img
-  echo \"ro: $DISK=\$(cat /sys/block/${DISK##*/}/ro) $PART=\$(cat /sys/block/${PART##*/}/ro)\""
+  echo \"ro: $DISK=\$(cat /sys/block/${DISK##*/}/ro) $PART=\$(cat /sys/block/${DISK##*/}/${PART##*/}/ro)\""
 
 say "Reading the partition back and verifying"
 read -r back < <("${SSH[@]}" "$REMOTE" "sha256sum $PART | cut -c1-64")

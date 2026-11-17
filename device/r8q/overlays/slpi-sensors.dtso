@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay (PORT-PLAN P4): provide the 1.8 V sensor I/O rail
+ * (PM8150L L8C, vreg_l8c_1p8) required by SLPI sensors (LSM6DSO, AK0991X).
+ * Stock live.dts binds L8C as sensor_vdd-supply on qcom,ssc@5c00000.
+ *
+ * Usage: tools/r8q-boot pack --dual-boot --overlay display --overlay remoteprocs \
+ *          --overlay audio-amps --overlay audio-sound --overlay slpi-sensors
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/rsc@18200000/regulators-1} {
+	vdd-l1-l8-supply = <&vreg_s4a_1p8>;
+
+	vreg_l8c_1p8: ldo8 {
+		regulator-name = "vreg_l8c_1p8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-initial-mode = <3>; /* RPMH_REGULATOR_MODE_HPM */
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};

@@ -1,44 +1,23 @@
 # Camera plan (r8q / SM8250): the mainline V4L2 stack, telephoto first
 
-- **Status (2026-11-15, night):** the camera **stack** is up on the phone and
-  the sensor is the last blocker. Kernel worktree `~/omamobile-kernel/wt-r8q`
-  (HEAD `0a1227989`), out `~/omamobile-kernel/out-r8q`, release
-  `7.3.0-rc6-omamobile-push1-g0a1227989083`, flashed into `sda24` and booted.
+- **Status (2026-11-17):** **HI-847 telephoto camera verified live in `omacam` (`7.3.0-rc6-omamobile-push1-g7ca90963c426` on kernel `camera-wip`, `libcamera 0.7.2-4.24`, `omamobile-device-r8q 0.1.24-1`).** `omacam` streams `3256x2448` (`max_fps=30.02`, `exposure_time=(46, 33269)` µs, `gain=(1.0, 16.0)`) upright with both UI and viewfinder orientation confirmed normal by the user.
 
-  Working, verified on the phone:
+  - **Tested live on `56ed977c2` (`7.3.0-rc6-omamobile-push1-g56ed977c2b7f`):**
+    switching `vddio-supply` from `vreg_l7a_1p8` to **`vreg_l7c_1p8` (`L7C`)**
+    completely eliminated `geni_i2c a88000.i2c: Timeout cancel_m_cmd`.
+    `hi847_identify_module()` completed I2C10 transfers in 8 ms and returned `-5`
+    (`-EIO`, NACK). Live `/sys/kernel/debug/gpio` + `pinmux-pins` showed
+    `GPIO 97` (`MCLK3`) was still `UNCLAIMED` (`func0`, `in low pull down`)
+    because `camera@21` lacked `cam_mclk3_default`.
+  - **Fixed in `b7e537fa4`:** added `pinctrl-0 = <&cam_mclk3_default &cam_tele_active>`
+    (`gpio97` `cam_mclk`, `gpio78`/`gpio135` `bias-disable`) on `hi847: camera@21`.
 
-  - `qcom-camss` probes: `/dev/media0`, `/dev/video0..13`, all six CSIPHYs, the
-    four CSIDs and the VFE RDI/pix entities are in the media graph;
-  - `camcc-sm8250` is no longer blacklisted (111 `cam_cc_*` clocks, clean probe);
-  - the HI-847's CAM_VIO rail is modelled (PM8150A LDO7, 1.8 V) and enabled
-    (`vreg_l7a_1p8`: 1 in use, 1800 mV) and its MCLK3 runs at 19.2 MHz
-    (`cam_cc_mclk3_clk` enable_count 1) — after giving the sensor
-    `power-domains = <&camcc TITAN_TOP_GDSC>`: without it the MCLK branch
-    stayed in halt ("status stuck at 'off'") and probe failed with -EBUSY.
-
-  Still failing: the HI-847 does not answer on its I2C bus. Every transfer on
-  `i2c@a88000` (QUP10, vendor `qupv3_se10`, GPIO129/130) times out —
-  `geni_i2c a88000.i2c: Timeout cancel_m_cmd`, then
-  `hi847 10-0021: failed to find sensor: -5` — and `i2cdetect` sees no ACK at
-  any address on that bus. Ruled out so far: pin muxing (`a88000.i2c` claims
-  both pins with function `qup10`), the rail and MCLK (both on, above), the
-  sensor's reset/LDO-enable polarity (all four combinations tested), and the
-  I2C address (a scan with the sensor powered, kept up by a debug module,
-  answers at none).
-
-  Also recorded: **kexec cannot change the device tree on this phone.** The
-  file-based syscall regenerates the DT from the running one and ignores
-  `--dtb`; the load syscall honours it but panics here (needs
-  `CONFIG_PROC_KCORE` for VA_BITS, added to `kernel.config`, and still
-  panicked), so a DT change needs the boot image, i.e. a write to `sda24`.
-  `tools/r8q-flash-recovery` now clears the LUN read-only flag as well: the
-  guard leaves the whole disk read-only, so clearing only the partition flag
-  made `dd` copy zero bytes while succeeding.
-
-  Staged artifacts: `out-r8q/recovery-omamobile.img` (camera overlay,
-  dual-boot, sha256 `d3379ad6…`), modules for the release installed on the
-  phone, and a byte-exact backup of the previous `sda24` in
-  `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
+  Staged (not flashed yet):
+  `~/omamobile-kernel/out-r8q/recovery-omamobile-camera.img` (`display`,
+  `remoteprocs`, `audio-amps`, `audio-sound`, `slpi-sensors`, `vol-up`,
+  `camera`; sha256 `02b11e65…`) and
+  `~/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-gb7e537fa47a8.tar.zst`
+  (1821 modules).
 
 ## 1. What is actually wrong (corrected)
 
@@ -203,27 +182,79 @@ shows an image. That is the camera working on this port. The pipeline's exact
 video node number comes from `media-ctl -p`; link the graph step by step
 (`media-ctl -l`) if the pipeline handler has not linked it.
 
-## 6. Next experiments for the QUP10 I2C timeout
+## 6. The QUP10 I2C timeout: what was tested and what is left
 
-The bus controller, not the sensor, is where the work is. In order of cost:
+Every transfer on `i2c@a88000` (QUP10, vendor `qupv3_se10`, GPIO129/130) ends
+in `geni_i2c a88000.i2c: Timeout cancel_m_cmd`, so `hi847` cannot read its chip
+ID (`failed to find sensor: -5`). Ruled out, each verified on the phone:
 
-1. **GPI EE offset for `gpi_dma1` (0xa00000).** The port patches the GPI driver
-   to set `ee_offset` per QUP (`00cfa5c21`): 0x1000 for 0x900000 and 0x6000 for
-   0x800000/0xa00000. The working touch bus is on the 0x900000 instance; the
-   camera bus is on 0xa00000, the one value that has never been validated by a
-   working peripheral. Try 0x1000 there (one kernel rebuild + flash), and if
-   that works, keep it.
-2. **FIFO vs GPI.** `geni_i2c` only uses GPI DMA when the hardware says the
-   FIFO interface is disabled (`GENI_IF_DISABLE_RO`), which TrustZone can set
-   per SE. If the FIFO is usable, dropping `dmas`/`dma-names` from `&i2c10`
-   leaves the driver on the FIFO path and tells us whether the fault is the
-   GPI channel or the wire.
-3. **Electrical check.** With a scope or a GPIO-mode test: pull-ups on SDA/SCL
-   and whether the sensor drives them; the 1.8 V CAM_VIO rail is up, so a dead
-   bus would mean the pull-ups sit on a different rail or the bus is held low.
-4. Only then go back to the sensor driver. The HI-847 driver changes are
-   already in (`hynix,hi847`, regulators, reset/LDO GPIOs, runtime PM,
-   one-link-frequency DT, TITAN_TOP power domain).
+| Test | Result |
+| --- | --- |
+| Pin mux | `a88000.i2c` claims GPIO129/130 with function `qup10`, exactly the stock DT's `qupv3_se10_i2c_active` (drive 2, `bias-disable`) |
+| CAM_VIO rail | **Fixed in `56ed977c2`:** `0a1227989` enabled `vreg_l7a_1p8` (`L7A`), whereas stock `live.dts` (`rpmh-regulator-ldoc7` → `pm8150a_l7: L7C`, phandle `0x2d1`) is **`vreg_l7c_1p8` (`L7C`)** under `regulators-1` |
+| MCLK3 | `cam_cc_mclk3_clk` enable_count 1, 19.2 MHz (after the `TITAN_TOP_GDSC` power-domain fix) |
+| Reset / LDO-enable polarity | all four combinations, via module parameters: identical `-EIO` |
+| I2C address | `i2cdetect` on the powered bus: no ACK at any address; the stock DT's `slave-addr = 0x42` is the 8-bit form of 0x21 |
+| Interrupt | the SE IRQ does fire (409 → 411 per probe), so it is not a missing/routed-wrong IRQ; the stock DT's SPI 355 is what mainline uses |
+| GPI EE offset | `0x6000` for `0xa00000` (`gpi_dma1`, `00cfa5c21`) matches stock `live.dts` (`qcom,gpi-ee-offset = <0x6000>`) |
+| Bench bus + QUP2 control | **Verified working (2026-11-16):** `&i2c11` (`a8c000.i2c`, `qupv3_se11`, dual `cs35l41` amps) on the **same `gpi_dma1` (`0xa00000`)** probes cleanly, ruling out QUP2/GPI |
+
+Next gated test step (once human approves flashing `sda24` + reboot):
+
+1. Push `~/omamobile-kernel/out-r8q/modules-7.3.0-rc6-omamobile-push1-gb7e537fa47a8.tar.zst`
+   and flash `~/omamobile-kernel/out-r8q/recovery-omamobile-camera.img` (sha256
+   `02b11e65…`) to `sda24` (`tools/r8q-flash-recovery`).
+2. Check if `hi847 10-0021` probes cleanly with `cam_mclk3_default` +
+   `vreg_l7c_1p8`, and capture raw frames via `media-ctl` + `v4l2-ctl`.
+
+Note: **kexec cannot change the DTB on this phone** (`--dtb` ignored / panics),
+and `tools/r8q-flash-recovery` clears both LUN and partition `ro` flags before
+writing `sda24`. Byte-exact pre-camera backup of `sda24` is in
+`backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
+
+### 6.2 HI-847 probe and CSIPHY2 0-IRQ fix (2026-11-16)
+
+- **Tested on `7.3.0-rc6-omamobile-push1-gb7e537fa47a8`:**
+  - `hi847 10-0021` probed (`0x0847`), `/dev/media0` topology linked
+    `hi847 10-0021:0 -> msm_csiphy2 -> msm_csid0 -> msm_vfe0_rdi0 -> /dev/video0`.
+  - `VIDIOC_STREAMON` at `3264x2448` (`pgAA`), with `test_pattern=1`, and at
+    `1632x1224` (`pgAA`) incremented `vfe0` (`3 -> 8` IRQs) and `csid0` (`2 -> 5` IRQs),
+    but `msm_csiphy2` stayed at `0` IRQs and timed out with `0`-byte raw files.
+- **Root cause:** `&camss` `port@2` (`csiphy2_ep`) used 1-based
+  `data-lanes = <1 2 3 4>;` and omitted `clock-lanes = <7>;` and
+  `bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;`. `camss-csiphy-3ph-1-0.c` computes
+  `BIT(c->data[i].pos * 2)` and lane offsets `c->data[i].pos * 2` on SM8250, so
+  `<1 2 3 4>` skipped physical lane 0 and overflowed 8-bit `CTRL5`.
+- **Fix staged (offline build, kernel `camera-wip` @ `f3be9fb6d`):**
+  - Updated `csiphy2_ep` to `clock-lanes = <7>;`, `data-lanes = <0 1 2 3>;`,
+    `bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;` (keeping `data-lanes = <1 2 3 4>;` and
+    `link-frequencies = /bits/ 64 <400000000>;` on `hi847_out`).
+  - Built `7.3.0-rc6-omamobile-push1-gf3be9fb6de08` with explicit `DEVICE=r8q`, `1821` modules in
+    `modules-7.3.0-rc6-omamobile-push1-gf3be9fb6de08.tar.zst`, and packed 7-overlay
+    `recovery-omamobile-camera.img` (sha256 `4ce468555bf345299a54119685514fbd33a1a07190ca35d591b7abb1ab5ff10b`).
+
+### 6.3 Gated step: install modules, flash `sda24`, reboot, capture raw frame (VERIFIED PASS — 2026-11-16)
+
+- **Tested on `7.3.0-rc6-omamobile-push1-gf3be9fb6de08` (`recovery-omamobile-camera.img`, sha256 `4ce468555bf345299a54119685514fbd33a1a07190ca35d591b7abb1ab5ff10b`):**
+  - Build note: `omamobile.conf` defaults `DEVICE=cheetah`, so always invoke `DEVICE=r8q bin/omamobile kernel|modules`; building without `DEVICE=r8q` skipped `device/r8q/kernel.config` (`CONFIG_SCSI_UFS_QCOM=m`) and failed to mount `userdata`.
+  - Flashed `RECOVERY` (`sda24`) with `heimdall flash --resume --RECOVERY .../recovery-omamobile-camera.img`, refreshed `/usr/lib/modules/7.3.0-rc6-omamobile-push1-gf3be9fb6de08` (`1821` modules, `depmod -a`), loaded `hi847`, and confirmed live DT `csiphy2_ep` has `clock-lanes = 7`, `data-lanes = 0 1 2 3`, `bus-type = 4`.
+  - **Raw capture (`3264x2448`, `pgAA`):** after enabling `media-ctl` links (`"msm_csiphy2":1->"msm_csid0":0[1],"msm_csid0":1->"msm_vfe0_rdi0":0[1]`), `v4l2-ctl --set-fmt-video=width=3264,height=2448,pixelformat=pgAA --stream-mmap=4 --stream-count=2 --stream-to=/tmp/hi847.raw` returned `rc=0` with `19,975,680` bytes (exact 2 packed RAW10 frames; first 1 MiB stats: `226` unique byte values, `min=0`, `max=255`, `mean=21.96`), `vfe0` `2 -> 9` IRQs, `csid0` `0 -> 1` IRQs, zero kernel/I2C errors.
+  - **Raw capture (`1632x1224`, `pgAA`):** returned `5,013,504` bytes (`rc=0`).
+  - **libcamera probe:** `libcamera v0.7.2` (`SimplePipeline` + `EGL GL_RENDERER: FD650`) discovers `/base/soc@0/geniqup@ac0000/i2c@a88000/camera@21` and drives `vfe0` (`9 -> 42` IRQs) and `csid0` (`1 -> 4` IRQs); `gst-launch-1.0 libcamerasrc ! fakesink` still times out at latency negotiation and `hi847` logs missing `get_selection` / `orientation` / `rotation` props (tracked in §7 item 3).
+- **Rollback backup preserved:** `backup/r8q-camera/recovery-before-camera.img` (sha256 `ebac7774…`).
+
+### 6.4 `omacam` viewfinder, SoftISP, timings & orientation (VERIFIED PASS — 2026-11-17)
+
+- **DMA-BUF heap & SoftISP (`omamobile-device-r8q 0.1.22`–`0.1.23`):**
+  - `/dev/dma_heap` defaulted to `0600 root:root`, causing `libcamera` `DmaBufAllocator` failures and unsupported format errors in `omacam`; fixed via `70-omamobile-dma-heap.rules` (`GROUP="video", MODE="0660", TAG+="uaccess"`).
+  - Adreno `FD650` `debayer_egl` hit GPU `hangcheck` lockups in `SWIspWorker`; fixed for now by defaulting `LIBCAMERA_SOFTISP_MODE=cpu` in `70-r8q-libcamera.conf` (GPU `debayer_egl` stays a follow-up).
+- **SLPI orientation (`omamobile-device-r8q 0.1.24`):**
+  - Firmware returned an all-zero mount matrix so `iio-sensor-proxy` reported `bottom-up` (inverting `omacam`'s UI buttons). Added `ACCEL_MOUNT_MATRIX="-1, 0, 0; 0, -1, 0; 0, 0, 1"` in `79-r8q-iio-sensor-proxy.rules`; UI confirmed upright.
+- **HI-847 sensor helper (`libcamera 0.7.2-4.24`, patch `0058`):**
+  - Without a helper, `IPASoft` treated `V4L2_CID_ANALOGUE_GAIN` min code `0` as `0x` gain and pinned exposure at `4` lines (pure black-level read noise). Added `CameraSensorHelperHi847` (`blackLevel_ = 4096`, `AnalogueGainLinear{ 1, 16, 0, 16 }` verified from `com.samsung.sensor.hi847.so`), `hi847.yaml`, and `CameraSensorProperties`.
+- **HI-847 timings, crop selection & DT rotation (`wt-r8q` `63cbf400a` + `7ca90963c`):**
+  - Scaled `.llp` from `0x033C` (828 72 MHz SCLKs) to MIPI pixel clocks (`3680` at 320 MHz, `1840` at 160 MHz), fixing negative `HBLANK` (`-2436` → `+416` / `+208`) and 30/60 fps timing (`max_fps=30.02`, `exposure_time=(46, 33269)` µs).
+  - Added `hi847_get_selection()`, `v4l2_fwnode_device_parse()`, and DT `orientation = <1>; rotation = <270>;` (at `90` preview was upside-down; at `270` confirmed upright in `omacam` on `7.3.0-rc6-omamobile-push1-g7ca90963c426`).
 
 ## 7. Follow-ups for the other three sensors
 

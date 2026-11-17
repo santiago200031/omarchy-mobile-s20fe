@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Upstream 80-iio-sensor-proxy.rules only tags ssc-light and ssc-compass for
+# /dev/fastrpc-sdsp*; r8q's SLPI also serves LSM6DSO accelerometer events.
+# Like SM8xxx peers whose SLPI firmware returns an all-zero mount matrix,
+# r8q's LSM6DSO reports X and Y inverted (upright portrait reads as bottom-up).
+SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-light ssc-compass"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp*", ENV{ACCEL_MOUNT_MATRIX}="-1, 0, 0; 0, -1, 0; 0, 0, 1"

@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay (MODEM-PLAN Phase 1): enable PCIe2 and its QMP modem PHY
+ * for the external SDX55M cellular modem (qcom,ext-sdx55m) on Galaxy S20 FE (r8q).
+ *
+ * sm8250.dtsi already configures &pcie2 with perst-gpios (GPIO 85), wake-gpios
+ * (GPIO 87), and pcie2_default_state (CLKREQ GPIO 86). Stock live.dts and
+ * upstream sm8250-sony-xperia-edo.dtsi add mdm2ap (GPIO 1, 3) and ap2mdm
+ * (GPIO 56, 57) pinmuxes and vreg_l5a_0p88 / vreg_l9a_1p2 on &pcie2_phy.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/pinctrl@f100000} {
+	mdm2ap_default: mdm2ap-default-state {
+		pins = "gpio1", "gpio3";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	ap2mdm_default: ap2mdm-default-state {
+		pins = "gpio56", "gpio57";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-disable;
+	};
+};
+
+&{/soc@0/phy@1c16000} {
+	vdda-phy-supply = <&vreg_l5a_0p88>;
+	vdda-pll-supply = <&vreg_l9a_1p2>;
+	status = "okay";
+};
+
+&{/soc@0/pcie@1c10000} {
+	pinctrl-0 = <&pcie2_default_state &mdm2ap_default &ap2mdm_default>;
+	status = "okay";
+};

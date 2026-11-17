@@ -3,7 +3,8 @@
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-g7ca90963c426` (P1 native DT + touch + BT + Gate C audio + SLPI/VolUp + HI-847 camera verified on hardware)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-gf3a5609d121b` (`fold-overlay-dt` — overlay-free boot with display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q` spk-prot, SLPI sensors, VolUp, and HI-847 camera verified on hardware)
+**Kernel Branch:** `fold-overlay-dt` (`f3a5609d1` — overlays folded into base DTS; booted & verified on `sda24`)
 **Device Package:** `omamobile-device-r8q` `0.1.24` + `hexagonrpc` `0.5.0-2` + `libcamera 0.7.2-4.24` (installed & verified on phone)
 **Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
 **Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
@@ -14,9 +15,9 @@
 
 | Column | Count | Last Updated |
 | --- | --- | --- |
-| ✅ SUCCESS | 6 | 2026-11-16 |
-| ❌ FAILED (known, mitigated) | 7 | 2026-11-16 |
-| 🔲 MISSING | 5 (P1/P2/SLPI+VolUp done) | 2026-11-16 |
+| ✅ SUCCESS | 6 | 2026-11-17 |
+| ❌ FAILED (known, mitigated) | 7 | 2026-11-17 |
+| 🔲 MISSING | 5 (P1/P2/SLPI+VolUp done) | 2026-11-17 |
 
 ---
 
@@ -82,22 +83,23 @@
 - `packages/omamobile-device-r8q/ucm2/` (verified `HiFi.conf`)
 - `tools/r8q-boot --dual-boot --overlay display,remoteprocs,audio-amps,audio-sound`
 
-### P3: Cellular/Modem & Wireless Soak (IN PROGRESS — Wireless Concurrency & NV RO Backup DONE)
+### P3: Cellular/Modem & Wireless Soak (IN PROGRESS — Wireless Concurrency, NV RO Backup & Modem Plan DONE)
 
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | 🔴 | Off-repo RO backup + SHA256 of 10 NV/modem partitions done (`ro=1`); `modem.mbn` staged; `rmtfs`/`tqftpserv`/`pd-mapper` + `MPSS` DT still to enable |
+| Modem/cellular | ⏳ | Fresh RO NV backup in `~/omamobile-kernel/reference-r8q/nv-backup-20261117` (10/10 `SAME`); staged `MODEM-PLAN.md` on branch `r8q-modem-preflight` (`omamobile-modem` not yet installed) |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)
 - `device/r8q/kernel.config` (`CONFIG_BT_LE=y` already set)
+- `device/r8q/MODEM-PLAN.md` (on branch `r8q-modem-preflight`)
 
 ### P4: Sensors, Cameras & DPMS (IN PROGRESS — SLPI Sensors, VolUp & DPMS DONE)
 
 | Item | Status | Details |
 |------|--------|---------|
-| DPMS & Lock Screen | ✅ | `hl.dsp.dpms` enable/disable toggles `card1-DSI-1/dpms` (`On`/`Off`), `bl_power` (`0`/`4`), lock `secure: true`, 0 dmesg errors (attended Power-key press check pending) |
+| DPMS & Lock Screen | ✅ | `hl.dsp.dpms` enable/disable, physical Power-key wake, and `secure: true` lock screen verified on hardware (`gf3a5609d121b`, 0 dmesg errors) |
 | SLPI sensors | ✅ | `slpi-sensors.dtso` (`L8C` `1.8 V`) + `hexagonrpc 0.5.0-2` + `iio-sensor-proxy` (`accel`, `light`, `compass` live; `proximity` `UNKNOWN`) |
 | Volume Up key (`vol-up.dtso`) | ✅ | Wired to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (IRQ `179`); tested working on hardware |
 | Camera: HI-847 telephoto | ✅ | `vreg_l7c_1p8`, `MCLK3`, `CSIPHY2`, `.llp`/crop/props, `orientation=1`/`rotation=270` (`7ca90963c`) + `libcamera 0.7.2-4.24` (`0058`); `omacam` live @ 30.02 fps |
@@ -111,19 +113,21 @@
 - `device/r8q/board/missing/r8q-aperture-config.xml` (exists)
 - `packages/omamobile-device-r8q/ucm2/` (exists)
 
-### P5: Stability Soak, Pseudo-NMI & AI (LOW)
+### P5: Stability Soak, Pseudo-NMI & AI (IN PROGRESS — Soak Script & AI Docs DONE)
 
 | Item | Status | Details |
 |------|--------|---------|
-| 30-min GUI + writeback soak | 🔴 | Zero RCU stalls, RPMh hangs, watchdogs |
+| 30-min GUI + writeback soak | ✅ | `tools/r8q-stability-soak` (on branch `r8q-stability-soak`) passed live on `gf3a5609d121b` (`1800s`, 6 iterations, `failures=0`) |
 | `CONFIG_ARM64_PSEUDO_NMI` | 🔴 | One experimental boot to test hardlockup detection |
 | Freedreno perf tuning | 🔴 | GPU devfreq above 305 MHz once stable |
-| On-device AI benchmarks | 🔴 | `GGML_VULKAN` + `LFM3-1.7B` |
+| On-device AI benchmarks | ⏳ | `AI-BENCHMARKS.md` on branch `r8q-stability-soak` (benchmark runs pending) |
 
 **Files involved:**
 - `packages/omamobile-device-r8q/rust/ai-server/` (exists)
 - `tools/r8q-ai` (exists)
 - `tools/r8q-optimize` (exists)
+- `tools/r8q-stability-soak` (on branch `r8q-stability-soak`)
+- `device/r8q/AI-BENCHMARKS.md` (on branch `r8q-stability-soak`)
 
 ---
 
@@ -179,15 +183,15 @@
 
 | File | Status | Notes |
 |------|--------|-------|
-| `display.dtso` | ✅ | Enables MDSS, DSI0, PHY, panel; clears `protected-clocks` |
+| `display.dtso` | ✅ | Enables MDSS, DSI0, PHY, panel; cleared `protected-clocks` (folded into base DTS) |
 | `display-mdss.dtso` | ⚠️ | DO NOT USE — leaves `protected-clocks` intact |
 | `display-clocks.dtso` | ⚠️ | DO NOT USE — 0-byte `protected-clocks` triggers `of_prop_next_u32()` OOB drop of `DISP_CC_MDSS_BYTE0_CLK_SRC` |
-| `remoteprocs.dtso` | ✅ | Verified — enables ADSP, CDSP, SLPI |
-| `audio-amps.dtso` | ✅ | Verified — enables `gpi_dma1`, `i2c11` (`cs35l41` `@40`/`@41`) |
-| `audio-sound.dtso` | ✅ | Verified — `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` + `MultiMedia1` |
-| `slpi-sensors.dtso` | ✅ | Verified — enables `vreg_l8c_1p8` (`L8C` `1.8 V`) for SLPI sensors |
-| `vol-up.dtso` | ✅ | Verified — wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3` |
-| `camera.dtso` | ✅ | Verified — enables CAMSS, CCI10, HI-847 (`7ca90963c`) |
+| `remoteprocs.dtso` | ✅ | Verified — enables ADSP, CDSP, SLPI (folded into base DTS) |
+| `audio-amps.dtso` | ✅ | Verified `gpi_dma1`, `i2c11`, and `cirrus,subsystem-id = "r8q"` (`f3a5609d1` + `6d8948e` symlinks: `cs35l41` DSP1 preloaded `r8q-{left,right}` `spk-prot` fw live) |
+| `audio-sound.dtso` | ✅ | Verified — `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` + `MultiMedia1` (folded into base DTS on `fold-overlay-dt`) |
+| `slpi-sensors.dtso` | ✅ | Verified — enables `vreg_l8c_1p8` (`L8C` `1.8 V`) for SLPI sensors (folded into base DTS on `fold-overlay-dt`) |
+| `vol-up.dtso` | ✅ | Verified — wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3` (folded into base DTS on `fold-overlay-dt`) |
+| `camera.dtso` | ✅ | Verified — enables CAMSS, QUP I2C10, HI-847 (`7ca90963c`) (folded into base DTS on `fold-overlay-dt`) |
 
 ### Tools (`tools/r8q-*`)
 
@@ -202,11 +206,12 @@
 | `r8q-install` | ✅ | Full installer (swap, repos, packages, UI) |
 | `r8q-rescue` | ✅ | Rescue operations |
 | `r8q-stabilize` | ✅ | Stability testing |
+| `r8q-stability-soak` | ✅ | On branch `r8q-stability-soak` — passed 30-min GUI/storage/wireless soak (`1800s`, 6 iters, `failures=0`) |
 | `r8q-optimize` | ✅ | System optimization |
-| `r8q-extract-firmware` | ✅ | Extract vendor firmware |
+| `r8q-extract-firmware` | ✅ | Extract vendor firmware (`6d8948e` `spk-prot` symlinks verified live via `DSP1 Preload Switch`) |
 | `r8q-harvest-phone` | ✅ | Harvest phone data |
 | `r8q-web` | ✅ | Web interface |
-| `r8q-ai` | ✅ | AI benchmark runner |
+| `r8q-ai` | ✅ | On-demand local AI controller |
 
 ### Device Config
 
@@ -219,6 +224,10 @@
 | `RUNBOOK-DISPLAY-GPU.md` | ✅ | Staged Gate A-D runbook |
 | `CRASH-DOSSIER.md` | ✅ | Crash analysis |
 | `CAMERA-PLAN.md` | ✅ | Camera bring-up plan |
+| `CAMERA-UW-PLAN.md` | ⏳ | On branch `r8q-camera-uw` — Ultrawide (S5K3L6) bring-up plan |
+| `DPMS-PLAN.md` | ⏳ | On branch `r8q-dpms-lockscreen` — DPMS & Lock Screen bring-up plan |
+| `MODEM-PLAN.md` | ⏳ | On branch `r8q-modem-preflight` — Modem & cellular bring-up plan |
+| `AI-BENCHMARKS.md` | ⏳ | On branch `r8q-stability-soak` — On-device AI benchmark plan |
 | `board/README.md` | ✅ | Board overview |
 | `board/SUCCESS.md` | ✅ | 6 success cards |
 | `board/FAILED.md` | ✅ | 7 failed cards |
@@ -242,12 +251,13 @@
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `camera-wip` (`10` commits above `caa385175`) |
+| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `fold-overlay-dt` (1 commit above `camera-wip`) |
 | Output | ✅ | `~/omamobile-kernel/out-r8q` (`7.3.0-rc6-omamobile-push1-g7ca90963c426`) |
 | HEAD | ✅ | `7ca90963c` (HI-847 orientation/rotation DT) |
-| Upstream prep | ⚠️ | Kernel commits need human `Signed-off-by:`; fold `PRIMARY_TDM_RX_0`, `vreg_l8c_1p8`, `pm8150l_gpios 3`, and display/camera overlays into base DTS |
+| Upstream prep | ⚠️ | Kernel commits need human `Signed-off-by:`; `fold-overlay-dt` branch has overlays folded into base DTS (1549ab9ce) |
 | Branch `camera-wip` | ✅ | Verified live on hardware (`g7ca90963c426`, `omacam` 30 fps) |
 | Branch `r8q/display-panel` | ✅ | Exists |
+| Branch `fold-overlay-dt` | ✅ | Overlays folded into base DTS (push requires human access) |
 
 ---
 
@@ -258,9 +268,9 @@ P1 (Native DT ✅) → P2 (Audio/DSP ✅) → P4 Sensors/VolUp (✅) → P3 (Soa
 ```
 
 **Remaining blockers:**
-1. Human `Signed-off-by:` on the `20` kernel commits + folding verified overlay DT fixes (`PRIMARY_TDM_RX_0`, `vreg_l8c_1p8`, `pm8150l_gpios 3`) into `sm8250-samsung-r8q.dts` before upstream PRs (`tools/kernel-pr-check`).
-2. Off-repo read-only backup + SHA256 of `efs*`, `persist`, and `modem*` before any P3 modem (`remoteproc_mpss`) testing.
-3. DPMS Power-key check, `r8q-audio-tuning` (CS35L41 protection firmware), remaining 3 camera sensors (`IMX555`/`S5K3L6`/`IMX616`), and Adreno `FD650` `debayer_egl`.
+1. Human `Signed-off-by:` on the `20` kernel commits + push `fold-overlay-dt` branch (1549ab9ce — overlays folded into base DTS) before upstream PRs (`tools/kernel-pr-check`).
+2. Off-repo read-only backup + SHA256 of `efs*`, `persist`, and `modem*` before any P3 modem (`remoteproc_mpss`) testing — **DONE** (10 OK).
+3. Attended DPMS Power-key wake check, `r8q-audio-tuning` (CS35L41 protection firmware), remaining 3 camera sensors (`IMX555`/`S5K3L6`/`IMX616`), and Adreno `FD650` `debayer_egl`.
 
 **What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g7ca90963c426`):**
 - Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `Xwayland` on `DSI-1 1080x2400@60`)

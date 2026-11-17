@@ -227,3 +227,17 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   cannot be trusted for gated modem runs until a card reads AND writes
   cleanly across several phone boots. Phone synced + powered off via SysRq;
   NV 15/15 `SAME`, `sda24` untouched.
+
+- **Stage 4 rescue: MSI delivery proven (`2026-11-17`).** The SD-less
+  rescue image works: PCIe2 enumerates after `insmod phy-qcom-qmp-pcie`
+  (that driver is a module; rescue has no udev), MHI binds, and the
+  device reaches SBL on its own. A debugfs doorbell trigger + GICD
+  SETSPI control split the path cleanly: SETSPI proves the GIC side,
+  and doorbell writes with data = GIC SPI hwirq (872/873) fire the
+  right vectors while every other encoding stays silent. The fired
+  interrupts drove a genuine SBL transition (host EE SECONDARY
+  BOOTLOADER, M0) and `/dev/wwan0sahara0` appeared. Root cause of all
+  earlier silence: the message data never selected an allocated SPI.
+  The fix programs the GIC hwirq, matching the downstream
+  `pci-msm-msi` source. Phone powered off cleanly via SysRq; `sda24`
+  still holds the trigger-test image, NV untouched.

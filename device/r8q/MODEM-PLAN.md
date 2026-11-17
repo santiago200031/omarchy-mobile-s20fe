@@ -705,3 +705,30 @@ phone: zero SD involvement, and the UFS storage guard still applies.
 
 **Status:** image packed and verified; flashing and the bind need the
 human's go for Download Mode + the rescue SSH session.
+
+### Results — Stage 4 rescue trigger test (2026-11-17, DELIVERY PROVEN)
+
+The downstream `pci-msm-msi` source (winnerx tree) settled the data
+question: its compose programs the **parent GIC hwirq** (`irqd_to_hwirq`
+of the GIC irqdata). With the GIC's +32 SPI translation that is 864+i
+for our bank (DT 832+i) — the stock `0x10080000+i` display numbers are
+that driver's internal numbering, not doorbell data, and classic MSI
+only carries 16 bits anyway.
+
+Proven live from the rescue shell with a debugfs doorbell trigger:
+- `SETSPI 864`/`872` increments the port/BHI counts — the GIC side
+  (parent mapping, unmask, handler) is correct.
+- `fire 872`/`873` increments the BHI/mhi1 counts — the doorbell
+  decoder takes the GIC SPI hwirq as data. Values 0-33, 832, 840 and
+  the old `0x10080008` stay silent.
+- The fired BHI interrupts drove the real MHI stack: the host read
+  `BHI_EXECENV=0x1` (SBL), transitioned to M0, created `mhi0_SAHARA`,
+  and `/dev/wwan0sahara0` appeared after `mhi_wwan_ctrl` (+ its `wwan`,
+  `gnss` deps) was insmodded.
+
+The endpoint's own MSI never arrived only because the running driver
+programmed data `0x0008` (truncated bank base) instead of `872+j`.
+`irqchip: qcom-pci-msi: program the GIC SPI hwirq as message data`
+(`60556001f`, committed, **not yet run**) programs exactly the proven
+value. The next bind with that driver should show real counts and the
+Sahara HELLO path with no manual trigger.

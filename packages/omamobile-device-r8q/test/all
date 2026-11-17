@@ -10,6 +10,7 @@ grep -q "vm.dirty_background_bytes = 16777216" 90-r8q-vm.conf
 grep -q "vm.dirty_bytes = 67108864" 90-r8q-vm.conf
 grep -q "backup=(etc/pacman.d/omamobile-mirrorlist)" PKGBUILD
 grep -q "zram-size = ram / 2" 91-r8q-zram.conf
+grep -Eq '^depends=.*zram-generator' PKGBUILD
 grep -q "min_ttl_ms" 80-r8q-mglru.conf
 grep -q "simple_ondemand" 80-r8q-gpu.rules
 grep -q 'max_freq.*305000000' 80-r8q-gpu.rules

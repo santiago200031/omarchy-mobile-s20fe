@@ -556,6 +556,14 @@ matches the record above before flashing.
   identical, `sda24 ro=1` afterwards (check `/sys/block/sda/sda24/ro`).
 - **Stop condition:** hash differs. The tool stops before writing.
   **Rollback:** re-flash the stable image (`tools/r8q-flash-recovery --stable`).
+- **Fallback (2026-11-17):** if the phone is in the rescue shell, the
+  LUN flag cannot be cleared there (no `/dev/sda` node, sysfs `ro` is
+  read-only) and the tool aborts before writing anything. Flash from
+  Download Mode instead, per `RUNBOOK-DISPLAY-GPU.md` Gate A:
+  `heimdall flash --RECOVERY <image> --no-reboot`, boot with
+  Volume Up + Power, then verify by reading `sda24` back (`dd` sha) and
+  `uname -r` — a Heimdall flash once left a stale image behind
+  (NOTES §2). Writes `sda24` only; `sda23`/LineageOS untouched.
 
 ### Step 3 — reboot (needs go; affects the screen)
 

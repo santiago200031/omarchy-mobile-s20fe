@@ -168,6 +168,15 @@ cmd_pack() {
     say "rescue-test: staging sdx55m BHI firmware from $fw_dir"
     mkdir -p "$stage/root/lib/firmware/qcom/sdx55m"
     cp "$fw_dir"/sbl1.mbn "$fw_dir"/sec.elf "$stage/root/lib/firmware/qcom/sdx55m/"
+    local rs_bin="${R8Q_SAHARA_RS_BIN:-$ROOT/tools/r8q-sahara-rs/target/aarch64-unknown-linux-musl/release/r8q-sahara}"
+    if [[ -f $rs_bin ]]; then
+      say "rescue-test: staging Rust Sahara loader $rs_bin"
+      mkdir -p "$stage/root/usr/local/bin"
+      cp "$rs_bin" "$stage/root/usr/local/bin/r8q-sahara-rs"
+      chmod 755 "$stage/root/usr/local/bin/r8q-sahara-rs"
+    else
+      say "rescue-test: no Rust Sahara loader at $rs_bin (skipping)"
+    fi
   fi
 
   # Build cpio ramdisk

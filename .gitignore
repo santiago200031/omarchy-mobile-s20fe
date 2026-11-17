@@ -14,3 +14,6 @@ __pycache__/
 .pi
 .agents
 skills-lock.json
+
+# Rust build outputs
+tools/r8q-sahara-rs/target/

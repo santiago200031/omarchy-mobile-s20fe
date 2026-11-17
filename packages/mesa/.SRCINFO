@@ -1,7 +1,7 @@
 pkgbase = mesa
-	pkgdesc = Open-source OpenGL drivers (Omarchy Mobile: Mali-G710, Mali-G78, Mali-G715)
+	pkgdesc = Open-source OpenGL drivers (Omarchy Mobile: Mali-G710, Mali-G78, Mali-G715, Adreno 630/640/650)
 	pkgver = 26.2.4
-	pkgrel = 1.4
+	pkgrel = 2.0
 	epoch = 1
 	url = https://www.mesa3d.org/
 	arch = aarch64
@@ -106,11 +106,12 @@ pkgname = mesa
 	depends = llvm-libs
 	depends = lm_sensors
 	depends = spirv-tools
+	depends = vulkan-icd-loader
 	depends = wayland
 	depends = zlib
 	depends = zstd
 	optdepends = opengl-man-pages: for the OpenGL API man pages
-	provides = mesa-libgl=1:26.2.4-1.4
+	provides = mesa-libgl=1:26.2.4-2.0
 	provides = opengl-driver
 	conflicts = libva-mesa-driver<1:24.2.7-1
 	conflicts = mesa-libgl<17.0.1-2
@@ -119,6 +120,28 @@ pkgname = mesa
 
 pkgname = vulkan-panfrost
 	pkgdesc = Open-source Vulkan driver for Mali GPUs (Omarchy Mobile: Mali-G710)
+	depends = expat
+	depends = glibc
+	depends = libdisplay-info
+	depends = libdrm
+	depends = libgcc
+	depends = libstdc++
+	depends = libx11
+	depends = libxcb
+	depends = libxshmfence
+	depends = spirv-tools
+	depends = systemd-libs
+	depends = vulkan-icd-loader
+	depends = vulkan-mesa-implicit-layers
+	depends = wayland
+	depends = xcb-util-keysyms
+	depends = zlib
+	depends = zstd
+	optdepends = vulkan-mesa-layers: additional vulkan layers
+	provides = vulkan-driver
+
+pkgname = vulkan-freedreno
+	pkgdesc = Open-source Vulkan driver for Adreno GPUs (Omarchy Mobile: Adreno 630/640/650)
 	depends = expat
 	depends = glibc
 	depends = libdisplay-info

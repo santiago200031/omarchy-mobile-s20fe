@@ -88,12 +88,12 @@
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | ⏳ | Fresh RO NV backup in `~/omamobile-kernel/reference-r8q/nv-backup-20261117` (10/10 `SAME`); staged `MODEM-PLAN.md` on branch `r8q-modem-preflight` (`omamobile-modem` not yet installed) |
+| Modem/cellular | ⏳ | Fresh RO NV backup in `~/omamobile-kernel/reference-r8q/nv-backup-20261117` (10/10 `SAME`); `MODEM-PLAN.md` merged (`omamobile-modem` not yet installed) |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)
 - `device/r8q/kernel.config` (`CONFIG_BT_LE=y` already set)
-- `device/r8q/MODEM-PLAN.md` (on branch `r8q-modem-preflight`)
+- `device/r8q/MODEM-PLAN.md` (exists)
 
 ### P4: Sensors, Cameras & DPMS (IN PROGRESS — SLPI Sensors, VolUp & DPMS DONE)
 
@@ -117,17 +117,17 @@
 
 | Item | Status | Details |
 |------|--------|---------|
-| 30-min GUI + writeback soak | ✅ | `tools/r8q-stability-soak` (on branch `r8q-stability-soak`) passed live on `gf3a5609d121b` (`1800s`, 6 iterations, `failures=0`) |
+| 30-min GUI + writeback soak | ✅ | `tools/r8q-stability-soak` passed live on `gf3a5609d121b` (`1800s`, 6 iterations, `failures=0`) |
 | `CONFIG_ARM64_PSEUDO_NMI` | 🔴 | One experimental boot to test hardlockup detection |
 | Freedreno perf tuning | 🔴 | GPU devfreq above 305 MHz once stable |
-| On-device AI benchmarks | ⏳ | `AI-BENCHMARKS.md` on branch `r8q-stability-soak` (benchmark runs pending) |
+| On-device AI benchmarks | ⏳ | `AI-BENCHMARKS.md` added (benchmark runs pending) |
 
 **Files involved:**
 - `packages/omamobile-device-r8q/rust/ai-server/` (exists)
 - `tools/r8q-ai` (exists)
 - `tools/r8q-optimize` (exists)
-- `tools/r8q-stability-soak` (on branch `r8q-stability-soak`)
-- `device/r8q/AI-BENCHMARKS.md` (on branch `r8q-stability-soak`)
+- `tools/r8q-stability-soak` (exists)
+- `device/r8q/AI-BENCHMARKS.md` (exists)
 
 ---
 
@@ -206,7 +206,7 @@
 | `r8q-install` | ✅ | Full installer (swap, repos, packages, UI) |
 | `r8q-rescue` | ✅ | Rescue operations |
 | `r8q-stabilize` | ✅ | Stability testing |
-| `r8q-stability-soak` | ✅ | On branch `r8q-stability-soak` — passed 30-min GUI/storage/wireless soak (`1800s`, 6 iters, `failures=0`) |
+| `r8q-stability-soak` | ✅ | Passed 30-min GUI/storage/wireless soak (`1800s`, 6 iters, `failures=0`) |
 | `r8q-optimize` | ✅ | System optimization |
 | `r8q-extract-firmware` | ✅ | Extract vendor firmware (`6d8948e` `spk-prot` symlinks verified live via `DSP1 Preload Switch`) |
 | `r8q-harvest-phone` | ✅ | Harvest phone data |
@@ -224,10 +224,10 @@
 | `RUNBOOK-DISPLAY-GPU.md` | ✅ | Staged Gate A-D runbook |
 | `CRASH-DOSSIER.md` | ✅ | Crash analysis |
 | `CAMERA-PLAN.md` | ✅ | Camera bring-up plan |
-| `CAMERA-UW-PLAN.md` | ⏳ | On branch `r8q-camera-uw` — Ultrawide (S5K3L6) bring-up plan |
-| `DPMS-PLAN.md` | ⏳ | On branch `r8q-dpms-lockscreen` — DPMS & Lock Screen bring-up plan |
-| `MODEM-PLAN.md` | ⏳ | On branch `r8q-modem-preflight` — Modem & cellular bring-up plan |
-| `AI-BENCHMARKS.md` | ⏳ | On branch `r8q-stability-soak` — On-device AI benchmark plan |
+| `CAMERA-UW-PLAN.md` | ⏳ | Ultrawide (S5K3L6) bring-up plan (exists) |
+| `DPMS-PLAN.md` | ✅ | DPMS & physical Power-key wake plan (verified) |
+| `MODEM-PLAN.md` | ⏳ | Modem & cellular bring-up plan (exists) |
+| `AI-BENCHMARKS.md` | ⏳ | On-device AI benchmark plan (exists) |
 | `board/README.md` | ✅ | Board overview |
 | `board/SUCCESS.md` | ✅ | 6 success cards |
 | `board/FAILED.md` | ✅ | 7 failed cards |

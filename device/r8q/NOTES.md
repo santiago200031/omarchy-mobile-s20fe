@@ -262,3 +262,17 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   `/tmp` over the rescue shell with no Python anywhere. The modem then
   closed the Sahara port itself; the host sits at SBL/M0 awaiting the
   AMSS jump. NV partitions were only ever read, never written.
+
+- **SBL stall after the full image set (`2026-11-17`).** Both cold and warm
+  boots converge: the modem requests its image set over Sahara (tz, hyp,
+  sec.elf, aop, acdb, multi_image_qti, devcfg, apdp, apps, qdsp6sw, and
+  the kefs/mdmddr partitions read off UFS), acks every DONE — then goes
+  silent with no EE-change interrupt. BHI_EXECENV stays 0x1 (SBL),
+  errcode 0. It asserts the wake line, mhi_wwan_ctrl's Sahara channel
+  dies with EIO, and a later rebind fails ("Device failed to clear MHI
+  Reset"). The event-ring MSIs work (3040/2999 counts), so this is not
+  delivery: the SBL is waiting for a post-Sahara host step that stock's
+  downstream host stack performs and mainline's mhi_pci_generic does not
+  (candidates: the SBL→AMSS MHI handshake, downstream PM/LPM hooks, or
+  a flashless AMSS load step). Unresolved; needs vendor source study or
+  a stock-capture comparison, not more blind rebinding.

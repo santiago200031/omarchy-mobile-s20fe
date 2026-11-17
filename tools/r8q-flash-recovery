@@ -100,20 +100,32 @@ say "Writing $PART (the phone must stay awake; this is ~80 MB)"
 # looking but every write dropped (dd "succeeds" with 0 bytes). Clear the LUN
 # flag too, and set both back afterwards.
 DISK="${PART%%[0-9]*}"
+# $DISK's /dev node may be absent: the storage guard removes whole-disk
+# nodes in the rescue initramfs (only /sys/block/sda stays). The flag lives
+# in sysfs either way, so fall back to it when the node is gone.
 "${SSH[@]}" "$REMOTE" "set -e
+  disk_sysfs=/sys/block/${DISK##*/}
+  disk_setrw() {
+    if [ -e $DISK ]; then blockdev --setrw $DISK
+    else echo 0 > \$disk_sysfs/ro; fi
+  }
+  disk_setro() {
+    if [ -e $DISK ]; then blockdev --setro $DISK
+    else echo 1 > \$disk_sysfs/ro; fi
+  }
   cleanup() {
     blockdev --setro $PART 2>/dev/null || true
-    blockdev --setro $DISK 2>/dev/null || true
+    disk_setro 2>/dev/null || true
     rm -f /tmp/omamobile-recovery.img
   }
   trap cleanup EXIT
-  blockdev --setrw $DISK
+  disk_setrw
   blockdev --setrw $PART
   dd if=/tmp/omamobile-recovery.img of=$PART bs=4M conv=fsync
   sync
   blockdev --setro $PART
-  blockdev --setro $DISK
-  echo \"ro: $DISK=\$(cat /sys/block/${DISK##*/}/ro) $PART=\$(cat /sys/block/${DISK##*/}/${PART##*/}/ro)\""
+  disk_setro
+  echo \"ro: $DISK=\$(cat \$disk_sysfs/ro) $PART=\$(cat \$disk_sysfs/${PART##*/}/ro)\""
 
 say "Reading the partition back and verifying"
 read -r back < <("${SSH[@]}" "$REMOTE" "sha256sum $PART | cut -c1-64")

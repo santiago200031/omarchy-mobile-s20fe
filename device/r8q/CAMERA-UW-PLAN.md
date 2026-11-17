@@ -39,10 +39,14 @@
 
 ## 3. Phased Bring-Up Plan
 
-### 3.1 Phase 1: Isolated DT Overlay (`&i2c2`, `CSIPHY1`, `MCLK1`, `s5k3l6: camera@2d`)
+### 3.1 Phase 1: Isolated DT Overlay (`&i2c2` Probe Ready)
 
-1. Add `cam_mclk1_default` (`gpio95`), `cam_uw_active` (`gpio33`, `gpio125`), and a disabled `s5k3l6: camera@2d` node under `&i2c2` + `port@1` under `&camss` in `sm8250-samsung-r8q.dts` (kept `disabled` until driver probe succeeds via overlay).
-2. Confirm `&i2c2` (`988000.i2c`) has clean `qup_i2c2_default` pinmux (`gpio115`, `gpio116`) with no conflicts against UART/SPI aliases.
+1. Verified in `sm8250.dtsi` and `sm8250-samsung-r8q.dts` (`2026-11-17`):
+   - `&gpi_dma0` (`900000.dma-controller`) is already `status = "okay"`.
+   - `qup_i2c2_default` (`gpio115`, `gpio116`, `function = "qup2"`) is defined in `sm8250.dtsi`.
+   - Zero TLMM GPIO conflicts found in `sm8250-samsung-r8q.dts` for `33`, `95`, `115`, `116`, `125`.
+2. Added `device/r8q/overlays/camera-uw-probe.dtso` enabling `&{/soc@0/geniqup@9c0000/i2c@988000}` (`i2c2`) isolated from `camss` / `CSIPHY1` for a safe one-change-per-boot Stage 1 bus check (`tools/r8q-boot --dual-boot --overlay camera-uw-probe`).
+3. Next: add `cam_mclk1_default` (`gpio95`), `cam_uw_active` (`gpio33`, `gpio125`), and disabled `s5k3l6: camera@2d` + `&camss` `port@1` in `sm8250-samsung-r8q.dts` alongside the `s5k3l6` kernel driver.
 
 ### 3.2 Phase 2: Driver Implementation (`drivers/media/i2c/s5k3l6.c` + Binding)
 

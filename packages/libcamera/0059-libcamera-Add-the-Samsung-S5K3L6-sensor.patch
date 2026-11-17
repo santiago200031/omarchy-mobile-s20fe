@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Santiago Villavicencio <villavicencioandrs@gmail.com>
+Date: Tue, 17 Nov 2026 16:02:00 +0100
+Subject: [PATCH] libcamera: Add the Samsung S5K3L6 sensor
+
+The Samsung S5K3L6 is the rear ultrawide camera on the Samsung Galaxy
+S20 FE (r8q), driven by s5k3l6xx and captured through Qualcomm CAMSS
+and the simple pipeline handler with the software ISP.
+
+Add CameraSensorHelperS5k3l6xx with a 10-bit black level of 64 (4096 at
+16 bits) and Samsung's linear analogue gain (code / 32: 0x20 is 1x,
+0x200 is 16x), sensor properties with test pattern modes and two-frame
+control delays, and an uncalibrated simple-IPA tuning file under
+s5k3l6xx.yaml.
+
+Signed-off-by: Santiago Villavicencio <villavicencioandrs@gmail.com>
+---
+ src/ipa/libipa/camera_sensor_helper.cpp          | 13 +++++++++++++
+ src/ipa/simple/data/meson.build                  |  1 +
+ src/ipa/simple/data/s5k3l6xx.yaml                | 20 ++++++++++++++++++++
+ src/libcamera/sensor/camera_sensor_properties.cpp | 16 ++++++++++++++++
+ 4 files changed, 50 insertions(+)
+ create mode 100644 src/ipa/simple/data/s5k3l6xx.yaml
+
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index e4b1c20..9f1d0aa 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -909,6 +909,19 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("hi847", CameraSensorHelperHi847)
+ 
++class CameraSensorHelperS5k3l6xx : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperS5k3l6xx()
++	{
++		/* 64 at 10 bits, matching Samsung 10-bit ISOCELL pedestal. */
++		blackLevel_ = 4096;
++		/* Code / 32: 0x20 is 1x, 0x200 is 16x. */
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 32 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("s5k3l6xx", CameraSensorHelperS5k3l6xx)
++
+ class CameraSensorHelperVd55g1 : public CameraSensorHelper
+ {
+ public:
+diff --git a/src/ipa/simple/data/meson.build b/src/ipa/simple/data/meson.build
+index d42f839..e7b90a1 100644
+--- a/src/ipa/simple/data/meson.build
++++ b/src/ipa/simple/data/meson.build
+@@ -6,6 +6,7 @@ conf_files = files([
+     's5kgn1.yaml',
+     's5kgn8.yaml',
+     'hi847.yaml',
++    's5k3l6xx.yaml',
+     'uncalibrated.yaml',
+ ])
+ 
+diff --git a/src/ipa/simple/data/s5k3l6xx.yaml b/src/ipa/simple/data/s5k3l6xx.yaml
+new file mode 100644
+index 0000000..c1f03b9
+--- /dev/null
++++ b/src/ipa/simple/data/s5k3l6xx.yaml
+@@ -0,0 +1,19 @@
++# SPDX-License-Identifier: CC0-1.0
++#
++# Samsung S5K3L6 (Galaxy S20 FE ultrawide), uncalibrated tuning stub.
++# The black level and gain curve come from CameraSensorHelperS5k3l6xx.
++%YAML 1.1
++---
++version: 1
++algorithms:
++  - BlackLevel:
++  - Awb:
++  - Adjust:
++      contrast: 1.2
++      saturation: 1.1
++  - Detail:
++      sharpen: 0.6
++      denoise: 0.015
++      chromaDenoise: 0.03
++  - Agc:
++...
+diff --git a/src/libcamera/sensor/camera_sensor_properties.cpp b/src/libcamera/sensor/camera_sensor_properties.cpp
+index 90d7c41..34f18e2 100644
+--- a/src/libcamera/sensor/camera_sensor_properties.cpp
++++ b/src/libcamera/sensor/camera_sensor_properties.cpp
+@@ -575,6 +575,22 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
+ 				.hblankDelay = 2
+ 			},
+ 		} },
++		{ "s5k3l6xx", {
++			.unitCellSize = { 1120, 1120 },
++			.testPatternModes = {
++				{ controls::draft::TestPatternModeOff, 0 },
++				{ controls::draft::TestPatternModeSolidColor, 1 },
++				{ controls::draft::TestPatternModeColorBars, 2 },
++				{ controls::draft::TestPatternModeColorBarsFadeToGray, 3 },
++				{ controls::draft::TestPatternModePn9, 4 },
++			},
++			.sensorDelays = {
++				.exposureDelay = 2,
++				.gainDelay = 2,
++				.vblankDelay = 2,
++				.hblankDelay = 2
++			},
++		} },
+ 		{ "vd55g1", {
+ 			.unitCellSize = { 2160, 2160 },
+ 			.testPatternModes = {
+-- 
+2.53.0

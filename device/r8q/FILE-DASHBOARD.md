@@ -3,9 +3,9 @@
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-gf3a5609d121b` (`fold-overlay-dt` — overlay-free boot with display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q` spk-prot, SLPI sensors, VolUp, and HI-847 camera verified on hardware)
-**Kernel Branch:** `fold-overlay-dt` (`f3a5609d1` — overlays folded into base DTS; booted & verified on `sda24`)
-**Device Package:** `omamobile-device-r8q` `0.1.25` (with `zram-generator` `2.7 GiB zstd`) + `hexagonrpc` `0.5.0-2` + `libcamera 0.7.2-4.24` (installed & verified on phone)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (`camera-uw-wip` — display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q`, SLPI sensors, VolUp, pseudo-NMI, HI-847 tele, and S5K3L6 ultrawide verified on hardware)
+**Kernel Branch:** `camera-uw-wip` (`3667ab368` on `omamobile-r8q-signed`; booted & verified on `sda24` with `--overlay camera-uw`)
+**Device Package:** `omamobile-device-r8q` `0.1.25` (with `zram-generator` `2.7 GiB zstd`) + `hexagonrpc` `0.5.0-2` + `libcamera 0.7.2-4.25` (installed & verified on phone)
 **Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
 **Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
 
@@ -102,8 +102,8 @@
 | DPMS & Lock Screen | ✅ | `hl.dsp.dpms` enable/disable, physical Power-key wake, and `secure: true` lock screen verified on hardware (`gf3a5609d121b`, 0 dmesg errors) |
 | SLPI sensors | ✅ | `slpi-sensors.dtso` (`L8C` `1.8 V`) + `hexagonrpc 0.5.0-2` + `iio-sensor-proxy` (`accel`, `light`, `compass` live; `proximity` `UNKNOWN`) |
 | Volume Up key (`vol-up.dtso`) | ✅ | Wired to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (IRQ `179`); tested working on hardware |
-| Camera: HI-847 telephoto | ✅ | `vreg_l7c_1p8`, `MCLK3`, `CSIPHY2`, `.llp`/crop/props, `orientation=1`/`rotation=270` (`7ca90963c`) + `libcamera 0.7.2-4.24` (`0058`); `omacam` live @ 30.02 fps |
-| Camera: other 3 sensors & FD650 EGL | ⏳ | IMX555, S5K3L6, IMX616 need drivers; `0.1.23` pins `LIBCAMERA_SOFTISP_MODE=cpu` (`FD650` `debayer_egl` hangcheck follow-up) |
+| Camera: HI-847 tele & S5K3L6 uw | ✅ | Both back cameras live in `libcamera 0.7.2-4.25` (`hi847` `0058` + `s5k3l6xx` `0059`): `cam -l` lists both; raw + JPEG capture verified |
+| Camera: IMX555 (wide), IMX616 (front) & FD650 EGL | ⏳ | Main wide & front need drivers/tuning; `70-r8q-libcamera.conf` pins `LIBCAMERA_SOFTISP_MODE=cpu` for desktop sessions |
 | `tools/r8q-install` alignment | ✅ | `monitors.lua` @60, `vrr=0`, scale 2.25 |
 
 **Files involved:**
@@ -118,7 +118,7 @@
 | Item | Status | Details |
 |------|--------|---------|
 | 30-min GUI + writeback soak | ✅ | `tools/r8q-stability-soak` passed live on `gf3a5609d121b` (`1800s`, 6 iterations, `failures=0`) |
-| `CONFIG_ARM64_PSEUDO_NMI` | 🔴 | One experimental boot to test hardlockup detection |
+| `CONFIG_ARM64_PSEUDO_NMI` | ✅ | Verified live with `irqchip.gicv3_pseudo_nmi=1` and `NMI watchdog: Enabled` (0 regressions) |
 | Freedreno perf tuning | 🔴 | GPU devfreq above 305 MHz once stable |
 | On-device AI benchmarks | ⏳ | `AI-BENCHMARKS.md` added (benchmark runs pending) |
 

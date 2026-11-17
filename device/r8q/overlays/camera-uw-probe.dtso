@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay (CAMERA-UW-PLAN Phase 1): enable QUPv3 I2C2 (988000.i2c,
+ * GPIO 115/116 qup2) cleanly before adding CSIPHY1 / MCLK1 / S5K3L6 nodes.
+ *
+ * Boot with: tools/r8q-boot --dual-boot --overlay camera-uw-probe
+ * Verify dynamic bus number with:
+ *   grep -H "" /sys/bus/i2c/devices/i2c-<N>/name
+ */
+/dts-v1/;
+/plugin/;
+
+/* QUPv3 SE2 I2C (988000.i2c, pins GPIO 115/116) — rear ultrawide S5K3L6 bus. */
+&{/soc@0/geniqup@9c0000/i2c@988000} {
+	status = "okay";
+};

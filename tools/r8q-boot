@@ -111,9 +111,9 @@ cmd_pack() {
   mkdir -p "$stage/root" "$cache_dir/apks"
   tar -xzf "$cache_dir/$tarball" -C "$stage/root"
 
-  say "Fetching and staging packages (dropbear, kexec-tools, e2fsprogs)"
   local pkgs="dropbear kexec-tools e2fsprogs e2fsprogs-extra"
   ((rescue_test)) && pkgs="$pkgs pciutils"
+  say "Fetching and staging packages ($pkgs)"
   local apks
   apks=$(python3 -I "$ROOT/tools/alpine-fetch.py" "$ver" "$cache_dir/apks" $pkgs) ||
     die "alpine-fetch.py failed"
@@ -160,7 +160,7 @@ cmd_pack() {
     [[ -n ${mod_tar:-} ]] || die "--rescue-test needs a modules tarball in \$KERNEL_OUT (run bin/omamobile modules first)"
     say "rescue-test: staging modules from $mod_tar"
     mkdir -p "$stage/root/lib/modules"
-    tar -xzf "$mod_tar" -C "$stage/root/lib/modules" || die "unpacking $mod_tar failed"
+    tar --zstd -xf "$mod_tar" -C "$stage/root/lib/modules" || die "unpacking $mod_tar failed"
     local fw_dir="${R8Q_RESCUE_FW:-$HOME/omamobile-kernel/r8q-fw}"
     for fw in sbl1.mbn sec.elf; do
       [[ -f $fw_dir/$fw ]] || die "--rescue-test needs $fw_dir/$fw on the laptop"

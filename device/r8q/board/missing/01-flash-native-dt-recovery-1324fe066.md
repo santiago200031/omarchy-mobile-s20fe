@@ -3,6 +3,7 @@
 # Missing 01: Flash Native DT `1324fe066` + Touch `5866f774c` + BT `caa385175` Recovery
 
 - **Priority:** P1 (optional cleanup; live phone runs `gd469bd3bf2a9` safely via `offline_unreserved_xpu_pages()`, `stmfts-r8q.ko`, and `r8q-bt-uart.ko` + `bluetooth.ko` modules in `omamobile-device-r8q` `0.1.18`).
+- **Status (`2026-11-17`):** the flash side is **done** — the stable image on `sda24` ([`stable-image.conf`](../../stable-image.conf)) carries the native DT and touch, and `tools/r8q-stable-check --phone` passes. What remains is the human `Signed-off-by:` and the upstream pull requests.
 - **Back:** [MISSING.md](../MISSING.md) · [Board Overview](../README.md)
 
 ## Remaining Work

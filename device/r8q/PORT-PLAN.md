@@ -2,8 +2,8 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`, SM-G780G) Port Plan
 
-- **Status (2026-11-15):** Kernel `7.3.0-rc6-omamobile-push1` (`omamobile-r8q` worktree `~/omamobile-kernel/wt-r8q`, out `~/omamobile-kernel/out-r8q`, build with `DEVICE=r8q`). Dual-boot boots `recovery` (`sda24`) with `/omarchy-r8q.img` on microSD (`mmcblk0p1`); **all `77/77` `/dev/sda*` UFS partitions remain `ro=1`** with LineageOS untouched on `sda23`/`sda29`/`sda36`.
-- **Milestone:** **Gate D graphical desktop, touchscreen, Wi-Fi (`wlp1s0`), and QCA6390 Bluetooth (`hci0`) are live on SM-G780G** (`sddm` + `Hyprland` + `quickshell` + `squeekboard` via `msm`/Adreno 650 + `extra/mesa`, live `stmfts-r8q.ko` 16-byte touch driver on `5-0049`, `ath11k` `wlp1s0` + `r8q-wifi-aspm`, `r8q-bt-uart.ko` + `CONFIG_BT_LE=y` modules + `btmgmt public-addr` on `998000.serial`, `omamobile-device-r8q` `0.1.18`). Combined DT + touch rebuild `5866f774c` (`7.3.0-rc6-omamobile-push1-g5866f774c4da`, `recovery-omamobile.img` SHA256 `2769d7da9701a3ac4b1f3fb51e559414ad979b8dcc642013778a2d7d3e1248e3`) is staged, and `caa385175` (`qcom_geni_serial` alias clamp) + `device/r8q/kernel.config` (`CONFIG_BT_LE=y`) are ready for the next rebuild.
+- **Status (2026-11-17):** Stable kernel `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (`camera-uw-wip`), image `~/omamobile-kernel/out-r8q-uw/recovery-cam-uw.img` sha256 `66fe127f…d8503`, packed with `tools/r8q-boot pack --dual-boot --overlay camera-uw` and pinned in [`stable-image.conf`](stable-image.conf). It boots `recovery` (`sda24`) with `/omarchy-r8q.img` on microSD (`mmcblk0p1`); **all `77/77` `/dev/sda*` UFS partitions remain `ro=1`** with LineageOS untouched on `sda23`/`sda29`/`sda36`; `PCIe2` and its PHY are `disabled`. `tools/r8q-stable-check` verifies both the image hash and the phone, and `tools/r8q-flash-recovery --stable` is the way back. Kernel worktree `~/omamobile-kernel/wt-r8q` (build with `DEVICE=r8q`).
+- **Milestone:** **The desktop, touchscreen, Wi-Fi (`wlp1s0`), QCA6390 Bluetooth (`hci0`), audio (`cs35l41` `r8q`), SLPI sensors, Volume Up, pseudo-NMI, the HI-847 telephoto and the S5K3L6 ultrawide are live on SM-G780G**, and the `omamobile-ai` supervisor serves `LFM3-1.7B` on `:8080` at 15.47 prompt / 10.6-11.0 generation tok/s ([AI-BENCHMARKS.md](AI-BENCHMARKS.md)). The SDX55M modem reached Stage 2 (`mhi0` BHI ready) and Stage 3A (`PCIe2` MSI) and is **parked**: Stage 3A resets the phone when `mhi_pci_generic` binds ([MODEM-PLAN.md](MODEM-PLAN.md) §8), and the phone is back on the stable image. Main/front cameras remain the open bring-up ([CAMERA-PLAN.md](CAMERA-PLAN.md)).
 
 ---
 
@@ -15,9 +15,9 @@ A comprehensive file-based dashboard tracking all subsystems, their status, and 
 |------|--------|
 | [FILE-DASHBOARD.md](FILE-DASHBOARD.md) | Master dashboard — all files, their status, and what's missing |
 | [board/README.md](board/README.md) | Kanban board overview |
-| [board/SUCCESS.md](board/SUCCESS.md) | 6 verified-success cards |
+| [board/SUCCESS.md](board/SUCCESS.md) | 7 verified-success cards |
 | [board/FAILED.md](board/FAILED.md) | 7 known failures with permanent rules |
-| [board/MISSING.md](board/MISSING.md) | 5 missing items in priority order |
+| [board/MISSING.md](board/MISSING.md) | 4 open items in priority order (cameras, parked modem, optional GPU/Vulkan, upstream sign-offs) |
 
 ## File-Based Porting Board ([board/](board/README.md))
 
@@ -25,9 +25,9 @@ The porting state is also maintained as a file-based Kanban board under [`device
 
 | Column | Summary | Cards |
 | --- | --- | --- |
-| **Success / Working** | [board/SUCCESS.md](board/SUCCESS.md) | [Dual-Boot RO](board/success/01-dual-boot-ufs-ro-guard.md) · [RPMh & Liveness](board/success/02-rpmh-rsc-and-liveness-net.md) · [Display / S6E3FC3](board/success/03-display-mdss-s6e3fc3.md) · [Adreno & Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) · [USB, Battery & ZRAM](board/success/05-usb-power-battery-zram.md) · [Wi-Fi, BT & Clock](board/success/06-wifi-bluetooth-and-clock.md) |
+| **Success / Working** | [board/SUCCESS.md](board/SUCCESS.md) | [Dual-Boot RO](board/success/01-dual-boot-ufs-ro-guard.md) · [RPMh & Liveness](board/success/02-rpmh-rsc-and-liveness-net.md) · [Display / S6E3FC3](board/success/03-display-mdss-s6e3fc3.md) · [Adreno & Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) · [USB, Battery & ZRAM](board/success/05-usb-power-battery-zram.md) · [Wi-Fi, BT & Clock](board/success/06-wifi-bluetooth-and-clock.md) · [Soak, NMI & AI](board/success/07-stability-soak-nmi-and-ai.md) |
 | **Failed / Skip** | [board/FAILED.md](board/FAILED.md) | [XPU/TZ/Knox DRAM](board/failed/01-unreserved-xpu-tz-knox-dram.md) · [`s2idle`/cpuidle/PM](board/failed/02-suspend-cpuidle-dvfs-ufspm.md) · [`max77705` / unbind](board/failed/03-max77705-builtin-and-unbind.md) · [DISPCC / white flash](board/failed/04-display-protected-clocks-and-white-flash.md) · [Mesa / `vfr` / `@120`](board/failed/05-omamobile-mesa-and-hyprland-vfr.md) · [Boot/session hazards](board/failed/06-boot-and-session-hazards.md) · [`fts5cu56a` 16-byte events](board/failed/07-stmfts5-8byte-vs-samsung-16byte-events.md) |
-| **Missing / Next** | [board/MISSING.md](board/MISSING.md) | [Flash DT + touch `5866f774c`](board/missing/01-flash-native-dt-recovery-1324fe066.md) · [Gate C Audio/DSP](board/missing/02-gate-c-remoteprocs-and-audio.md) · [Cellular/Wireless soak](board/missing/03-wifi-bluetooth-and-modem.md) · [Sensors/Cam/DPMS/Tools](board/missing/04-sensors-cameras-dpms-and-installer.md) · [Soak/NMI/AI](board/missing/05-soak-pseudonmi-and-ai-benchmarks.md) |
+| **Missing / Next** | [board/MISSING.md](board/MISSING.md) | [Sensors, Cameras & DPMS](board/missing/04-sensors-cameras-dpms-and-installer.md) (main/front cameras) · [Cellular / Modem](board/missing/03-wifi-bluetooth-and-modem.md) (parked) · [Freedreno & Vulkan](board/missing/05-soak-pseudonmi-and-ai-benchmarks.md) (optional) · [Native DT & Touch Commits](board/missing/01-flash-native-dt-recovery-1324fe066.md) (upstream sign-offs) |
 
 ---
 

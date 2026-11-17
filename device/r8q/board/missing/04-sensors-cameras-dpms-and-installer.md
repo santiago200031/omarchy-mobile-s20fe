@@ -3,6 +3,7 @@
 # Missing 04: Sensors, Cameras & DPMS Power Key
 
 - **Priority:** P4 (`M5.1` UX & hardware subsystem follow-ups; `tools/r8q-install` alignment completed on branch `r8q-touch-and-fixes`).
+- **Status (`2026-11-17`):** DPMS + physical Power-key wake, SLPI sensors, the HI-847 telephoto and the S5K3L6 ultrawide are **verified**. Main/front cameras (`IMX555`/`IMX616`) remain and are the live P1 item in [MISSING.md](../MISSING.md).
 - **Back:** [MISSING.md](../MISSING.md) · [Board Overview](../README.md)
 
 ## Completed in `r8q-touch-and-fixes`

@@ -3,6 +3,7 @@
 # Missing 02: Gate C — Remoteprocs (ADSP/CDSP/SLPI) & Stereo Audio
 
 - **Priority:** P2 ([RUNBOOK-DISPLAY-GPU.md](../../RUNBOOK-DISPLAY-GPU.md), Gate C).
+- **Status (`2026-11-17`):** **done** — ADSP/CDSP/SLPI are up, both `cs35l41` amplifiers run with the `r8q` speaker-protection firmware, and UCM2 stereo playback is verified. The steps below are kept as the record of the bring-up.
 - **Back:** [MISSING.md](../MISSING.md) · [Board Overview](../README.md)
 
 ## Remaining Work (One Overlay Per Boot)

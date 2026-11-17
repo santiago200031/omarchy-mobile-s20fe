@@ -5,7 +5,7 @@
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
 **Live Kernel:** `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (`camera-uw-wip` — display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q`, SLPI sensors, VolUp, pseudo-NMI, HI-847 tele, and S5K3L6 ultrawide verified on hardware; restored 2026-11-17 after the SDX55M Stage 3A experiment and pinned in `stable-image.conf`)
 **Kernel Branch:** `camera-uw-wip` (`3667ab368` on `omamobile-r8q-signed`; booted & verified on `sda24` with `--overlay camera-uw`)
-**Device Package:** `omamobile-device-r8q` `0.1.25` (with `zram-generator` `2.7 GiB zstd`) + `hexagonrpc` `0.5.0-2` + `libcamera 0.7.2-4.25` (installed & verified on phone)
+**Device Package:** `omamobile-device-r8q` `0.1.25` in the repo (adds the `omamobile-ai` drop-in, `zram-generator` and the parked `modem.dtso`); `0.1.24` on the phone, with the same AI listener set by hand in `/etc/omamobile-ai.conf.d/20-usb.conf`. `omamobile-ai` `0.1.0-1` + `libcamera 0.7.2-4.25` installed & verified
 **Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
 **Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
 
@@ -39,13 +39,13 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 
 | Column | Count | Last Updated |
 | --- | --- | --- |
-| ✅ SUCCESS | 6 | 2026-11-17 |
+| ✅ SUCCESS | 7 | 2026-11-17 |
 | ❌ FAILED (known, mitigated) | 7 | 2026-11-17 |
-| 🔲 MISSING | 5 (P1/P2/SLPI+VolUp done) | 2026-11-17 |
+| 🔲 MISSING | 4 open (main/front cameras; modem parked; Freedreno/Vulkan optional; kernel sign-offs upstream) | 2026-11-17 |
 
 ---
 
-## ✅ SUCCESS (6 cards — verified on hardware)
+## ✅ SUCCESS (7 cards — verified on hardware)
 
 | # | Card | What Works | Evidence |
 |---|------|-----------|----------|
@@ -55,6 +55,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | 04 | [Adreno 650, Freedreno & Hyprland Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) | GPU at 305 MHz; Hyprland + quickshell + squeekboard + Xwayland; touch + keys | `3d00000.gpu` pinned; `stmfts-r8q.ko` live |
 | 05 | [USB Gadget, Power/Battery & ZRAM](board/success/05-usb-power-battery-zram.md) | USB NCM `172.16.42.1`; battery telemetry `99%`; zram + swapfile + MGLRU | `max77705`/`max17042` as modules |
 | 06 | [Wi-Fi, Bluetooth, Clock Sync & Boot GUI](board/success/06-wifi-bluetooth-and-clock.md) | `wlp1s0` UP; `hci0` Powered (BR/EDR+LE); RTC sync; `sddm` auto-start | `ath11k` + `qca6390` firmware ok |
+| 07 | [Stability Soak, Pseudo-NMI & On-Device AI](board/success/07-stability-soak-nmi-and-ai.md) | `1800 s` soak `failures=0`; `NMI watchdog: Enabled`; `omamobile-ai` + `LFM3-1.7B` on `:8080` | 15.47 prompt / 10.6-11.0 generation tok/s on `3667ab368` |
 
 ---
 
@@ -137,21 +138,23 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 - `device/r8q/board/missing/r8q-aperture-config.xml` (exists)
 - `packages/omamobile-device-r8q/ucm2/` (exists)
 
-### P5: Stability Soak, Pseudo-NMI & AI (IN PROGRESS — Soak Script & AI Docs DONE)
+### P5: Stability Soak, Pseudo-NMI & AI (DONE — soak, pseudo-NMI and AI verified)
 
 | Item | Status | Details |
 |------|--------|---------|
 | 30-min GUI + writeback soak | ✅ | `tools/r8q-stability-soak` passed live on `gf3a5609d121b` (`1800s`, 6 iterations, `failures=0`) |
 | `CONFIG_ARM64_PSEUDO_NMI` | ✅ | Verified live with `irqchip.gicv3_pseudo_nmi=1` and `NMI watchdog: Enabled` (0 regressions) |
-| Freedreno perf tuning | 🔴 | GPU devfreq above 305 MHz once stable |
-| On-device AI benchmarks | ⏳ | `AI-BENCHMARKS.md` added (benchmark runs pending) |
+| `omamobile-ai` supervisor | ✅ | `omamobile-ai.service` live on `:8080`: lazy `llama-server`, OpenAI + llama.cpp router surfaces, `IDLE_TIMEOUT=180`, pinned to cores 4-6; `tools/r8q-ai` drives it (SSH fallback) |
+| On-device AI benchmarks | ✅ | `AI-BENCHMARKS.md` §2: `LFM3-1.7B` on the stable kernel, **15.47 prompt tok/s / 10.56-11.01 generation tok/s**, 46.3 → 74.1 °C |
+| Freedreno perf tuning | 🔴 | GPU devfreq above 305 MHz once stable; 587 MHz measured 1.92× at 74 °C, still opt-in |
 
 **Files involved:**
-- `packages/omamobile-device-r8q/rust/ai-server/` (exists)
-- `tools/r8q-ai` (exists)
+- `packages/omamobile-ai/` (supervisor package; replaces the removed BSP `rust/ai-server/` stub)
+- `packages/omamobile-device-r8q/etc/omamobile-ai.conf.d/10-sm8250.conf` (core pinning)
+- `tools/r8q-ai` (API client, SSH fallback)
 - `tools/r8q-optimize` (exists)
 - `tools/r8q-stability-soak` (exists)
-- `device/r8q/AI-BENCHMARKS.md` (exists)
+- `device/r8q/AI-BENCHMARKS.md` (verified numbers and reproduction)
 
 ---
 
@@ -161,8 +164,8 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 
 | File | Status | Notes |
 |------|--------|-------|
-| `PKGBUILD` | ✅ | Builds `reboot-to`, `r8q-liveness-heartbeat`, AI server, preflight |
-| `version` | ✅ | `0.1.24` (installed & verified on phone with `hexagonrpc 0.5.0-2` and `libcamera 0.7.2-4.24`) |
+| `PKGBUILD` | ✅ | Builds `reboot-to`, `r8q-liveness-heartbeat`, preflight |
+| `version` | ✅ | `0.1.25` in the repo; `0.1.24` on the phone (`0.1.25` adds the AI drop-in, `zram-generator` and the parked `modem.dtso`) |
 | `70-omamobile-dma-heap.rules` | ✅ | Grants `video` / `uaccess` access to `/dev/dma_heap` |
 | `70-r8q-libcamera.conf` | ✅ | Defaults `LIBCAMERA_SOFTISP_MODE=cpu` to avoid `FD650` EGL hang |
 | `test/all` | ✅ | Comprehensive config tests |
@@ -194,7 +197,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | `90-r8q-vm.conf` | ✅ | Swappiness, dirty bytes |
 | `91-r8q-zram.conf` | ✅ | `zram-size = ram / 2` |
 | `80-r8q-mglru.conf` | ✅ | `min_ttl_ms` |
-| `rust/ai-server/` | ✅ | Rust on-device AI server |
+| `etc/omamobile-ai.conf.d/10-sm8250.conf` | ✅ | Pins inference to cores 4-6, 3 threads, listener on `0.0.0.0:8080` |
 | `rust/r8q-preflight/` | ✅ | Rust preflight checker |
 | `reboot-to.c` | ✅ | Freestanding reboot syscall |
 | `reboot` | ✅ | Reboot wrapper |
@@ -237,7 +240,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | `r8q-extract-firmware` | ✅ | Extract vendor firmware (`6d8948e` `spk-prot` symlinks verified live via `DSP1 Preload Switch`) |
 | `r8q-harvest-phone` | ✅ | Harvest phone data |
 | `r8q-web` | ✅ | Web interface |
-| `r8q-ai` | ✅ | On-demand local AI controller |
+| `r8q-ai` | ✅ | Drives the `omamobile-ai` supervisor API (`status`, `models`, `ask`, `unload`, `stop`, `start`, `push-model`); SSH fallback |
 
 ### Device Config
 
@@ -253,7 +256,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | `CAMERA-UW-PLAN.md` | ✅ | Ultrawide (S5K3L6) driver, DT, and `libcamera 0.7.2-4.25` verified end-to-end |
 | `DPMS-PLAN.md` | ✅ | DPMS & physical Power-key wake plan (verified) |
 | `MODEM-PLAN.md` | ⏳ | Modem & cellular bring-up plan (Stage 1 PASS; Stage 2 prepared with gated runbook in §4) |
-| `AI-BENCHMARKS.md` | ⏳ | On-device AI benchmark plan (exists) |
+| `AI-BENCHMARKS.md` | ✅ | Supervisor design, stable-kernel benchmark (15.47 prompt / 10.6-11.0 generation tok/s) and reproduction |
 | `board/README.md` | ✅ | Board overview |
 | `board/SUCCESS.md` | ✅ | 6 success cards |
 | `board/FAILED.md` | ✅ | 7 failed cards |
@@ -287,13 +290,13 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 ## 🔑 Critical Path
 
 ```
-P1 (Native DT ✅) → P2 (Audio/DSP ✅) → Sensors/VolUp/DPMS/Pseudo-NMI/S5K3L6 (✅) → Modem Stage 2 & Main/Front Cameras → Upstream PRs
+P1 (Native DT ✅) → P2 (Audio/DSP ✅) → Sensors/VolUp/DPMS/Pseudo-NMI/S5K3L6/AI (✅) → Modem (parked) & Main/Front Cameras → Upstream PRs
 ```
 
 **Remaining open items:**
 1. **Cameras (`IMX555` rear wide & `IMX616` front):** Stock topology (`live.dts`), drivers, bindings, and `libcamera` helpers; plus Adreno `FD650` `debayer_egl` hangcheck follow-up so `LIBCAMERA_SOFTISP_MODE=cpu` can be lifted if safe.
-2. **Modem Stage 2 ([MODEM-PLAN.md](MODEM-PLAN.md) §4):** Done offline — 15-partition RO backup, `pci_generic.c` `samsung,r8q` BHI quirk, FW staging, Sahara loader (`tools/r8q-sahara`). Pending — human-approved modules install / `sda24` flash / reboot, attended Sahara run, then `omamobile-modem` + `ModemManager`.
-3. **Optional perf / UX / polish:** `omacam` live visual test switching tele ↔ ultrawide (verify `s5k3l6xx` orientation/rotation in preview), `cs35l41` speaker protection tuning (louder/balanced top+bottom speakers), GPU/CDSP AI inference when prioritized (`omamobile-ai` branch), and setting up user fork remote for `linux-omarchy-mobile` push.
+2. **Modem ([MODEM-PLAN.md](MODEM-PLAN.md) §4, §8):** **parked.** Done offline — 15-partition RO backup, `pci_generic.c` `samsung,r8q` BHI quirk, FW staging, Sahara loader (`tools/r8q-sahara`), Stage 2 (`mhi0` BHI ready) and Stage 3A (`PCIe2` MSI). Stage 3A **resets the phone** when `mhi_pci_generic` binds (`5be4efd5e`), and the phone is back on the stable image. A resume needs a different MSI/IOMMU or MHI design first, then an attended gated test and the human's go for every flash/reboot.
+3. **Optional perf / UX / polish:** `omacam` live visual test switching tele ↔ ultrawide (verify `s5k3l6xx` orientation/rotation in preview), `cs35l41` speaker protection tuning (louder/balanced top+bottom speakers), Vulkan `llama.cpp` on the 587 MHz GPU (CPU baseline is verified; CDSP needs a Hexagon v66 userspace runtime), and setting up user fork remote for `linux-omarchy-mobile` push.
 
 **What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`):**
 - Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `Xwayland` on `DSI-1 1080x2400@60`), DPMS & Power-key wake + lock screen

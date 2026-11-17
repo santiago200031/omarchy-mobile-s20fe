@@ -252,3 +252,13 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   storage. The storage halt stands independently: SD still suspect,
   phone powered off via SysRq, `sda24` untouched since the rescue
   flash, NV 15/15 `SAME` throughout.
+
+- **Sahara serving works end-to-end (`2026-11-17`).** With MSI delivery
+  fixed, the modem walked through 14 Sahara sessions (mdmddr, apdp,
+  multi_image_qti, devcfg, tz, hyp, acdb, sbl-adjacent configs and the
+  three mdm1m9kefs NV partitions read straight off UFS, all status 0,
+  every DONE acked). The Rust loader (`tools/r8q-sahara-rs`, static musl,
+  verified against a fake modem under qemu first) served them all from
+  `/tmp` over the rescue shell with no Python anywhere. The modem then
+  closed the Sahara port itself; the host sits at SBL/M0 awaiting the
+  AMSS jump. NV partitions were only ever read, never written.

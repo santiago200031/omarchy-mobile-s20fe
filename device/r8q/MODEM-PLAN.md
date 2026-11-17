@@ -676,12 +676,12 @@ rescue shell (SSH works there, proven). The SD card stays out of the
 phone: zero SD involvement, and the UFS storage guard still applies.
 
 **Image (packed 2026-11-17, laptop-only):**
-- `recovery-modem-rescue.img` — sha256 `bcb62616…134e1d3bf5f3`,
+- `recovery-modem-rescue.img` — sha256 `452b3ed8…e69ca874b8fd`,
   kernel `7.3.0-rc6-omamobile-push1-g14d313c015f5` (GIC-hwirq message
   data + debugfs doorbell trigger + GICD SETSPI control knob),
   modem overlay, rescue modules + firmware verified inside the packed
-  ramdisk (2912 entries: `mhi_pci_generic.ko`, `sdx55m/sbl1.mbn`,
-  `sec.elf`, `lspci`, `dropbear`).
+  ramdisk (2913 entries: `mhi_pci_generic.ko`, `sdx55m/sbl1.mbn`,
+  `sec.elf`, `lspci`, `dropbear`, Rust `r8q-sahara-rs`).
 
 **Runbook (all phone writes need a go):**
 0. Preflight: phone off, SD card OUT, USB plugged. (No NV check possible

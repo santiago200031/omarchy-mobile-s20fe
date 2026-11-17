@@ -520,9 +520,9 @@ go.** The kernel is `r8q-modem-msi` (binding + driver, off `modem-stage2`
 (`CONFIG_QCOM_PCI_MSI=y`). Pack from its own output tree
 (`~/omamobile-kernel/out-r8q-msi`); never reuse a Stage 3A artifact.
 
-**Artifacts (fill in when packed):**
-- `modules-<release>.tar.zst` — sha256 `TBD`
-- `recovery-modem-s4-msi.img` — sha256 `TBD`
+**Artifacts (packed 2026-11-17, laptop-only):**
+- `modules-7.3.0-rc6-omamobile-push1-g4d5ae30a8318-dirty.tar.zst` — sha256 `622b9c50…8bfe2af`
+- `recovery-modem-s4-msi.img` — sha256 `43f4c7b6…5a46ac7265` (79 MB, AVB-signed)
 
 ### Step 0 — read-only preflight (no approval needed)
 

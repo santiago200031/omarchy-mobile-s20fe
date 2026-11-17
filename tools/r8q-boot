@@ -21,9 +21,13 @@ usage() {
 Usage: tools/r8q-boot <command> [args]
 
 Commands:
-  pack [--dual-boot] [--overlay NAME]... [output_img]
+  pack [--dual-boot] [--overlay NAME]... [--rescue-test] [output_img]
                                    Pack header-v2 image (defaults to \$KERNEL_OUT/recovery-omamobile.img)
                                    Overlays come from device/r8q/overlays/<NAME>.dtso or R8Q_OVERLAYS=
+                                   --rescue-test: also stage the kernel modules, the
+                                   SDX55M BHI firmware (see R8Q_RESCUE_FW) and
+                                   pciutils into the initramfs, for SD-less
+                                   modem tests from the rescue shell
   verify [img]                     Inspect header, offsets, and sha256 of a packed image
   info                             Show target hardware offsets and live boot parameters
 EOF
@@ -46,7 +50,7 @@ EOF
 }
 
 cmd_pack() {
-  local dual_boot=0
+  local dual_boot=0 rescue_test=0
   local -a overlays=()
   local ov
   for ov in ${R8Q_OVERLAYS:-}; do
@@ -56,6 +60,10 @@ cmd_pack() {
     case "$1" in
       --dual-boot)
         dual_boot=1
+        shift
+        ;;
+      --rescue-test)
+        rescue_test=1
         shift
         ;;
       --overlay)
@@ -104,8 +112,10 @@ cmd_pack() {
   tar -xzf "$cache_dir/$tarball" -C "$stage/root"
 
   say "Fetching and staging packages (dropbear, kexec-tools, e2fsprogs)"
+  local pkgs="dropbear kexec-tools e2fsprogs e2fsprogs-extra"
+  ((rescue_test)) && pkgs="$pkgs pciutils"
   local apks
-  apks=$(python3 -I "$ROOT/tools/alpine-fetch.py" "$ver" "$cache_dir/apks" dropbear kexec-tools e2fsprogs e2fsprogs-extra) ||
+  apks=$(python3 -I "$ROOT/tools/alpine-fetch.py" "$ver" "$cache_dir/apks" $pkgs) ||
     die "alpine-fetch.py failed"
   for apk in $apks; do
     tar -xzf "$apk" -C "$stage/root" --exclude='.PKGINFO' --exclude='.SIGN.*' --exclude='.*.sh' 2>/dev/null || true
@@ -137,6 +147,28 @@ cmd_pack() {
   chmod 600 "$stage/root/etc/dropbear/authorized_keys" "$stage/root/root/.ssh/authorized_keys" 2>/dev/null || true
   # Allow passwordless root login as failsafe
   sed -i 's/^root:[^:]*:/root::/' "$stage/root/etc/shadow" 2>/dev/null || true
+
+  if ((rescue_test)); then
+    # SD-less modem test: kernel modules and the SDX55M BHI firmware live
+    # in the initramfs itself, so the rescue shell can insmod + bind with
+    # no SD card and no Arch root. Modules are insmodded by hand in
+    # dependency order (no depmod in the initramfs); the firmware files
+    # below are the phone's own, pulled read-only over SSH (Google files,
+    # never committed).
+    local mod_tar
+    mod_tar=$(ls -t "$KERNEL_OUT"/modules-*.tar.zst 2>/dev/null | head -1)
+    [[ -n ${mod_tar:-} ]] || die "--rescue-test needs a modules tarball in \$KERNEL_OUT (run bin/omamobile modules first)"
+    say "rescue-test: staging modules from $mod_tar"
+    mkdir -p "$stage/root/lib/modules"
+    tar -xzf "$mod_tar" -C "$stage/root/lib/modules" || die "unpacking $mod_tar failed"
+    local fw_dir="${R8Q_RESCUE_FW:-$HOME/omamobile-kernel/r8q-fw}"
+    for fw in sbl1.mbn sec.elf; do
+      [[ -f $fw_dir/$fw ]] || die "--rescue-test needs $fw_dir/$fw on the laptop"
+    done
+    say "rescue-test: staging sdx55m BHI firmware from $fw_dir"
+    mkdir -p "$stage/root/lib/firmware/qcom/sdx55m"
+    cp "$fw_dir"/sbl1.mbn "$fw_dir"/sec.elf "$stage/root/lib/firmware/qcom/sdx55m/"
+  fi
 
   # Build cpio ramdisk
   local ramdisk="$stage/initramfs.cpio.gz"

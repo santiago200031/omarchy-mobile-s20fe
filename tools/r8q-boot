@@ -200,7 +200,7 @@ cmd_pack() {
     dtbo_arg=(--recovery_dtbo "$KERNEL_OUT/recovery_dtbo.img")
   fi
 
-  local cmdline="console=tty0 console=ttyGS0 systemd.unit=multi-user.target consoleblank=0 clk_ignore_unused pd_ignore_unused mem_sleep_default=s2idle systemd.mask=sleep.target systemd.mask=suspend.target systemd.mask=hibernate.target systemd.mask=hybrid-sleep.target panic=10 softlockup_panic=1 rdinit=/init omamobile.ufs-probe"
+  local cmdline="console=tty0 console=ttyGS0 systemd.unit=multi-user.target consoleblank=0 clk_ignore_unused pd_ignore_unused mem_sleep_default=s2idle systemd.mask=sleep.target systemd.mask=suspend.target systemd.mask=hibernate.target systemd.mask=hybrid-sleep.target panic=10 softlockup_panic=1 rdinit=/init omamobile.ufs-probe irqchip.gicv3_pseudo_nmi=1"
   if [[ $dual_boot -eq 1 ]]; then
     cmdline="$cmdline omamobile.loop=${OMAMOBILE_LOOP:-/omarchy-r8q.img}"
   fi

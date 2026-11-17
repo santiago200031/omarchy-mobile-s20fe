@@ -241,3 +241,14 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   The fix programs the GIC hwirq, matching the downstream
   `pci-msm-msi` source. Phone powered off cleanly via SysRq; `sda24`
   still holds the trigger-test image, NV untouched.
+
+- **Stage 4 rescue: end-to-end MSI victory (`2026-11-17`).** With the
+  driver programming the GIC SPI hwirq as message data (downstream's
+  rule), the modem's own BHI interrupt arrived with zero manual
+  triggers: counts on BHI + event vectors, host EE SECONDARY
+  BOOTLOADER at M0, `mhi0_SAHARA` created, and `/dev/wwan0sahara0`
+  attached after `mhi_wwan_ctrl` (+ `wwan`, `gnss` deps) was insmodded.
+  No Python in rescue, so the Sahara download itself waits for healthy
+  storage. The storage halt stands independently: SD still suspect,
+  phone powered off via SysRq, `sda24` untouched since the rescue
+  flash, NV 15/15 `SAME` throughout.

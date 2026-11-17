@@ -729,6 +729,10 @@ Proven live from the rescue shell with a debugfs doorbell trigger:
 The endpoint's own MSI never arrived only because the running driver
 programmed data `0x0008` (truncated bank base) instead of `872+j`.
 `irqchip: qcom-pci-msi: program the GIC SPI hwirq as message data`
-(`60556001f`, committed, **not yet run**) programs exactly the proven
-value. The next bind with that driver should show real counts and the
-Sahara HELLO path with no manual trigger.
+programs exactly the proven value — and the retest with it (image
+`bcb62616…`, rescue shell, no manual trigger) showed unassisted counts
+on the BHI and event vectors, the host transition to SBL/M0, and
+`/dev/wwan0sahara0` attached (`port wwan0sahara0 attached`). MSI
+delivery is DONE. What remains is the Sahara firmware download, which
+needs Python and the full firmware set — i.e. healthy storage, not a
+rescue shell.

@@ -522,11 +522,14 @@ go.** The kernel is `r8q-modem-msi` (binding + driver, off `modem-stage2`
 
 **Artifacts (packed 2026-11-17, laptop-only):**
 - `modules-7.3.0-rc6-omamobile-push1-gff311d19e68f.tar.zst` — sha256 `35a5c87a…be5599464ab8`
-- `recovery-modem-s4-msi.img` — sha256 `b2d18af5…782e0039917` (79 MB, AVB-signed),
-  packed with `--dual-boot --overlay modem`.
-  (`43f4c7b6…` lacked those flags and booted to the rescue shell;
-  `2ca70c35…` oopsed in compose; `d12c1796…` programmed SPI numbers as MSI
-  data and saw zero interrupts. All discarded.)
+- `modules-7.3.0-rc6-omamobile-push1-gc3867f30962c.tar.zst` — sha256 `1e7c057d…0a705ef7b20a4a8`
+- `recovery-modem-s4-msi.img` — sha256 `cbd7c657…584c09c33c` (79 MB, AVB-signed),
+  packed with `--dual-boot --overlay modem`; MSI data is now the bank base
+  `0x10080000` ORed with the offset (stock names this bank
+  `0x10080000+i`).
+  (`43f4c7b6…` lacked the pack flags; `2ca70c35…` oopsed in compose;
+  `d12c1796…` used SPI numbers; `b2d18af5…` used bare offsets. Zero
+  interrupts on each. All discarded.)
 
 ### Step 0 — read-only preflight (no approval needed)
 

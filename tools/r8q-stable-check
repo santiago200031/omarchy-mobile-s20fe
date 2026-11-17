@@ -1,0 +1,202 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-stable-check: compare the packed image and/or the running phone with
+# the r8q stable baseline recorded in device/r8q/stable-image.conf.
+#
+# The baseline is the last kernel verified end-to-end on the reference phone
+# (camera-uw, 7.3.0-rc6-omamobile-push1-g3667ab368ef9). Every modem
+# experiment is packed from its own output tree, so the way back is always
+# this record: the same image bytes, the same release with its modules,
+# PCIe2 left disabled, no modem overlay, and no Sahara loader or driver
+# blacklist on the phone.
+#
+#   tools/r8q-stable-check                  check the local image and the phone
+#   tools/r8q-stable-check --image [IMG]    check a packed image only
+#                                           (default: the record's image)
+#   tools/r8q-stable-check --phone [HOST]   check the phone only
+#
+# Read-only: it writes nothing, changes no partition flag and starts no
+# driver. Exit status is 0 only when every check passes.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+# shellcheck disable=SC1091
+. "$ROOT/tools/r8q-common"
+# shellcheck disable=SC1091
+. "$ROOT/device/r8q/stable-image.conf"
+
+REMOTE=root@172.16.42.1
+KERNEL_BASE="${R8Q_KERNEL_BASE:-$HOME/omamobile-kernel}"
+MODE=all
+IMG=""
+fails=0
+
+# The same key the other r8q USB tools take, so the checker works from a
+# laptop that has not put it in ~/.ssh/config.
+SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
+if [[ -f $SSH_KEY ]]; then
+  R8Q_SSH+=(-i "$SSH_KEY" -o IdentitiesOnly=yes)
+fi
+
+usage() {
+  cat <<'EOF'
+Usage: tools/r8q-stable-check [--image [IMG]] [--phone [HOST]]
+
+  --image [IMG]   check a packed image only (default: the recorded one)
+  --phone [HOST]  check the phone only (default: root@172.16.42.1)
+  --help          this text
+
+With no option it checks the recorded image and the phone. The record is
+device/r8q/stable-image.conf; restore with tools/r8q-flash-recovery --stable.
+EOF
+}
+
+fail() { printf '\e[1;31m  ✘\e[0m %s\n' "$*"; fails=$((fails + 1)); }
+
+while (($#)); do
+  case $1 in
+    --image)
+      [[ $MODE == phone ]] && { usage >&2; die "--image and --phone are separate runs"; }
+      MODE=image
+      if [[ ${2:-} && $2 != --* ]]; then IMG=$2; shift; fi
+      ;;
+    --phone)
+      [[ $MODE == image ]] && { usage >&2; die "--image and --phone are separate runs"; }
+      MODE=phone
+      if [[ ${2:-} && $2 != --* ]]; then REMOTE=$2; shift; fi
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+check_image() {
+  local img="${IMG:-$KERNEL_BASE/$STABLE_OUT/$STABLE_IMAGE}" sha
+  say "Stable image: $img"
+  if [[ ! -f $img ]]; then
+    fail "image not found (expected the record's $STABLE_OUT/$STABLE_IMAGE)"
+    return
+  fi
+  sha=$(sha256sum "$img" | awk '{print $1}')
+  if [[ $sha == "$STABLE_SHA256" ]]; then
+    ok "${img##*/} is the recorded stable image"
+    ok "sha256 $sha"
+  else
+    fail "${img##*/} is not the recorded stable image"
+    printf '      have %s\n      want %s\n' "$sha" "$STABLE_SHA256"
+    printf '      a rebuild needs its own hardware pass, then a new record\n'
+  fi
+}
+
+check_phone() {
+  local tmp line key
+  say "Phone: $REMOTE (release $STABLE_RELEASE)"
+  r8q_wait "$REMOTE" 15 2 || { fail "phone did not answer at $REMOTE (USB up?)"; return; }
+
+  tmp=$(mktemp)
+  # shellcheck disable=SC2086
+  if ! ssh "${R8Q_SSH[@]:1}" "$REMOTE" \
+    "RELEASE=$STABLE_RELEASE SHA=$STABLE_SHA256 PART=$STABLE_PARTITION bash -s" \
+    >"$tmp" <<'REMOTE_EOF'
+set -u
+
+rel=$(uname -r)
+if [ "$rel" = "$RELEASE" ]; then echo "release=PASS:$rel"; else echo "release=FAIL:$rel"; fi
+
+if [ -b "$PART" ]; then
+  sha=$(sha256sum "$PART" | cut -c1-64)
+  if [ "$sha" = "$SHA" ]; then echo "partition=PASS:$PART holds the stable image"; else echo "partition=FAIL:$PART holds $sha"; fi
+else
+  echo "partition=FAIL:$PART not present"
+fi
+
+if command -v r8q-preflight >/dev/null 2>&1; then
+  j=$(r8q-preflight --json 2>/dev/null || true)
+  case $j in
+    *'"ufs_guard":{"ok":true'*)
+      d=$(printf '%s\n' "$j" | sed -n 's/.*"ufs_guard":{"ok":true,"detail":"\([^"]*\)".*/\1/p')
+      echo "guard=PASS:${d:-ok}" ;;
+    *) echo "guard=FAIL:r8q-preflight --json" ;;
+  esac
+else
+  n=0; on=0
+  for f in /sys/block/sd*/sd*/ro; do
+    [ -e "$f" ] || continue
+    n=$((n + 1))
+    [ "$(cat "$f")" = 1 ] && on=$((on + 1))
+  done
+  if [ "$n" -gt 0 ] && [ "$on" = "$n" ]; then
+    echo "guard=PASS:$on/$n UFS partitions read-only"
+  else
+    echo "guard=FAIL:$on/$n UFS partitions read-only"
+  fi
+fi
+
+src=$(findmnt -no SOURCE / 2>/dev/null || true)
+opts=$(findmnt -no OPTIONS / 2>/dev/null || true)
+case ",$opts," in
+  *,rw,*) echo "root=PASS:$src rw" ;;
+  *) echo "root=FAIL:$src $opts" ;;
+esac
+
+for node in "pcie2:pcie@1c10000" "pcie2phy:phy@1c16000"; do
+  key=${node%%:*}
+  p="/proc/device-tree/soc@0/${node#*:}/status"
+  if [ -e "$p" ]; then
+    v=$(tr -d '\000' < "$p")
+    if [ "$v" = disabled ]; then echo "$key=PASS:disabled"; else echo "$key=FAIL:$v"; fi
+  else
+    echo "$key=FAIL:no $p"
+  fi
+done
+
+bound=""
+for d in /sys/bus/pci/drivers/mhi_pci_generic/0*; do
+  [ -e "$d/vendor" ] || continue
+  case "$(cat "$d/vendor"):$(cat "$d/device")" in
+    0x17cb:0x0306|0x17cb:0x010c) bound="$bound $(basename "$d")" ;;
+  esac
+done
+if [ -z "$bound" ]; then echo "modem=PASS:no SDX55M on mhi_pci_generic"; else echo "modem=FAIL:bound:$bound"; fi
+
+left=""
+[ -e /etc/modprobe.d/omamobile-r8q-sahara-bringup.conf ] && left="${left:+$left }blacklist"
+[ -e /usr/local/bin/r8q-sahara ] && left="${left:+$left }r8q-sahara"
+if [ -z "$left" ]; then echo "leftovers=PASS:none"; else echo "leftovers=FAIL:$left"; fi
+
+if [ -d "/usr/lib/modules/$RELEASE" ]; then
+  echo "modules=PASS:/usr/lib/modules/$RELEASE"
+else
+  echo "modules=FAIL:/usr/lib/modules/$RELEASE missing"
+fi
+REMOTE_EOF
+  then
+    rm -f "$tmp"
+    fail "the check script did not finish on the phone"
+    return
+  fi
+
+  while IFS= read -r line; do
+    key=${line%%=*}
+    case $line in
+      *=PASS:*) ok "$key: ${line#*=PASS:}" ;;
+      *=FAIL:*) fail "$key: ${line#*=FAIL:}" ;;
+      *) fail "unexpected answer: $line" ;;
+    esac
+  done <"$tmp"
+  rm -f "$tmp"
+}
+
+if [[ $MODE != phone ]]; then check_image; fi
+if [[ $MODE != image ]]; then check_phone; fi
+
+if ((fails)); then
+  printf '\n\e[1;31m%s check(s) failed\e[0m\n' "$fails" >&2
+  exit 1
+fi
+case $MODE in
+  image) say "The image matches the recorded stable baseline." ;;
+  phone) say "The phone matches the recorded stable baseline." ;;
+  *) say "The image and the phone match the recorded stable baseline." ;;
+esac

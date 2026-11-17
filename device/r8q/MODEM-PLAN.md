@@ -2,7 +2,7 @@
 
 # Modem & Cellular — Samsung Galaxy S20 FE (r8q)
 
-**Status:** Phase 1 PASS; Phase 2 first run stalled (device stayed in PRIMARY BOOTLOADER, no SAHARA channel). Stage 3A (PCIe2 MSI-in-IOMMU, kernel `modem-stage3`) **failed unsafely on 2026-11-17**: the phone reset as soon as `mhi_pci_generic` powered the modem on, before any SBL/Sahara transition. Phone recovered, root clean, guard ok, NV 15/15 `SAME`; the driver stays blacklisted. See §8 results.
+**Status:** Phase 1 PASS; Phase 2 first run stalled (device stayed in PRIMARY BOOTLOADER, no SAHARA channel). Stage 3A (PCIe2 MSI-in-IOMMU, kernel `modem-stage3`) **failed unsafely on 2026-11-17**: the phone reset as soon as `mhi_pci_generic` powered the modem on, before any SBL/Sahara transition. Phone recovered, root clean, guard ok, NV 15/15 `SAME`; the driver stays blacklisted. See §8 results. **Parked:** the phone is back on the recorded stable image ([stable-image.conf](stable-image.conf), restored 2026-11-17) and the temporary blacklist and loader are removed; modem work resumes only with a different MSI/IOMMU or MHI design agreed first.
 **Safety:** All 77 UFS partitions read-only (`ro=1`); single-slot recovery boot (`sda24`) leaves LineageOS untouched; 15/15 NV partitions match the full off-repo backup
 **Last Updated:** 2026-11-17
 
@@ -300,7 +300,7 @@ The runbook was run with the owner's go. Steps 0-2 passed:
 
 - preflight: guard `77 UFS partitions read-only`, NV 15/15 `SAME`, root `rw`, image `19a203d7…`.
 - modules installed for `g5be4efd5e298`.
-- `sda24` written, read back `19a203d7…`, and left `ro=1` (`/sys/block/sda/sda24/ro`); the tool's own status echo used `/sys/block/sda24/ro`, which is why it printed an empty value after the write.
+- `sda24` written, read back `19a203d7…`, and left `ro=1` (`/sys/block/sda/sda24/ro`); the tool's own status echo then used `/sys/block/sda24/ro`, which is not a path, so it printed an empty value after the write (fixed 2026-11-17: the echo now uses `/sys/block/sda/sda24/ro`).
 
 **Result — the phone reset.** With the loader waiting on `/dev/wwan0sahara0`, `modprobe mhi_pci_generic` printed `MHI PCI device found: qcom-sdx55m` and `mhi mhi1: Power on setup success`, and the SSH connection was reset at once. The host watcher saw the USB gadget disappear and the phone come back as a fresh boot; the device never printed `Wait for device to enter SBL or Mission mode` and no SAHARA port appeared. So the PCIe2 MSI change did not produce a usable SBL transition: the machine went down at (or immediately after) MHI power-on.
 
@@ -314,3 +314,5 @@ The runbook was run with the owner's go. Steps 0-2 passed:
 A softdog/`softlockup_panic` reset after a hang fits the observed delay as well as an immediate abort does; the log ends at power-on either way, so the mechanism is not yet proven.
 
 **Do not repeat this test as-is.** Any kernel carrying `5be4efd5e` resets the phone when `mhi_pci_generic` binds. Keep the bringup blacklist in place (`/etc/modprobe.d/omamobile-r8q-sahara-bringup.conf`) until a different approach is agreed. The next step is offline: compare the endpoint's SMMU stream IDs and the MSI/IOMMU domain flags against the reference port, and decide whether to (a) drop the MSI change and go back to the "no event interrupt" stall, or (b) build a diagnostic kernel that maps the MSI at probe and reads back the SMMU fault state, under a dead-man switch.
+
+**Way back (2026-11-17).** `device/r8q/stable-image.conf` pins the image that was verified end-to-end before this work (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`, sha256 `66fe127f…d8503`, packed `--dual-boot --overlay camera-uw`). `tools/r8q-flash-recovery --stable` writes those exact bytes to `sda24` and refuses a rebuild that no longer hashes to the record; `--dry-run` stops after the checks. The phone was restored with it after Stage 3A: `sda24` read back the same sha256 and stayed `ro=1`, the next boot reported the recorded release, the temporary blacklist and `/usr/local/bin/r8q-sahara` were removed, and `tools/r8q-stable-check` passed every check (release, `sda24`, 77/77 `ro=1`, root `rw`, PCIe2/PHY `disabled`, no SDX55M on `mhi_pci_generic`, modules present). Restore the same record after any further experiment; a rebuilt kernel needs its own hardware pass and a new record, never a silent replacement of this one.

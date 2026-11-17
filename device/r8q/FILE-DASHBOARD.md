@@ -3,11 +3,35 @@
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (`camera-uw-wip` — display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q`, SLPI sensors, VolUp, pseudo-NMI, HI-847 tele, and S5K3L6 ultrawide verified on hardware)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (`camera-uw-wip` — display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q`, SLPI sensors, VolUp, pseudo-NMI, HI-847 tele, and S5K3L6 ultrawide verified on hardware; restored 2026-11-17 after the SDX55M Stage 3A experiment and pinned in `stable-image.conf`)
 **Kernel Branch:** `camera-uw-wip` (`3667ab368` on `omamobile-r8q-signed`; booted & verified on `sda24` with `--overlay camera-uw`)
 **Device Package:** `omamobile-device-r8q` `0.1.25` (with `zram-generator` `2.7 GiB zstd`) + `hexagonrpc` `0.5.0-2` + `libcamera 0.7.2-4.25` (installed & verified on phone)
 **Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
 **Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
+
+---
+
+## Stable Baseline (Rollback Target)
+
+`device/r8q/stable-image.conf` records the last image verified end-to-end on the phone. Every modem experiment is packed from its own output tree; afterwards the phone goes back to these exact bytes, never to a rebuild.
+
+| Fact | Value |
+| --- | --- |
+| Release | `7.3.0-rc6-omamobile-push1-g3667ab368ef9` |
+| Image | `~/omamobile-kernel/out-r8q-uw/recovery-cam-uw.img` |
+| sha256 | `66fe127ffd9345e7913aec5eac8a02de0da44bfdbe15987abff1cb61b26d8503` |
+| Packed with | `tools/r8q-boot pack --dual-boot --overlay camera-uw` |
+| Partition | `sda24` (`recovery`) |
+| Modem | PCIe2 and its PHY `disabled` in the packed DTB, no `modem` overlay, no Sahara loader or blacklist |
+
+```sh
+tools/r8q-stable-check --image      # the recorded image still hashes
+tools/r8q-stable-check --phone      # the phone runs it, PCIe2 off, no bring-up leftovers
+tools/r8q-flash-recovery --stable --dry-run
+tools/r8q-flash-recovery --stable   # write it; the human's go
+```
+
+Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matched the record, `sda24` read back the same sha256, 77/77 UFS partitions `ro=1`, root `rw`, PCIe2 and its PHY `disabled`, no SDX55M on `mhi_pci_generic`, and the modules for the release present. `tools/phone-smoke` reports only the two r8q differences a generic test cannot know: the root is on `/dev/loop0` (the SD-card image, not `userdata`), and boot-time messages (`ufshcd` WriteBooster query, DSI PLL retries) with the storage mounted and the display working.
 
 ---
 
@@ -88,7 +112,7 @@
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | ⏳ Stage 1 PASS / Stage 2 prepared | `pcie2` Gen.3 x2 link up, SDX55M `[17cb:0306]`/`[17cb:010c]` bound to `mhi-pci-generic` (`mhi0`); `modem-stage2` kernel + modules + `recovery-modem-s2.img` built, `tools/r8q-sahara` dry-run passed, `nv-backup-20261117-full` 15/15 `SAME`; awaiting approval for writes and the attended Sahara run |
+| Modem/cellular | ⏸ Parked | Stage 1 PASS, Stage 3A reset the phone at MHI power-on (kernel `5be4efd5e`, not to be repeated as-is); the phone is back on the recorded stable image (`stable-image.conf`), `tools/r8q-stable-check` passes, and the driver blacklist and Sahara loader are gone. Resume only with a different MSI/IOMMU or MHI design agreed first (`MODEM-PLAN.md` §8) |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)

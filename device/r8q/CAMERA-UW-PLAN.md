@@ -3,59 +3,66 @@
 # Ultrawide Camera Bring-Up — Samsung Galaxy S20 FE (r8q)
 
 **Sensor:** Samsung S5K3L6 (rear ultrawide, cell 2)
-**Status:** Research phase; no mainline sensor driver in kernel tree
+**Status:** Stock DT wiring extracted (`live.dts`); no mainline sensor driver in kernel tree
 **Last Updated:** 2026-11-17
 
 ---
 
-## 1. Sensor Details (from `device/r8q/CAMERA-PLAN.md`)
+## 1. Verified Hardware Details (`live.dts` `qcom,cam-sensor2`)
 
 | Property | Value |
 |----------|-------|
-| Role | Rear ultrawide (cell 2) |
+| Role | Rear ultrawide (`cell-index = <2>`) |
 | Model | Samsung S5K3L6 (12 MP) |
-| Control bus | QUP I2C2 (vendor `qupv3_se2`, GPIO115/116) |
-| I2C Address (7-bit) | `0x2d` (stock DT 8-bit `slave-addr = 0x5A`) |
-| CSI-PHY | CSIPHY1 |
-| MCLK | MCLK1, 19.2 MHz |
-| Mainline driver | None (must be written / ported cleanly as an upstream-style V4L2 subdev driver) |
+| Control bus | Mainline `&i2c2` (`i2c@988000`, stock `qupv3_se2_i2c`, `GPIO 115`/`116` `qup2`) |
+| I2C Address (7-bit) | `0x2d` (stock DT `slave-addr = <0x5a>`) |
+| CSI-PHY | CSIPHY1 (`csiphy-sd-index = <1>`) |
+| MCLK | `CAM_CC_MCLK1_CLK` (`TLMM GPIO 95`, `19.2 MHz` / `0x124f800`) |
+| Reset GPIO | `TLMM GPIO 125` (`RCAM2_RST_N`) |
+| LDO Enable GPIO | `TLMM GPIO 33` (`RCAM2_LDO_EN`) |
+| Power & Domain | `vddio` = `vreg_l7c_1p8` (`1.8 V`); `power-domains = <&camcc TITAN_TOP_GDSC>` |
+| Orientation / Roll | `yaw = 180` (`orientation = <1>` Back), `roll = 90` (check `270` matching HI-847) |
+| Mainline driver | None yet (must be implemented cleanly as an upstream-style V4L2 subdev driver) |
 
 ---
 
 ## 2. Current State
 
-- `camcc_sm8250`, `qcom_camss`, and `hi847` are proven working on hardware (`camera-wip` `7ca90963c`, telephoto HI-847 streaming 3264×2448 in `omacam`).
-- `device/r8q/overlays/camera.dtso` only enables `camss` (currently wired for CSIPHY2/HI-847), `i2c10`, and `hi847`; it does **not** yet enable QUP I2C2, CSIPHY1, MCLK1, or S5K3L6.
-- Because S5K3L6 sits on a QUP I2C bus (like HI-847 on QUP I2C10), the `CAMERA-PLAN.md` findings apply: exact stock `CAM_VIO` / analog / digital rail mapping, GPIO mux/reset/power-enable sequencing, runtime PM before `clk_prepare_enable()` on `MCLK1`, `TITAN_TOP_GDSC` power domain, and 0-based `data-lanes` + `MEDIA_BUS_TYPE_CSI2_DPHY` on `csiphy1_ep` all need verification against stock DT.
+- `camcc_sm8250`, `qcom_camss`, and `hi847` are verified working on hardware (`fold-overlay-dt` `f3a5609d1`, telephoto HI-847 streaming `3256x2448` in `omacam`).
+- `device/r8q/overlays/camera.dtso` only enables `camss` (currently wired for CSIPHY2/HI-847), `i2c10`, and `hi847`; QUP `&i2c2`, CSIPHY1 (`&camss` `port@1`), MCLK1, and S5K3L6 are not wired yet.
+- Applying lessons from HI-847 (`device/r8q/CAMERA-PLAN.md`):
+  - `TITAN_TOP_GDSC` power-domain + runtime PM active before `clk_prepare_enable()` on `MCLK1`.
+  - Exact `vreg_l7c_1p8` (`CAM_VIO`) + `GPIO 33` (`ldo-enable`) + `GPIO 125` (`reset`) sequencing.
+  - 0-based `data-lanes` + `MEDIA_BUS_TYPE_CSI2_DPHY` on `csiphy1` endpoint; accurate `.llp` / `HBLANK` / `pixel_rate` / `get_selection()` / `v4l2_fwnode_device_properties`.
 
 ---
 
 ## 3. Phased Bring-Up Plan
 
-### 3.1 Phase 1: Stock DT Extraction &DT Node (Isolated Overlay)
+### 3.1 Phase 1: Isolated DT Overlay (`&i2c2`, `CSIPHY1`, `MCLK1`, `s5k3l6: camera@2d`)
 
-1. Extract exact S5K3L6 properties from local vendor `live.dts` (never commit vendor dumps): I2C2 SE address, GPIO115/116 pinctrl, reset/LDO-enable GPIOs and polarities, `vreg_*` rail mapping, CSIPHY1 lane polarity/count, and link frequencies.
-2. Add the QUP I2C2 / CSIPHY1 / MCLK1 pinctrl and disabled `s5k3l6: camera@2d` node to `sm8250-samsung-r8q.dts` (or keep isolated in `device/r8q/overlays/camera-uw.dtso` until probed).
+1. Add `cam_mclk1_default` (`gpio95`), `cam_uw_active` (`gpio33`, `gpio125`), and a disabled `s5k3l6: camera@2d` node under `&i2c2` + `port@1` under `&camss` in `sm8250-samsung-r8q.dts` (kept `disabled` until driver probe succeeds via overlay).
+2. Confirm `&i2c2` (`988000.i2c`) has clean `qup_i2c2_default` pinmux (`gpio115`, `gpio116`) with no conflicts against UART/SPI aliases.
 
 ### 3.2 Phase 2: Driver Implementation (`drivers/media/i2c/s5k3l6.c` + Binding)
 
-1. Implement a clean GPL-2.0 V4L2 subdev sensor driver (runtime PM, DT rails/GPIOs/clocks, `get_selection`, `v4l2_fwnode_device_properties` for orientation/rotation, V4L2 CID controls for HBLANK/VBLANK/exposure/analogue gain matching `libcamera`).
+1. Implement a clean GPL-2.0 V4L2 subdev sensor driver (runtime PM, `vddio` / LDO enable / reset / MCLK1, `get_selection`, `v4l2_fwnode_device_properties`, `HBLANK`/`VBLANK`/exposure/analogue gain controls for `libcamera`).
 2. Add YAML DT binding under `Documentation/devicetree/bindings/media/i2c/` and validate with `tools/kernel-pr-check --build`.
 
 ### 3.3 Phase 3: Hardware Probe & I2C Identification (Attended)
 
 ```bash
-# Resolve dynamic Linux i2c bus number for QUP2 (do not hardcode i2c-2)
+# Resolve dynamic Linux i2c bus number for 988000.i2c (do not hardcode i2c-2)
 tools/phone-ssh 'grep -H "" /sys/bus/i2c/devices/i2c-*/name'
 ```
 
-1. Probe with `dmesg -w` streaming over USB first; confirm chip ID read at `0x2d` succeeds with zero I2C timeouts or RPMh stalls.
-2. Verify `media-ctl -p` shows `s5k3l6 -> csiphy1 -> csid* -> vfe*` links cleanly.
+1. Stream `dmesg -w` over USB first; verify chip ID read at `0x2d` succeeds with zero QUP I2C timeouts or RPMh stalls.
+2. Verify `media-ctl -p` shows `s5k3l6 -> csiphy1 -> csid* -> vfe*` links cleanly alongside `hi847`.
 
 ### 3.4 Phase 4: Raw V4L2 Capture & `libcamera` Integration
 
 1. Capture raw Bayer frames with `v4l2-ctl` / `media-ctl`.
-2. Add `CameraSensorHelperS5k3l6` and tuning stub in `packages/libcamera` if not already recognized, and verify in `omacam`.
+2. Add `CameraSensorHelperS5k3l6` / tuning stub in `packages/libcamera` if needed, and verify in `omacam`.
 
 ---
 
@@ -63,10 +70,11 @@ tools/phone-ssh 'grep -H "" /sys/bus/i2c/devices/i2c-*/name'
 
 | Property | HI-847 (Tele, Verified) | S5K3L6 (Ultrawide, Pending) |
 |----------|-------------------------|-----------------------------|
-| Control bus | QUP I2C10 (GPIO129/130) | QUP I2C2 (GPIO115/116) |
+| Control bus | `&i2c10` (`a88000.i2c`, GPIO 129/130) | `&i2c2` (`988000.i2c`, GPIO 115/116) |
 | 7-bit I2C addr | `0x21` | `0x2d` |
 | CSI-PHY | CSIPHY2 | CSIPHY1 |
-| MCLK | MCLK3 (19.2 MHz) | MCLK1 (19.2 MHz) |
+| MCLK | MCLK3 (GPIO 97, 19.2 MHz) | MCLK1 (GPIO 95, 19.2 MHz) |
+| Reset / LDO GPIO | GPIO 78 / GPIO 135 | GPIO 125 / GPIO 33 |
 | Driver status | ✅ `hi847.c` working | ❌ No mainline driver yet |
 
 ---

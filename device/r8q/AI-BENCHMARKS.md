@@ -1,63 +1,35 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# On-Device AI Benchmarks — Samsung Galaxy S20 FE (r8q)
+# On-Device AI & Accelerator Probe — Samsung Galaxy S20 FE (r8q)
 
-**Status:** Pending GPU devfreq tuning & benchmark execution
+**Status:** GPU Vulkan 1.3 + 587 MHz scaling + CPU `LFM3-1.7B` baseline verified (`2026-11-17`); Vulkan LLM build optional
 **Last Updated:** 2026-11-17
 
 ---
 
-## 1. Hardware Context
+## 1. Verified Accelerator & Runtime State (`2026-11-17`, `gf3a5609d121b`)
 
-| Component | Details |
-|-----------|---------|
-| SoC | Qualcomm Snapdragon 865 (SM8250) |
-| GPU | Adreno 650 (`3d00000.gpu`, Freedreno) |
-| Live GPU devfreq (`2026-11-17`) | `cur_freq=305000000`, `governor=simple_ondemand`, `available_frequencies=305000000 400000000 441600000 490000000 525000000 587000000` |
-| Remoteprocs (`2026-11-17`) | `slpi` (sensors), `cdsp` (compute DSP), `adsp` (audio DSP) — all `running` |
+| Accelerator / Runtime | Status | Verified Details |
+|---|---|---|
+| **Adreno 650 GPU (`3d00000.gpu`)** | ✅ Usable | `Turnip Adreno (TM) 650` (`0x5143:0x6050002`), **Vulkan 1.3.354**, 4160.0 MiB `DEVICE_LOCAL` heap, compute subgroup `128`, `shaderFloat16=1`, `shaderInt8=1`. |
+| **GPU Devfreq (`simple_ondemand`)** | ✅ Tested up to 587 MHz | [80-r8q-gpu.rules](../../packages/omamobile-device-r8q/80-r8q-gpu.rules) caps `max_freq=305000000` at boot. Transient Vulkan FP32 FMA benchmark measured **`127.6 GFLOP/s` (`0.168 s`) at `305 MHz`** vs **`245.3 GFLOP/s` (`0.088 s`, 1.92×) at `587 MHz`** with zero GMU/RPMh/GPU errors. |
+| **Dedicated NPU (`npu@9910000`)** | ❌ Not usable | Mainline Linux has no Qualcomm SM8250 NPU kernel driver (`npu_mem` is deleted in `sm8250-samsung-common.dtsi`). |
+| **Hexagon CDSP (`8300000.remoteproc`)** | ⏳ HW live, userspace missing | `remoteproc1` (`cdsp.mbn`) running; `/dev/fastrpc-cdsp` `GET_DSP_INFO` reports **Hexagon v66 (`0x8f66`)**, **`UNSIGNED_PD_SUPPORT=1`**, **`4× 128B HVX`**, **`256 KiB VTCM`** (`HMX=0`). No `libcdsprpc.so` or Hexagon v66 ELF runtime staged yet. |
+| **`omamobile-ai` (`:8080`, CPU)** | ✅ Baseline measured | `LFM3-1.7B-Q4_K_M.gguf` (`1.1G`, `THREADS=3`, `CPU_AFFINITY=4-6`, `GPU_LAYERS=0`): **`15.34 tok/s` prompt / `11.24 tok/s` generation**. Installed `/usr/local/bin/llama-server` is CPU-only (`--list-devices`: `(none)`). |
 
 ---
 
 ## 2. Existing On-Device AI Tooling in This Repo
 
 - `tools/r8q-ai`: On-demand local AI controller over USB SSH (`172.16.42.1`).
-  Supported subcommands: `status`, `models`, `select <model.gguf>`, `query "<prompt>"`, `ask "<prompt>"`, `stop`, `install`, `push-model <local.gguf>`.
-- `packages/omamobile-device-r8q/rust/ai-server/`: On-device AI server package source.
-- `packages/hexagonrpc`: SLPI FastRPC reverse-tunnel daemon (`hexagonrpc` `0.5.0-2` installed for SLPI sensors).
+  Subcommands: `status`, `models`, `select <model.gguf>`, `query "<prompt>"`, `ask "<prompt>"`, `stop`, `install`, `push-model <local.gguf>`.
+- `omamobile-ai` (`0.1.0-1` on `omamobile-ai` branch): Lazy-spawning supervisor on `:8080` configured via `/etc/omamobile-ai.conf`.
+- `packages/omamobile-device-r8q/rust/ai-server/`: Stats stub (`18081`).
 
 ---
 
-## 3. Benchmark & Validation Plan
+## 3. Optional Future Work
 
-### 3.1 Pre-Flight Check (Read-Only)
-
-```bash
-# Check remoteproc states
-tools/phone-ssh 'for r in /sys/class/remoteproc/remoteproc*; do echo "$(basename $r): $(cat $r/name) = $(cat $r/state)"; done'
-
-# Check GPU devfreq and render node
-tools/phone-ssh 'ls -la /dev/dri/renderD128 && cat /sys/class/devfreq/3d00000.gpu/{cur_freq,available_frequencies,governor}'
-
-# Check battery status (r8q fuel gauge is max170xx_battery, not BAT0)
-tools/phone-ssh 'cat /sys/class/power_supply/max170xx_battery/{capacity,status,voltage_now}'
-
-# Check on-device AI setup
-tools/r8q-ai status
-```
-
-### 3.2 Benchmark Items Pending
-
-1. **Freedreno / Adreno 650 devfreq scaling:** Confirm `3d00000.gpu` scales cleanly across `305000000..587000000` Hz under load without GPU hangchecks or RPMh timeouts.
-2. **GGML Vulkan vs CPU inference (`LFM3-1.7B` / local GGUF via `tools/r8q-ai`):** Push a test model with `tools/r8q-ai push-model <model.gguf>`, measure tok/s on CPU and Vulkan (`vulkaninfo`), and watch `dmesg` for GPU/RPMh errors.
-3. **Adreno SoftISP GPU path (`libcamera`):** Re-test removing `LIBCAMERA_SOFTISP_MODE=cpu` (`packages/omamobile-device-r8q/70-r8q-libcamera.conf`) only if the `SWIspWorker` GPU hangcheck lockup is resolved cleanly.
-
----
-
-## 4. Status
-
-| Item | Status | Notes |
-|------|--------|-------|
-| `tools/r8q-ai` + `ai-server` | ✅ In repo | Not yet benchmarked with a model on r8q |
-| Adreno 650 devfreq perf tuning | ⏳ Pending | Currently resting at 305 MHz (`simple_ondemand`) |
-| `GGML_VULKAN` + CPU `LFM3-1.7B` run | ⏳ Pending | Needs M2.7 soak clean first |
-| `libcamera` EGL debayering | 🔴 Blocked | Hits `SWIspWorker` GPU hangcheck; CPU SoftISP active |
+1. **Vulkan LLM (`GGML_VULKAN=ON`) & `587 MHz` GPU rule:** Install `extra/vulkan-headers` (`shaderc` and `vulkan-freedreno` are already installed), build `llama.cpp` with `-DGGML_VULKAN=ON`, uncap `80-r8q-gpu.rules` `max_freq` from `305000000` to `587000000`, and re-benchmark `LFM3-1.7B` vs `11.24 tok/s` CPU.
+2. **Adreno `libcamera` SoftISP (`debayer_egl`):** Re-test removing `LIBCAMERA_SOFTISP_MODE=cpu` (`packages/omamobile-device-r8q/70-r8q-libcamera.conf`) against `587 MHz` / `SWIspWorker` hangcheck debugging.
+3. **Hexagon CDSP Compute:** Stage `libcdsprpc` + Hexagon v66 HVX runtime/kernel ELF (`UNSIGNED_PD_SUPPORT=1`) if offloading quantized ops to CDSP.

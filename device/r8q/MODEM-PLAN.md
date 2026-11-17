@@ -521,12 +521,12 @@ go.** The kernel is `r8q-modem-msi` (binding + driver, off `modem-stage2`
 (`~/omamobile-kernel/out-r8q-msi`); never reuse a Stage 3A artifact.
 
 **Artifacts (packed 2026-11-17, laptop-only):**
-- `modules-7.3.0-rc6-omamobile-push1-gaafa78617e1a.tar.zst` — sha256 `7786ca59…6ccb4791`
-- `recovery-modem-s4-msi.img` — sha256 `d12c1796…157b15152a` (79 MB, AVB-signed),
-  packed with `--dual-boot --overlay modem`. The image DTB was checked
-  offline: `&pcie2` is `okay` with `msi-parent` (same overlay as before).
+- `modules-7.3.0-rc6-omamobile-push1-gff311d19e68f.tar.zst` — sha256 `35a5c87a…be5599464ab8`
+- `recovery-modem-s4-msi.img` — sha256 `b2d18af5…782e0039917` (79 MB, AVB-signed),
+  packed with `--dual-boot --overlay modem`.
   (`43f4c7b6…` lacked those flags and booted to the rescue shell;
-  `2ca70c35…` ran but carried the compose NULL-deref below. Both discarded.)
+  `2ca70c35…` oopsed in compose; `d12c1796…` programmed SPI numbers as MSI
+  data and saw zero interrupts. All discarded.)
 
 ### Step 0 — read-only preflight (no approval needed)
 

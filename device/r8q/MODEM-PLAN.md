@@ -2,7 +2,7 @@
 
 # Modem & Cellular — Samsung Galaxy S20 FE (r8q)
 
-**Status:** Phase 1 PASS; Phase 2 first run stalled (device stayed in PRIMARY BOOTLOADER, no SAHARA channel; recovered cleanly, NV 15/15 safe). Stage 3A prepared offline: a PCIe2 MSI-in-IOMMU fix on kernel `modem-stage3`, built and `kernel-pr-check` clean, awaiting the human's go to flash and test.
+**Status:** Phase 1 PASS; Phase 2 first run stalled (device stayed in PRIMARY BOOTLOADER, no SAHARA channel). Stage 3A (PCIe2 MSI-in-IOMMU, kernel `modem-stage3`) **failed unsafely on 2026-11-17**: the phone reset as soon as `mhi_pci_generic` powered the modem on, before any SBL/Sahara transition. Phone recovered, root clean, guard ok, NV 15/15 `SAME`; the driver stays blacklisted. See §8 results.
 **Safety:** All 77 UFS partitions read-only (`ro=1`); single-slot recovery boot (`sda24`) leaves LineageOS untouched; 15/15 NV partitions match the full off-repo backup
 **Last Updated:** 2026-11-17
 
@@ -293,3 +293,24 @@ OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'modprobe mhi_pci
 - **Expect / Pass:** `MHI PCI device found: qcom-sdx55m`; `mhi1` reaches `EE: SECONDARY_BOOTLOADER` (or beyond) instead of staying in PRIMARY BOOTLOADER; `/dev/wwan0sahara0` appears; the loader logs `HELLO` and the first `READ_DATA` image IDs. Check `dmesg | grep -iE "mhi|sahara|iommu"` and `/proc/interrupts | grep -i mhi` to confirm the MHI event IRQs now increment.
 - **Stop condition:** the device still reads PRIMARY BOOTLOADER after the MSI fix, or no event interrupts appear; any `I/O error`/`emergency_ro` on the root filesystem; a request for a cross-platform image ID (28/30/31/37).
 - **Rollback:** unbind/remove the module, remove the bringup blacklist, re-check the 15-partition backup. **Risk:** low to the phone; the root image is on the SD card, so keep journald quiet and stop on any storage error.
+
+### Stage 3A results — 2026-11-17 (kernel `7.3.0-rc6-omamobile-push1-g5be4efd5e298`)
+
+The runbook was run with the owner's go. Steps 0-2 passed:
+
+- preflight: guard `77 UFS partitions read-only`, NV 15/15 `SAME`, root `rw`, image `19a203d7…`.
+- modules installed for `g5be4efd5e298`.
+- `sda24` written, read back `19a203d7…`, and left `ro=1` (`/sys/block/sda/sda24/ro`); the tool's own status echo used `/sys/block/sda24/ro`, which is why it printed an empty value after the write.
+
+**Result — the phone reset.** With the loader waiting on `/dev/wwan0sahara0`, `modprobe mhi_pci_generic` printed `MHI PCI device found: qcom-sdx55m` and `mhi mhi1: Power on setup success`, and the SSH connection was reset at once. The host watcher saw the USB gadget disappear and the phone come back as a fresh boot; the device never printed `Wait for device to enter SBL or Mission mode` and no SAHARA port appeared. So the PCIe2 MSI change did not produce a usable SBL transition: the machine went down at (or immediately after) MHI power-on.
+
+**Recovery.** The first boot after the reset did not detect the SD card that holds `/omarchy-r8q.img` (`omamobile: loop: /dev/mmcblk0p1 not present`; the initramfs held in its rescue shell). A host-side `sdhci_msm` unbind/bind attempt did not answer and the phone reset again; the next boot enumerated `/dev/mmcblk0p1` and mounted the root image cleanly (no ext4 recovery errors). After that: guard ok, NV 15/15 `SAME` (`param` differs as expected after a flash), modem driver not loaded, and `/` mounted `rw`.
+
+**Reading.** The patch is line-for-line the approach used on another SM8250/SDX55M port, so the difference is likely in this base or this device's PCIe2/IOMMU wiring rather than in the idea. Two candidates to check before another attempt:
+
+1. the MSI IOVA is not in the endpoint's SMMU context (different stream ID for MSI than for DMA), so the first MSI write faults and the abort takes the SoC down;
+2. the write is translated to cfg0 but the RC does not terminate it there, with the same outcome.
+
+A softdog/`softlockup_panic` reset after a hang fits the observed delay as well as an immediate abort does; the log ends at power-on either way, so the mechanism is not yet proven.
+
+**Do not repeat this test as-is.** Any kernel carrying `5be4efd5e` resets the phone when `mhi_pci_generic` binds. Keep the bringup blacklist in place (`/etc/modprobe.d/omamobile-r8q-sahara-bringup.conf`) until a different approach is agreed. The next step is offline: compare the endpoint's SMMU stream IDs and the MSI/IOMMU domain flags against the reference port, and decide whether to (a) drop the MSI change and go back to the "no event interrupt" stall, or (b) build a diagnostic kernel that maps the MSI at probe and reads back the SMMU fault state, under a dead-man switch.

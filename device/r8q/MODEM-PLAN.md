@@ -529,7 +529,9 @@ go.** The kernel is `r8q-modem-msi` (binding + driver, off `modem-stage2`
   `0x10080000+i`).
   (`43f4c7b6…` lacked the pack flags; `2ca70c35…` oopsed in compose;
   `d12c1796…` used SPI numbers; `b2d18af5…` used bare offsets. Zero
-  interrupts on each. All discarded.)
+  interrupts on each. All discarded. `cbd7c657…` was never flashed: the
+  root went `emergency_ro` again before `modules-push`, so the phone was
+  powered off with `sda24` still holding `b2d18af5…`.)
 
 ### Step 0 — read-only preflight (no approval needed)
 

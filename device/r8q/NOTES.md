@@ -215,3 +215,15 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
 - **Driver bug #2 (silent drop):** programmed MSI data was the absolute SPI number (`0x348` in the endpoint's MSI cap). The doorbell selects 1-of-32 by index and classic MSI ORs the vector into shared data, so anything above 31 is dropped silently — no SMMU fault, all counts zero, modem parked in `PRIMARY BOOTLOADER`. Middle-domain hwirq is now the bank offset; fix committed (`ff311d19e`), image `b2d18af5…` packed, **not yet run**.
 - **SSH flasher vs rescue shell:** the guard removes `/dev/sda` in the rescue initramfs and sysfs `ro` is read-only there, so the LUN flag can't be cleared and the tool aborts before writing. `r8q-flash-recovery` grew a sysfs fallback (works from Arch, useless in rescue). Flashing from Download Mode/Heimdall works and was verified by readback (`2ca70c35…`); NOTES §2's stale-flash warning held, the readback matched.
 - **Storage halt (stop condition):** loop0 write I/O errors across many sectors, no mmc errors, journal aborted, `/` `emergency_ro`, eventually EIO executing binaries. Modem unbound cleanly, phone synced + powered off via SysRq. NV 15/15 `SAME` throughout; no NV write ever happened. Next: SD out, laptop fsck of the partition and the ext4 image (or a new card; rootfs is rebuildable). No modem/flash/reboot work until the root is healthy.
+
+- **Storage relapsed (same evening):** after one healthy boot (256 MB clean),
+  the next boot went `emergency_ro` again with fresh loop0 I/O errors (96
+  and counting), EIO executing `/usr/bin/blockdev`, and a confused `sda24`
+  readback — so neither `modules-push` nor the flash could run. The card
+  reads fine on the laptop, which points at the phone-side path (socket,
+  controller, power) or a dying card that only fails under the phone's
+  timing — not at capacity (no ENOSPC anywhere) and not at our kernel
+  (errors span releases and idle I/O). Reliability verdict: the SD path
+  cannot be trusted for gated modem runs until a card reads AND writes
+  cleanly across several phone boots. Phone synced + powered off via SysRq;
+  NV 15/15 `SAME`, `sda24` untouched.

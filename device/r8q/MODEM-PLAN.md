@@ -609,6 +609,49 @@ second terminal, under the log stream and a dead-man switch.
   **Rollback:** unbind/remove the module, remove the bringup blacklist,
   re-check the 15-partition backup — then reflash the stable image, as in §8.
 
-### Results — Stage 4 (NOT RUN)
+### Results — Stage 4 (2026-11-17, HALTED on a storage stop-condition)
 
-_To be filled with the date, the release string, and the outcome._
+**What ran.** Image `2ca70c35…` (first correct pack) was flashed via
+Download Mode/Heimdall after the SSH flasher proved unable to clear the
+LUN flag from the rescue shell; read back `2ca70c35…`, `ro=1`. The phone
+booted Arch, and the driver probed cleanly — doorbell reads `0x0`, 32
+SPIs from 832, no SMMU fault — but the root port's async MSI allocation
+oopsed on a NULL `chip_data` in compose: the per-device chip copy carries
+the callback, so it runs on the leaf irq_data (MBI reads
+`data->parent_data` for the same reason). The oops wedged async, hanging
+the first `modprobe`. Fixed (`aafa78617`), rebuilt, modules pushed and
+reflashed from Arch with the SSH tool (`d12c1796…`, read back verified),
+rebooted — full story in §10 history.
+
+**MSI allocation: WORKS.** On `gaafa78617e1a`, the root port holds a live
+`QCOM-PCI-MSI` vector (`PCIe PME, aerdrv, PCIe bwctrl`, SPI 832), and the
+modem bind allocated ten vectors (`bhi` + `mhi`, `0002:01:00.0`) with no
+fault and no hang. But every count stayed at zero and the device never
+left `PRIMARY BOOTLOADER`: the programmed data was the SPI number
+(`0x348` = 840 in the endpoint's MSI capability), while the doorbell
+selects 1-of-32 **by index** — classic MSI shares one data value with the
+device ORing in the vector, so anything above 31 is silently dropped, no
+fault, no interrupt. The middle-domain hwirq is now the bank offset and
+the GIC parent alloc still takes `spi_start + offset` (`ff311d19e`,
+committed, **not yet run on hardware**).
+
+**STORAGE HALT.** During the stalled bind the loop root started failing
+writes (`I/O error, dev loop0`, spread across sectors, no mmc errors),
+the journal aborted, `/` went `emergency_ro`, and eventually even
+executing `/usr/bin/dd` failed with EIO. The bind was undone (`rmmod`
+clean), `modules-push` for the new release was correctly refused (ro
+root), and the phone was synced + powered off via SysRq. Cause unknown:
+media wear vs. a transient glitch. No NV partition was ever written
+(NV 15/15 `SAME` on every check); `sda24` holds the untested `b2d18af5…`
+image and the phone cannot return to Arch until the SD-backed
+`/omarchy-r8q.img` is checked.
+
+**Way back.** The SD card must be checked on a laptop (card reader):
+`fsck` the partition and the ext4 image inside it; if the card is dying,
+replace it — the rootfs is rebuildable (`tools/build-rootfs`) and no
+phone-unique data lives in it beyond the demo/user layer. Until the root
+is healthy, no modem bind, no flash, no reboot-to-test. The stable
+`sda24` reflash (`--stable`) is also blocked on the same root (its
+preflight needs a working phone); Download Mode + Heimdall stays the
+available write path. The offset-data fix (`ff311d19e` + image) is ready
+to test once storage is green.

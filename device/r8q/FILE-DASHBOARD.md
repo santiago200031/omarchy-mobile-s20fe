@@ -113,7 +113,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | ⏸ Parked, design done | Stage 1 PASS, Stage 3A reset the phone at MHI power-on (kernel `5be4efd5e`, not to be repeated as-is); the phone is back on the recorded stable image (`stable-image.conf`) and `tools/r8q-stable-check` passes. `MODEM-PLAN.md` §9 explains the failure and adopts the stock `qcom,pci-msi` memory doorbell (doorbell `0x17a10040`, `msi-parent` on `&pcie2`, 32 SPIs from `0x340`) as the next design; the driver, binding and gated runbook are the remaining offline work |
+| Modem/cellular | 🛑 Halted (storage) | MSI allocation proven live (root-port vector + 10 modem vectors, no faults, no oops); delivery needs the bank-offset fix (`ff311d19e`, packed as `b2d18af5…`, not yet run). Halted on SD I/O errors (`emergency_ro`, phone powered off cleanly); NV 15/15 `SAME`, no NV write. Next: laptop fsck of the SD/ext4 image. `MODEM-PLAN.md` §10. |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)

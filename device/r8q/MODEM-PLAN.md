@@ -660,3 +660,47 @@ is healthy, no modem bind, no flash, no reboot-to-test. The stable
 preflight needs a working phone); Download Mode + Heimdall stays the
 available write path. The offset-data fix (`ff311d19e` + image) is ready
 to test once storage is green.
+
+---
+
+## 11. SD-less Rescue Test — MSI Delivery Without the SD Card (2026-11-17)
+
+**Why.** The SD-backed root went `emergency_ro` twice with block-layer
+write errors, halting all Stage 4 work that needs Arch (`modules-push`,
+NV re-checks). The modem bind itself needs no Arch: kernel + modules +
+BHI firmware + a shell. `tools/r8q-boot pack --overlay modem
+--rescue-test` stages the kernel modules tarball, `sbl1.mbn`/`sec.elf`
+(read from the phone over SSH, hashes match) and `pciutils` into the
+initramfs and packs **without** `--dual-boot`, so the phone stops at the
+rescue shell (SSH works there, proven). The SD card stays out of the
+phone: zero SD involvement, and the UFS storage guard still applies.
+
+**Image (packed 2026-11-17, laptop-only):**
+- `recovery-modem-rescue.img` — sha256 `71389b5c…42da59042da`,
+  kernel `gff311d19e`... (see release string at flash time), modem
+  overlay, rescue modules + firmware verified inside the packed ramdisk
+  (2912 entries: `mhi_pci_generic.ko`, `sdx55m/sbl1.mbn`, `sec.elf`,
+  `lspci`, `dropbear`).
+
+**Runbook (all phone writes need a go):**
+0. Preflight: phone off, SD card OUT, USB plugged. (No NV check possible
+   without Arch; the NV partitions stay untouched and read-only either
+   way — the UFS guard marks them at boot and nothing in this test
+   writes UFS.)
+1. Download Mode + `heimdall flash --RECOVERY recovery-modem-rescue.img
+   --no-reboot` (sda24 only, read back afterwards).
+2. VolUp+Power boot to the rescue shell; SSH in.
+3. `insmod /lib/modules/*/kernel/drivers/bus/mhi/host/mhi.ko` then
+   `insmod .../mhi_pci_generic.ko`; watch `dmesg`, `/proc/interrupts`
+   (`QCOM-PCI-MSI` counts), `/dev/wwan*`.
+4. **Pass:** Sahara port nodes appear, MHI event counts increment from
+   zero, `SECONDARY BOOTLOADER` in the log. That proves MSI delivery;
+   the full Sahara download waits for healthy storage (no Python in
+   rescue).
+5. **Stop:** SMMU fault, reset, or still-zero counts (then the address
+   mapping, not the data, is the suspect — §10 history).
+6. Afterwards: power off via SysRq; reflash stable or the next test image
+   the same way. No blacklist/modules cleanup needed (nothing installed).
+
+**Status:** image packed and verified; flashing and the bind need the
+human's go for Download Mode + the rescue SSH session.

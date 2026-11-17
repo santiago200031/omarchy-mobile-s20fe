@@ -677,10 +677,10 @@ phone: zero SD involvement, and the UFS storage guard still applies.
 
 **Image (packed 2026-11-17, laptop-only):**
 - `recovery-modem-rescue.img` — sha256 `71389b5c…42da59042da`,
-  kernel `gff311d19e`... (see release string at flash time), modem
-  overlay, rescue modules + firmware verified inside the packed ramdisk
-  (2912 entries: `mhi_pci_generic.ko`, `sdx55m/sbl1.mbn`, `sec.elf`,
-  `lspci`, `dropbear`).
+  kernel `7.3.0-rc6-omamobile-push1-gc3867f30962c` (bank-base fix),
+  modem overlay, rescue modules + firmware verified inside the packed
+  ramdisk (2912 entries: `mhi_pci_generic.ko`, `sdx55m/sbl1.mbn`,
+  `sec.elf`, `lspci`, `dropbear`).
 
 **Runbook (all phone writes need a go):**
 0. Preflight: phone off, SD card OUT, USB plugged. (No NV check possible

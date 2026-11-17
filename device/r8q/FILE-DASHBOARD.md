@@ -41,7 +41,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | --- | --- | --- |
 | ✅ SUCCESS | 7 | 2026-11-17 |
 | ❌ FAILED (known, mitigated) | 7 | 2026-11-17 |
-| 🔲 MISSING | 4 open (main/front cameras; modem parked; Freedreno/Vulkan optional; kernel sign-offs upstream) | 2026-11-17 |
+| 🔲 MISSING | 4 open (main/front cameras; modem design done and parked; Freedreno/Vulkan optional; kernel sign-offs upstream) | 2026-11-17 |
 
 ---
 
@@ -113,7 +113,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | ⏸ Parked | Stage 1 PASS, Stage 3A reset the phone at MHI power-on (kernel `5be4efd5e`, not to be repeated as-is); the phone is back on the recorded stable image (`stable-image.conf`), `tools/r8q-stable-check` passes, and the driver blacklist and Sahara loader are gone. Resume only with a different MSI/IOMMU or MHI design agreed first (`MODEM-PLAN.md` §8) |
+| Modem/cellular | ⏸ Parked, design done | Stage 1 PASS, Stage 3A reset the phone at MHI power-on (kernel `5be4efd5e`, not to be repeated as-is); the phone is back on the recorded stable image (`stable-image.conf`) and `tools/r8q-stable-check` passes. `MODEM-PLAN.md` §9 explains the failure and adopts the stock `qcom,pci-msi` memory doorbell (doorbell `0x17a10040`, `msi-parent` on `&pcie2`, 32 SPIs from `0x340`) as the next design; the driver, binding and gated runbook are the remaining offline work |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)
@@ -255,7 +255,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | `CAMERA-PLAN.md` | ✅ | Camera bring-up plan |
 | `CAMERA-UW-PLAN.md` | ✅ | Ultrawide (S5K3L6) driver, DT, and `libcamera 0.7.2-4.25` verified end-to-end |
 | `DPMS-PLAN.md` | ✅ | DPMS & physical Power-key wake plan (verified) |
-| `MODEM-PLAN.md` | ⏳ | Modem & cellular bring-up plan (Stage 1 PASS; Stage 2 prepared with gated runbook in §4) |
+| `MODEM-PLAN.md` | ⏳ | Modem & cellular plan: Stage 1 PASS, Stage 2/3A results (§8), and the offline design (§9: stock `qcom,pci-msi` memory doorbell, `msi-parent` on `&pcie2`) |
 | `AI-BENCHMARKS.md` | ✅ | Supervisor design, stable-kernel benchmark (15.47 prompt / 10.6-11.0 generation tok/s) and reproduction |
 | `board/README.md` | ✅ | Board overview |
 | `board/SUCCESS.md` | ✅ | 6 success cards |
@@ -295,7 +295,7 @@ P1 (Native DT ✅) → P2 (Audio/DSP ✅) → Sensors/VolUp/DPMS/Pseudo-NMI/S5K3
 
 **Remaining open items:**
 1. **Cameras (`IMX555` rear wide & `IMX616` front):** Stock topology (`live.dts`), drivers, bindings, and `libcamera` helpers; plus Adreno `FD650` `debayer_egl` hangcheck follow-up so `LIBCAMERA_SOFTISP_MODE=cpu` can be lifted if safe.
-2. **Modem ([MODEM-PLAN.md](MODEM-PLAN.md) §4, §8):** **parked.** Done offline — 15-partition RO backup, `pci_generic.c` `samsung,r8q` BHI quirk, FW staging, Sahara loader (`tools/r8q-sahara`), Stage 2 (`mhi0` BHI ready) and Stage 3A (`PCIe2` MSI). Stage 3A **resets the phone** when `mhi_pci_generic` binds (`5be4efd5e`), and the phone is back on the stable image. A resume needs a different MSI/IOMMU or MHI design first, then an attended gated test and the human's go for every flash/reboot.
+2. **Modem ([MODEM-PLAN.md](MODEM-PLAN.md) §4, §8, §9):** **parked, design done.** Done offline — 15-partition RO backup, `pci_generic.c` `samsung,r8q` BHI quirk, FW staging, Sahara loader (`tools/r8q-sahara`), Stage 2 (`mhi0` BHI ready) and Stage 3A (`PCIe2` MSI). Stage 3A **resets the phone** when `mhi_pci_generic` binds (`5be4efd5e`); §9 shows it programmed an IOVA into a DWC address-matching doorbell and adopts the stock topology instead: a `qcom,pci-msi` memory doorbell at `0x17a10040`, `msi-parent` on `&pcie2`, 32 SPIs from `0x340`, and iMSI-RX left to PCIe0. Next: the driver, binding, r8q DT node and a gated runbook (all laptop work), then an attended test with the human's go for every flash/reboot.
 3. **Optional perf / UX / polish:** `omacam` live visual test switching tele ↔ ultrawide (verify `s5k3l6xx` orientation/rotation in preview), `cs35l41` speaker protection tuning (louder/balanced top+bottom speakers), Vulkan `llama.cpp` on the 587 MHz GPU (CPU baseline is verified; CDSP needs a Hexagon v66 userspace runtime), and setting up user fork remote for `linux-omarchy-mobile` push.
 
 **What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`):**

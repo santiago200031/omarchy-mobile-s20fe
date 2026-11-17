@@ -2,7 +2,7 @@
 
 # Modem & Cellular — Samsung Galaxy S20 FE (r8q)
 
-**Status:** Phase 1 PASS; Phase 2 first run stalled (device stayed in PRIMARY BOOTLOADER, no SAHARA channel). Stage 3A (PCIe2 MSI-in-IOMMU, kernel `modem-stage3`) **failed unsafely on 2026-11-17**: the phone reset as soon as `mhi_pci_generic` powered the modem on, before any SBL/Sahara transition. Phone recovered, root clean, guard ok, NV 15/15 `SAME`; the driver stays blacklisted. See §8 results. **Parked:** the phone is back on the recorded stable image ([stable-image.conf](stable-image.conf), restored 2026-11-17) and the temporary blacklist and loader are removed; modem work resumes only with a different MSI/IOMMU or MHI design agreed first.
+**Status:** Phase 1 PASS; Phase 2 first run stalled (device stayed in PRIMARY BOOTLOADER, no SAHARA channel). Stage 3A (PCIe2 MSI-in-IOMMU, kernel `modem-stage3`) **failed unsafely on 2026-11-17**: the phone reset as soon as `mhi_pci_generic` powered the modem on, before any SBL/Sahara transition. Phone recovered, root clean, guard ok, NV 15/15 `SAME`; the driver stays blacklisted. See §8 results. **Parked, design done:** §9 explains the failure (an IOVA programmed into a DWC address-matching doorbell) and adopts the stock MSI topology — a `qcom,pci-msi` memory doorbell at `0x17a10040` with `msi-parent` on `&pcie2` — as the next design. The phone is back on the recorded stable image ([stable-image.conf](stable-image.conf), restored 2026-11-17); the driver, binding and gated runbook are laptop work, and every flash or reboot still needs the human's go.
 **Safety:** All 77 UFS partitions read-only (`ro=1`); single-slot recovery boot (`sda24`) leaves LineageOS untouched; 15/15 NV partitions match the full off-repo backup
 **Last Updated:** 2026-11-17
 
@@ -213,7 +213,7 @@ If an attended overlay test breaks boot or stability:
 
 ## 8. Stage 3A — PCIe2 MSI in the endpoint IOMMU domain (2026-11-17)
 
-**Why the first Stage 2 run stalled.** `mhi1` powered on and BHI loaded `sbl1.mbn`, but the device stayed in `EE: PRIMARY BOOTLOADER` and no `/dev/wwan*sahara*` channel appeared. `pci 0002:01:00.0: Adding to iommu group 13` shows the endpoint is behind `apps_smmu`. The DWC host's iMSI-RX uses the RC's cfg0 address (`0x64100000`) as the MSI target, and that address is not mapped in the endpoint's IOMMU domain, so the endpoint's MSI writes fault. MHI event rings therefore never raise an interrupt, the SBL execution-environment transition never completes, and the SAHARA channels are never created. This matches the MHI documentation's BHI/SBL flow (the host must observe the device's state transitions) and the same failure has been reproduced on another SM8250 SDX55M device with these PCI IDs.
+**Why the first Stage 2 run stalled.** *(The reading below was written before the logs were re-read; §9.2 corrects the one part it got wrong — READY is polled, so `mhi1` did reach `Wait for device to enter SBL`, and it is the SBL's later BHI interrupt that never arrived. The conclusion, that the MSI is what is missing, stands.)* `mhi1` powered on and BHI loaded `sbl1.mbn`, but the device stayed in `EE: PRIMARY BOOTLOADER` and no `/dev/wwan*sahara*` channel appeared. `pci 0002:01:00.0: Adding to iommu group 13` shows the endpoint is behind `apps_smmu`. The DWC host's iMSI-RX uses the RC's cfg0 address (`0x64100000`) as the MSI target, and that address is not mapped in the endpoint's IOMMU domain, so the endpoint's MSI writes fault. MHI event rings therefore never raise an interrupt, the SBL execution-environment transition never completes, and the SAHARA channels are never created. This matches the MHI documentation's BHI/SBL flow (the host must observe the device's state transitions) and the same failure has been reproduced on another SM8250 SDX55M device with these PCI IDs.
 
 **Change (kernel `modem-stage3`, commit `5be4efd5e`):** `drivers/pci/controller/dwc/pcie-designware-host.c` calls `iommu_dma_prepare_msi()` when allocating the endpoint's MSI on PCIe2 (cfg0 `0x64100000`) and lets `msi_msg_set_addr()` place the allocated IOVA in the message. PCIe0 (the QCA6390 Wi-Fi card) keeps the raw iMSI-RX path it already works on. `CONFIG_IRQ_MSI_IOMMU=y` is already set in `device/r8q/kernel.config`'s build.
 
@@ -313,6 +313,199 @@ The runbook was run with the owner's go. Steps 0-2 passed:
 
 A softdog/`softlockup_panic` reset after a hang fits the observed delay as well as an immediate abort does; the log ends at power-on either way, so the mechanism is not yet proven.
 
-**Do not repeat this test as-is.** Any kernel carrying `5be4efd5e` resets the phone when `mhi_pci_generic` binds. Keep the bringup blacklist in place (`/etc/modprobe.d/omamobile-r8q-sahara-bringup.conf`) until a different approach is agreed. The next step is offline: compare the endpoint's SMMU stream IDs and the MSI/IOMMU domain flags against the reference port, and decide whether to (a) drop the MSI change and go back to the "no event interrupt" stall, or (b) build a diagnostic kernel that maps the MSI at probe and reads back the SMMU fault state, under a dead-man switch.
+**Do not repeat this test as-is.** Any kernel carrying `5be4efd5e` resets the phone when `mhi_pci_generic` binds. Keep the bringup blacklist in place (`/etc/modprobe.d/omamobile-r8q-sahara-bringup.conf`) until a different approach is agreed. The next step is offline: compare the endpoint's SMMU stream IDs and the MSI/IOMMU domain flags against the reference port, and decide whether to (a) drop the MSI change and go back to the "no event interrupt" stall, or (b) build a diagnostic kernel that maps the MSI at probe and reads back the SMMU fault state, under a dead-man switch. **Done 2026-11-17: §9 records the comparison and the decision (the stock memory-doorbell MSI controller; no polling shortcut exists, and the diagnostic kernel stays optional).**
 
 **Way back (2026-11-17).** `device/r8q/stable-image.conf` pins the image that was verified end-to-end before this work (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`, sha256 `66fe127f…d8503`, packed `--dual-boot --overlay camera-uw`). `tools/r8q-flash-recovery --stable` writes those exact bytes to `sda24` and refuses a rebuild that no longer hashes to the record; `--dry-run` stops after the checks. The phone was restored with it after Stage 3A: `sda24` read back the same sha256 and stayed `ro=1`, the next boot reported the recorded release, the temporary blacklist and `/usr/local/bin/r8q-sahara` were removed, and `tools/r8q-stable-check` passed every check (release, `sda24`, 77/77 `ro=1`, root `rw`, PCIe2/PHY `disabled`, no SDX55M on `mhi_pci_generic`, modules present). Restore the same record after any further experiment; a rebuilt kernel needs its own hardware pass and a new record, never a silent replacement of this one.
+
+---
+
+## 9. Offline Design After Stage 3A — the PCIe2 MSI Path (2026-11-17)
+
+**Design only.** Nothing in this section was run on the phone. The phone stays
+on the stable image (§8, [`stable-image.conf`](stable-image.conf)); every write,
+flash and reboot below needs the human's go, and the driver work in 9.5 is
+laptop-only.
+
+### 9.1 What the three trees actually do
+
+| | Stock `qcom,pci-msm` | Mainline `qcom,pcie-sm8250` | `pcie-gs201-cp.c` (same tree) |
+|---|---|---|---|
+| MSI controller | `qcom,pci-msi` at doorbell `0x17a10040`, 32 GIC SPIs per root complex | DWC iMSI-RX; `PCIE_MSI_ADDR` = `cfg0_base` = `0x64100000` | DWC iMSI-RX; target = a `no-map` reserved page (`cp-msi@f6200000`) |
+| Doorbell kind | memory register | address match inside the controller | address match inside the controller, RAM |
+| Who translates the write | `apps_smmu` (RID → SID from `iommu-map`) | none expected: iMSI-RX is meant to terminate the TLP | none expected (Google's driver sets `pp->msi_data` to the reserved page, no IOMMU mapping) |
+| MHI DMA domain | separate `qcom,iommu-group`, pool `0x20000000-0x3fffffff`, `fastmap`, coherent | the endpoint's default `dma-iommu` domain | the CPIF driver's own IOMMU |
+| Evidence | `~/omamobile-kernel/reference-r8q/live.dts` `pcie2_msi`; stock `/proc/interrupts`: `gic_msm_pci_msi` `0x340+` named `mhi` | `sm8250.dtsi` `&pcie2`; `pcie-designware-host.c` | driver source in this tree |
+
+Stock gives each root complex its own node at the **same** doorbell address,
+with a distinct SPI bank:
+
+| Node | Doorbell | SPIs |
+|---|---|---|
+| `pcie0_msi` | `0x17a10040` | `0x300-0x31f` |
+| `pcie1_msi` | `0x17a10040` | `0x320-0x33f` |
+| `pcie2_msi` | `0x17a10040` | `0x340-0x35f` |
+
+`&pcie2` carries `msi-parent = <&pcie2_msi>`, and stock's interrupt list shows
+the modem's ten MHI vectors on the `0x340` bank. The block therefore receives a
+plain memory write from the endpoint and selects the bank by root complex.
+Mainline has no driver for `qcom,pci-msi` (checked in this tree: no match in
+`drivers/irqchip` or `drivers/pci`).
+
+### 9.2 What the two runs actually show
+
+The Stage 2 log (`logs/r8q/sahara-stage2-dmesg.log`) ends with:
+
+```
+mhi mhi1: Requested to power ON
+mhi mhi1: Power on setup success
+mhi mhi1: Wait for device to enter SBL or Mission mode
+```
+
+so `mhi_ready_state_transition()` **did** succeed. It polls `MHISTATUS` every
+25 ms (`mhi_poll_reg_field()` in `drivers/bus/mhi/host/pm.c`), so READY needs no
+interrupt. The message is printed after the event rings are set up and the MHI
+state is set to M0. What never followed was the device's move to SBL: the SBL
+changes `BHI_EE` and signals the host with the **BHI interrupt**, an MSI;
+`mhi_intvec_threaded_handler()` reads the new EE and `mhi_sbl_transition()`
+creates the Sahara channels. With no MSI the host never reads the new EE, never
+creates `/dev/wwan*sahara*`, and the device waits in SBL. That is the Stage 2
+stall: one missing interrupt, no fault on the phone.
+
+Stage 3A then died about 0.3 s after the same power-on point, **before** the
+`Wait for device to enter SBL or Mission mode` line — i.e. during or just after
+the ready transition, at the moment the device first signals the host. The
+change had mapped the doorbell with `iommu_dma_prepare_msi()` and programmed the
+endpoint with a `dma-iommu` IOVA, while `PCIE_MSI_ADDR` still held `0x64100000`.
+The iMSI-RX matches the address it is given; with a different address in the
+message the write is no longer a doorbell, and after translation it is an
+ordinary write to the PCIe2 config/DBI block. That is not a legal DMA target —
+an abort there, or a corrupted controller block, fits a reset with no further
+log. The recipe is wrong in principle: `iommu_dma_prepare_msi()` is for a
+**memory** doorbell (GIC ITS, MBI, GICv2m), not for an address-matching doorbell
+inside the DWC core.
+
+Two details stay open because the phone died before they could be observed: the
+exact tap point of the iMSI-RX (before or after the inbound TBU) and whether the
+write aborted or landed in the config block. The design below does not depend on
+either answer, which is why it is preferred over another iMSI-RX variant.
+
+### 9.3 Decision
+
+**Design A (adopted): give PCIe2 the stock MSI topology in mainline.** Add a
+small platform MSI controller for `qcom,pci-msi` (a memory doorbell plus 32
+parent SPIs), attach it to `&pcie2` with `msi-parent`, and leave iMSI-RX to
+PCIe0 (the QCA6390 Wi-Fi, which works on it today).
+
+- The endpoint's write is a normal translated memory write to `0x17a10040`,
+  exactly as on stock.
+- The generic MSI core maps the doorbell into the endpoint's domain with
+  `iommu_dma_prepare_msi()`, and the message carries that IOVA — correct here,
+  because the hardware doorbell really is memory.
+- `dw_pcie_host_init()` sees `msi-parent` and turns `use_imsi_rx` off for PCIe2
+  only; no DWC MSI registers are armed for that host.
+- The driver is a near-copy of `drivers/irqchip/irq-gic-v3-mbi.c` (a doorbell
+  register, a bitmap of SPIs, `iommu_dma_prepare_msi()` in `alloc`,
+  `msi_msg_set_addr()` in `compose`, `msi_parent_ops` +
+  `msi_create_parent_irq_domain()`), roughly 150 lines plus the binding.
+
+**Design B (fallback, only if A cannot work):** keep iMSI-RX and point
+`pp->msi_data` at a `no-map` reserved page, as `pcie-gs201-cp.c` does. It is
+cheap, but it only works if the iMSI-RX tap sits before the SMMU — the exact
+question Stage 2/3A left open — and it needs a device-tree `memory-region` plus
+a way to override `msi_data` from the r8q side. It is a diagnostic step, not
+the first choice.
+
+**Rejected:** anything that programs an IOVA into `PCIE_MSI_ADDR` while
+`use_imsi_rx` is true (that is `5be4efd5e`).
+
+### 9.4 Why not just poll
+
+READY is polled, but SBL is not: the device announces its move to SBL with the
+BHI interrupt, and `mhi_intvec_threaded_handler()` is what reads the new EE and
+creates the Sahara channels. The data path needs interrupts for the same reason
+— every event ring and the BHI doorbell are MSIs. A polling variant could at
+best observe the device's state, not run it. There is no "drop MSI" shortcut
+that reaches a usable modem.
+
+### 9.5 Implementation plan (offline, no phone)
+
+1. **Kernel branch** `r8q-modem-msi` off `modem-stage2` (`4d5ae30a8`, the
+   `pci_generic.c` `samsung,r8q` BHI quirk). Do **not** carry `5be4efd5e`.
+2. **Driver** `drivers/irqchip/irq-qcom-pci-msi.c` (+ Kconfig, Makefile),
+   modeled on `irq-gic-v3-mbi.c`:
+   - parse the `reg` doorbell and the 32 parent interrupts; one bitmap per
+     instance;
+   - `alloc`: pick the next free SPI and call
+     `iommu_dma_prepare_msi(info->desc, doorbell)`;
+   - `compose`: `msg->data = vector index`, then
+     `msi_msg_set_addr(desc, msg, doorbell)`;
+   - `msi_parent_ops` with MBI's required/supported flags, created with
+     `msi_create_parent_irq_domain()`.
+3. **Binding** `Documentation/devicetree/bindings/interrupt-controller/qcom,pci-msi.yaml`:
+   `compatible = "qcom,pci-msi"`, one `reg` (doorbell), `msi-controller`, the
+   32 `interrupts`; `#msi-cells = <0>` is the default.
+4. **r8q device tree** (base `sm8250-samsung-r8q.dts`, so the controller exists
+   before the modem overlay enables the link):
+   `pcie2_msi: msi-controller@17a10040 { compatible = "qcom,pci-msi"; reg =
+   <0x17a10040 0x4>; msi-controller; interrupts = <GIC_SPI 832 ... 863>; }`
+   and `&pcie2 { msi-parent = <&pcie2_msi>; };`. The stock DT uses a zero-sized
+   `reg` and shares the address across three nodes; the r8q node declares the
+   four bytes and uses only the `0x340` bank.
+5. **Config:** `CONFIG_QCOM_PCI_MSI=y` in `device/r8q/kernel.config` (built in,
+   because the MSI controller must exist before the PCI host probes).
+6. **Gates:** `bin/omamobile kernel` with its own output tree,
+   `checkpatch --strict`, `dt-validate` on the new binding and the r8q DTB, and
+   `tools/kernel-pr-check --build` for the touched files.
+7. **Runbook §10** (new, gated, attended): read-only preflight, modules, flash
+   `sda24`, reboot, then the Sahara loader waiting while `mhi_pci_generic`
+   binds, under a log stream and a dead-man switch. Stop on any SMMU context
+   fault, `I/O error` on the root, or a reset. Rollback is
+   `tools/r8q-flash-recovery --stable`.
+
+### 9.6 What cannot be settled offline
+
+1. **The SMMU context of the doorbell mapping.** `iommu-map` routes RID `0x100`
+   to SID `0x1d01`, so the mapping should land in the endpoint's own domain.
+   Stock's separate MHI group (pool `0x20000000-0x3fffffff`) is a downstream
+   device; mainline has no per-MHI group. Confirm the IOVA appears in the right
+   domain with the IOMMU debugfs before the first MHI bind.
+2. **Whether Linux may touch `0x17a10040`.** It lies outside the GICD window
+   (`0x17a00000-0x17a0ffff`) and the GICR window (`0x17a60000+`), and no
+   mainline driver owns it. The stock MSI driver arguably never reads it (the
+   endpoint writes the doorbell). A single read at probe, before any mapping,
+   proves it; do that read first.
+3. **How the block selects the bank.** All three stock nodes share the address,
+   so the selection must be by root complex. r8q uses only the `0x340` bank;
+   the first test should allocate one vector to keep the question small.
+4. **The endpoint's MSI capability.** Stock shows ten MHI vectors, so MSI or
+   MSI-X with ten vectors is enough; the first link-up should print the
+   negotiated vector count (`pci_alloc_irq_vectors` and MHI both log it).
+5. **Whether the modem's SBL needs a specific DMA IOVA range.** If the first MHI
+   event still does not arrive with a working MSI, this is the next suspect,
+   not the MSI controller.
+
+### 9.7 Optional read-only diagnostic before the driver
+
+If the mechanism should be proven first, a kernel with only
+
+- a one-shot SMMU context-fault log (SID, SSID, address, FSR; no panic), and
+- a readback of `PCIE_MSI_ADDR_LO/HI`, `PCIE_MSI_INTR0_ENABLE` and the
+  endpoint's MSI/MSI-X message after `pci_alloc_irq_vectors()`
+
+keeps the Stage 2 path and should behave like Stage 2 (no reset). It turns "no
+MSI" into either "SMMU context fault at `0x64100000`" (confirms 9.2) or "the
+message address is not `0x64100000`" (a different bug). It needs a flash and a
+reboot, so it waits for a go; it is **not** required before Design A.
+
+### 9.8 Rules for the next attempt
+
+- The phone stays on the stable image until the new kernel has passed its own
+  hardware run; every test starts from `tools/r8q-stable-check --phone`.
+- One change per boot: the MSI controller first, then the MHI bind.
+- Never bind `mhi_pci_generic` with an NV overlay on, and never leave the
+  modules installed after the test: restore the blacklist from §8 or reflash the
+  stable image.
+- Any reset costs more than one boot before the SD card returns (Stage 3A
+  showed one boot without `/dev/mmcblk0p1`). Do not power-cycle a phone that is
+  still answering, and check the guard and the 15-partition NV checksums after
+  any reset.

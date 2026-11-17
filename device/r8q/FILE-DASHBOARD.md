@@ -191,7 +191,9 @@
 | `audio-sound.dtso` | ✅ | Verified — `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` + `MultiMedia1` (folded into base DTS on `fold-overlay-dt`) |
 | `slpi-sensors.dtso` | ✅ | Verified — enables `vreg_l8c_1p8` (`L8C` `1.8 V`) for SLPI sensors (folded into base DTS on `fold-overlay-dt`) |
 | `vol-up.dtso` | ✅ | Verified — wires `KEY_VOLUMEUP` to `&pm8150l_gpios 3` (folded into base DTS on `fold-overlay-dt`) |
-| `camera.dtso` | ✅ | Verified — enables CAMSS, QUP I2C10, HI-847 (`7ca90963c`) (folded into base DTS on `fold-overlay-dt`) |
+| `camera.dtso` | ✅ | Verified — enables CAMSS, QUP I2C10, HI-847 (`7ca90963c`) (folded into base DTS on `omamobile-r8q-signed`) |
+| `camera-uw.dtso` | ✅ | Verified — enables CAMSS `port@1` (`CSIPHY1`), QUP I2C2 (`988000.i2c`), and Samsung S5K3L6 (`camera@2d`) |
+| `modem.dtso` | ✅ | Verified Stage 1 — enables `&pcie2` + `&pcie2_phy` + `mdm2ap`/`ap2mdm` pinctrl (PCIe Gen.3 x2 link up, `SDX55` `mhi0` BHI ready) |
 
 ### Tools (`tools/r8q-*`)
 
@@ -224,9 +226,9 @@
 | `RUNBOOK-DISPLAY-GPU.md` | ✅ | Staged Gate A-D runbook |
 | `CRASH-DOSSIER.md` | ✅ | Crash analysis |
 | `CAMERA-PLAN.md` | ✅ | Camera bring-up plan |
-| `CAMERA-UW-PLAN.md` | ⏳ | Ultrawide (S5K3L6) bring-up plan (exists) |
+| `CAMERA-UW-PLAN.md` | ✅ | Ultrawide (S5K3L6) driver, DT, and `libcamera 0.7.2-4.25` verified end-to-end |
 | `DPMS-PLAN.md` | ✅ | DPMS & physical Power-key wake plan (verified) |
-| `MODEM-PLAN.md` | ⏳ | Modem & cellular bring-up plan (exists) |
+| `MODEM-PLAN.md` | ⏳ | Modem & cellular bring-up plan (Stage 1 PASS; Stage 2 FW/Sahara pending) |
 | `AI-BENCHMARKS.md` | ⏳ | On-device AI benchmark plan (exists) |
 | `board/README.md` | ✅ | Board overview |
 | `board/SUCCESS.md` | ✅ | 6 success cards |
@@ -251,33 +253,30 @@
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `fold-overlay-dt` (1 commit above `camera-wip`) |
-| Output | ✅ | `~/omamobile-kernel/out-r8q` (`7.3.0-rc6-omamobile-push1-g7ca90963c426`) |
-| HEAD | ✅ | `7ca90963c` (HI-847 orientation/rotation DT) |
-| Upstream prep | ⚠️ | Kernel commits need human `Signed-off-by:`; `fold-overlay-dt` branch has overlays folded into base DTS (1549ab9ce) |
-| Branch `camera-wip` | ✅ | Verified live on hardware (`g7ca90963c426`, `omacam` 30 fps) |
-| Branch `r8q/display-panel` | ✅ | Exists |
-| Branch `fold-overlay-dt` | ✅ | Overlays folded into base DTS (push requires human access) |
+| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `omamobile-r8q-signed` (37 commits cleanly signed off on top of `2db2bc35b`) |
+| Output | ✅ | `~/omamobile-kernel/out-r8q-uw` (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`, 1822 modules) |
+| HEAD | ✅ | `3667ab368` (S5K3L6 ultrawide driver, binding, and disabled DT node) |
+| Upstream prep | ✅ | `tools/kernel-pr-check 2db2bc35b omamobile-r8q-signed` passes (37 author sign-offs, 0 errors); push target needs a user kernel fork remote (`origin` is `derekross/linux-omarchy-mobile`) |
 
 ---
 
 ## 🔑 Critical Path
 
 ```
-P1 (Native DT ✅) → P2 (Audio/DSP ✅) → P4 Sensors/VolUp (✅) → P3 (Soak/Modem) & P4 (DPMS/Camera) → P5 (Soak/Perf) → Upstream PRs
+P1 (Native DT ✅) → P2 (Audio/DSP ✅) → Sensors/VolUp/DPMS/Pseudo-NMI/S5K3L6 (✅) → Modem Stage 2 & Main/Front Cameras → Upstream PRs
 ```
 
-**Remaining blockers:**
-1. Human `Signed-off-by:` on the `20` kernel commits + push `fold-overlay-dt` branch (1549ab9ce — overlays folded into base DTS) before upstream PRs (`tools/kernel-pr-check`).
-2. Off-repo read-only backup + SHA256 of `efs*`, `persist`, and `modem*` before any P3 modem (`remoteproc_mpss`) testing — **DONE** (10 OK).
-3. Attended DPMS Power-key wake check, `r8q-audio-tuning` (CS35L41 protection firmware), remaining 3 camera sensors (`IMX555`/`S5K3L6`/`IMX616`), and Adreno `FD650` `debayer_egl`.
+**Remaining open items:**
+1. **Cameras (`IMX555` rear wide & `IMX616` front):** Stock topology (`live.dts`), drivers, bindings, and `libcamera` helpers; plus Adreno `FD650` `debayer_egl` hangcheck follow-up so `LIBCAMERA_SOFTISP_MODE=cpu` can be lifted if safe.
+2. **Modem Stage 2 ([MODEM-PLAN.md](MODEM-PLAN.md)):** Off-repo RO backup of `mdm1m9kefs1/2/3/c` + `mdmddr`, `pci_generic.c` `samsung,r8q` quirk for `qcom/sdx55m/sbl1.mbn`, Sahara/FW staging from RO `/dev/sda20`, and `omamobile-modem` + `ModemManager`.
+3. **Optional perf / UX / polish:** `omacam` live visual test switching tele ↔ ultrawide (verify `s5k3l6xx` orientation/rotation in preview), `cs35l41` speaker protection tuning (louder/balanced top+bottom speakers), GPU/CDSP AI inference when prioritized (`omamobile-ai` branch), and setting up user fork remote for `linux-omarchy-mobile` push.
 
-**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g7ca90963c426`):**
-- Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `Xwayland` on `DSI-1 1080x2400@60`)
-- Touch (`stmfts` natively bound, 16-byte Type-B) & Volume Up / Volume Down hardware keys
-- Wi-Fi (`wlp1s0` UP via `ath11k_pci`) & Bluetooth (`hci0` Powered via native `qcom_geni_serial`)
-- GPU (`3d00000.gpu` at 305 MHz, `renderD128`)
-- Remoteprocs (`slpi`, `cdsp`, `adsp` running) & Audio (`PRIMARY_TDM_RX_0` → dual `cs35l41` + PipeWire)
-- SLPI Sensors (`hexagonrpc` + `iio-sensor-proxy` with `ACCEL_MOUNT_MATRIX`: accelerometer, ambient light, magnetometer, compass)
-- Camera (`hi847` rear telephoto streaming `3256x2448` @ 30.02 fps in `omacam` via `libcamera 0.7.2-4.24` CPU SoftISP)
-- USB gadget (`172.16.42.1`), Battery telemetry (`99–100%`), Liveness watchdog (`active`), Dual-boot `--dual-boot` UFS RO guard (`ro=1`)
+**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`):**
+- Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `Xwayland` on `DSI-1 1080x2400@60`), DPMS & Power-key wake + lock screen
+- Touch (`stmfts`, 16-byte Type-B), Volume Up (`pm8150l_gpios 3`) & Volume Down keys
+- Wi-Fi (`wlp1s0` UP via `ath11k_pci`) & Bluetooth (`hci0` Powered via `qcom_geni_serial`)
+- GPU (`3d00000.gpu`, `renderD128`, Turnip Vulkan `1.3.354`) & M2.8 pseudo-NMI hardlockup watchdog (`irqchip.gicv3_pseudo_nmi=1`)
+- Remoteprocs (`slpi`, `cdsp`, `adsp` running) & Audio (`PRIMARY_TDM_RX_0` → dual `cs35l41` + `r8q` `spk-prot` fw + PipeWire)
+- SLPI Sensors (`hexagonrpc 0.5.0-2` + `iio-sensor-proxy`: accelerometer, ambient light, magnetometer, compass)
+- Rear Cameras (`hi847` telephoto + `s5k3l6xx` ultrawide in `libcamera 0.7.2-4.25`: `cam -l` lists both, raw CSI-2 + JPEG capture verified)
+- USB gadget (`172.16.42.1`), Battery telemetry (`max77705`/`max17042`), `zram0` (`2.7G zstd`), Liveness watchdog, Dual-boot UFS RO guard (`ro=1`)

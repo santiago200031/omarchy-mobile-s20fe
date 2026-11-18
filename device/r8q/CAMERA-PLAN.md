@@ -268,3 +268,18 @@ writing `sda24`. Byte-exact pre-camera backup of `sda24` is in
 3. libcamera and PipeWire once a sensor streams: the media graph is CAMSS's,
    so apps need a libcamera pipeline (`cam`, `qcam`) and then
    `pipewire-libcamera`.
+
+
+### 7.1 Where the IMX555/IMX616 register sequences live (`2026-11-18`)
+
+The vendor kernel `azrim/android_kernel_samsung_sm8250` (branch 16, cloned to
+`~/omamobile-kernel/vendor-r8q`) **does not ship IMX555/IMX616 sensor
+drivers**. The only match is
+`techpack/sec-camera/drivers/cam_sensor_module/cam_sensor/cam_sensor_adaptive_mipi_imx555.h`
+(the adaptive-MIPI table). The sensor programming is in the **vendor HAL**
+(`com.samsung.sensor.imx555.so` / `imx616.so`, in
+`reference-r8q/extracted/vendor_root/lib64/camera`), which is proprietary; the
+AGENTS forbids decompiling it. The main/front drivers therefore need **public
+register sequences/datasheets** (Sony) or a mainline/postmarketOS driver. The
+tele (`hi847`, in-tree) and ultrawide (`s5k3l6xx`) are not blocked because
+their drivers already exist.

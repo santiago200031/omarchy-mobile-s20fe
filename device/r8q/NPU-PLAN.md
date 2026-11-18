@@ -2,7 +2,7 @@
 
 # NPU Plan — Hexagon CDSP (HTP v66) for llama.cpp (r8q / SM8250)
 
-**Status (2026-11-18):** planning, and **P0 has already found the real blocker.**
+**Status (2026-11-18): G0 PASSED.** The v66 toolchain is working: Hexagon SDK **5.4.2.0** at `/local/mnt/workspace/Qualcomm/Hexagon_SDK/5.4.2.0`, `HEXAGON_Tools/8.7.06`; `hexagon-clang -mv66` compiles (`__HEXAGON_ARCH__ 66`, with `libtinfo.so.5` symlinked to `libtinfo.so.6`); `rtos/qurt/computev66` and the glibc aarch64 `libcdsprpc.so` are present. P0.2 is done; P1/P2 (fastrpc + v66 skel) are next.
 The Hexagon SDK 6.7 in the public toolchain image **cannot target v66**
 (`hexagon-clang -mv66` is rejected; its arch table is `v68..v85`; QURT libs are
 `computev68+`). **The public 6.4.0.2 SDK is also v68+ (verified), so the v66
@@ -121,25 +121,20 @@ and inspected it:
 **Result:** SDK 6.7 **cannot build the v66 skel**. The host `libcdsprpc` is
 usable; the DSP build is not. This is the plan's real pivot.
 
-**P0.2 A v66-capable SDK (gate G0).** The 6.x line is out (6.7 and 6.4 were
-both verified: `-mv66` rejected, arch table `v68..v85`, QURT `computev68+`).
-The v66 build needs the **5.4 line**: Qualcomm's QAIRT release notes name
-`hexagon-sdk-5.4.0` and "securepd on v66 target", and the SDK 5.x docs list
-V65/V66/V68.
+**P0.2 A v66-capable SDK (gate G0) — PASSED (2026-11-18).**
 
-1. **SDK 5.4.0** — owner-provided via Qualcomm Software Center (QPM3; free
-   account + license acceptance; Linux package). Put it under
-   `~/omamobile-kernel/hexagon-sdk-5.4/` (gitignored, never committed).
-   Verify `hexagon-clang -mv66` and `rtos/qurt/computev66`.
-2. **Own minimal v66 skel** — if the 6.x CMake helpers (`hexagon_fun.cmake`,
-   `build_idl`) are absent in 5.4, write a small CMake/Make shim that calls
-   `hexagon-clang -mv66` on the `htp/` sources and links `libqurt.a` for v66;
-   only the ops LFM needs. This is the fallback the user allowed.
-
-**Expect/pass (G0):** `hexagon-clang -mv66` accepts the target and
-`rtos/qurt/computev66` exists; record the SDK path and version.
-**Stop:** if the QPM3 download is unavailable, park the track (do not commit
-anything vendor-owned).
+- The QSC license was activated with
+  `qsc-cli sdk license activate --name HexagonSDK5.x` (ACTIVE to 2030).
+- `qsc-cli sdk install` still returned `RebootRequired` after a reboot; the
+  `.qik` was extracted with `qik extract` as root (`pkexec`), which installed
+  HexagonSDK5.x.Core.
+- SDK **5.4.2.0** at `/local/mnt/workspace/Qualcomm/Hexagon_SDK/5.4.2.0`,
+  `HEXAGON_Tools/8.7.06`; `hexagon-clang -mv66` compiles
+  (`__HEXAGON_ARCH__ 66`) with `libtinfo.so.5` → `/usr/lib/libtinfo.so.6`
+  symlinked in a local compat dir; `rtos/qurt/computev66`;
+  `ipc/fastrpc/remote/ship/UbuntuARM_aarch64/libcdsprpc.so`.
+- The `.qik` download is `~/omamobile-kernel/hexagon-sdk-5.4/`; the extracted
+  SDK is under `/local/mnt/workspace` (the QIK default). Neither is committed.
 
 > **Owner action for G0:** install Qualcomm Package Manager 3 (QPM3), sign in,
 > accept the Hexagon SDK license, download **Hexagon SDK 5.4.0 (Linux)** and
@@ -188,6 +183,19 @@ llama.cpp; collect the ioctl trace and fix the kernel/DT first.
 isolated; if the CDSP itself faults, a reboot is the recovery (ask first).
 
 ### P2 — Build the v66 HTP skel (laptop, container; private fork)
+
+**Status (2026-11-18): configured, then blocked by v68+ intrinsics.** The v66
+skel configures with SDK 5.4.2 once `qaic` is symlinked to
+`ipc/fastrpc/qaic/bin/qaic` (the SDK ships it under `qaic/Ubuntu20/qaic`), and
+the Hexagon toolchain starts compiling. It then stops at the QFloat/HMX code:
+`hvx-base.h` uses `Q6_Vqf32*`, `Q6_Vsf_equals_Vqf32` and
+`Q6_Wqf32_vmpy_VhfVhf`, and the kernels carry **664 QFloat uses and 860 HMX
+references** (`matmul`, `flash-attn`, `gated-delta-net`, `conv2d`). The v66
+compiler (Tools 8.7.06) has no QFloat or HMX, and the v68 compiler (6.7) has no
+v66 target. `GGML_HEXAGON_NHMX=0` only selects the runtime HMX path; it does not
+remove the compile-time HMX/QFloat code. So v66 needs a **fallback kernel set**
+(fp16/integer HVX, no QFloat/HMX), which is the own-minimal-skel branch of §3
+and P0.2, not a one-line build change.
 
 1. Clone llama.cpp to `~/Work/llama.cpp-r8q`, branch `r8q-hexagon-v66`.
 2. Prepare a build image with the v66-capable SDK from G0 (**SDK 5.4.0**).
@@ -314,11 +322,11 @@ CDSP track is not blocked by it.
 | Phase | Gate | Status | Evidence (log/commit) | Date |
 |---|---|---|---|---|
 | P0.1 toolchain 6.7 | G0 | **done — no v66** | `-mv66` rejected; arch table `v68..v85`; `libcdsprpc` OK | 2026-11-18 |
-| P0.2 v66-capable SDK (5.4) | G0 | **blocked on owner download (QPM3)** | verify `-mv66` + `computev66` | |
+| P0.2 v66-capable SDK (5.4.2) | G0 | **done** | SDK 5.4.2; `-mv66`; `computev66`; `libcdsprpc` aarch64 | 2026-11-18 |
 | P0.3 phone surface | G0 | planned | `logs/r8q/npu-p0-phone.log` | |
 | P0.4 license | G0 | planned | `NPU-PLAN.md` §5 note | |
 | P1 libcdsprpc + hello PD | G1 | planned | `logs/r8q/npu-p1-fastrpc.log` | |
-| P2 v66 skel build | G2 | planned | `logs/r8q/npu-p2-build.log` | |
+| P2 v66 skel build | G2 | **blocked: v68+ QFloat/HMX** | v66 compiles until `hvx-base.h`; needs fallback kernels | 2026-11-18 |
 | P3 MUL_MAT + small model | G3 | planned | `logs/r8q/npu-p3-ops.log` | |
 | P4 LFM benchmark | G4 | planned | `logs/r8q/npu-p4-lfm.log` | |
 | P5 integration | G5 | planned | package + `AI-BENCHMARKS.md` | |

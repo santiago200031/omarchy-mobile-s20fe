@@ -9,12 +9,14 @@ The Hexagon SDK 6.7 in the public toolchain image **cannot target v66**
 build needs Hexagon SDK 5.4.0** (QPM3, owner-provided). The host-side
 `libcdsprpc.so` for glibc aarch64 *is* in the image and
 is clean (only libc/libm/libstdc++), and the kernel side is already in place.
+**Upstream contribution is off (decision 2026-11-18):** the port stays in a
+private fork, so llama.cpp's issue-first and AI-disclosure rules no longer gate
+the work; the technical gates (G0-G5) and the private-fork hygiene rules in §10
+still apply.
 No phone write has been made for this plan. The phone runs the stable kernel
 `7.3.0-rc6-omamobile-push1-g3667ab368ef9`, the `omamobile-ai` supervisor serves
 `LFM3-1.7B` on the CPU (15.47 prompt / 10.6-11.0 generation tok/s), and the
-Adreno 650 is on Turnip for render. Section 10 records the contribution rules
-this plan must satisfy (llama.cpp issue-first and AI disclosure; this repo's
-package and kernel checks).
+Adreno 650 is on Turnip for render.
 **Target:** run `LFM3-1.7B-Q4_K_M` on the Hexagon CDSP through llama.cpp's
 Hexagon backend, then decide whether it beats or complements the CPU.
 **Kernel worktree:** `~/omamobile-kernel/wt-r8q` (only if a kernel/DT patch is
@@ -72,14 +74,12 @@ CPU baseline and a one-command rollback to CPU.
 1. **Primary track: CDSP HTP v66.** Port the existing `ggml-hexagon` backend to
    v66 and run `LFM3-1.7B` on it. This is the only block with a live driver, a
    running firmware, a supported RPC path and an existing llama.cpp backend.
-2. **Upstream first, but issue first.** The human opens an issue in
-   `ggml-org/llama.cpp` with the v66 evidence and asks whether v66 is in scope
-   before any upstream code is written. AI must not write or post that issue.
-   If the maintainers say no (or prefer a private fork/example), the fork is the
-   path and no upstream PR is attempted.
-3. **Fork fallback is planned from day one.** The first commits are small and
-   separable: build v66, guard HMX, fix HVX assumptions, docs. If the PR is
-   rejected, the same commits become the fork's `r8q-v66` branch and a package.
+2. **Private fork only (decision 2026-11-18).** No issue, no upstream PR, no
+   llama.cpp contribution. The port lives in `santiago200031/llama.cpp` (or a
+   local clone) and is packaged for this phone; there is no maintainer gate.
+3. **Keep the fork small and testable.** Commits stay separable: build v66,
+   guard HMX, fix HVX assumptions, docs. The v66 build stays opt-in so the
+   fork can still build a normal v68+ tree with SDK 6.7.
 4. **Dedicated `npu@9910000` is a research track with a go/no-go gate (§7).**
    It is not on the critical path and cannot run llama.cpp today.
 
@@ -164,25 +164,11 @@ skels. Record whether a package may redistribute them. Default: ship only our
 binaries; the package fetches the SDK at build time or the user supplies it;
 never commit the `.so`, the SDK or vendor firmware.
 
-**P0.5 Upstream issue (the human writes it; gate for P2/P6).**
-
-llama.cpp requires a feature to start as an issue, and it forbids AI-written
-issue/PR text. With the P0 facts in hand, the human opens an issue in
-`ggml-org/llama.cpp` that states:
-
-- the device (SM8250, CDSP HTP v66, 4x128B HVX, 256 KiB VTCM, no HMX) and the
-  working mainline fastrpc path;
-- that the backend already has an HVX-only mode (`GGML_HEXAGON_NHMX=0`);
-- the build dependency problem: SDK 6.7/6.4 target v68+, so v66 needs the
-  licensed SDK 5.4, and upstream CI has no such hardware;
-- the question: is a v66 build + HMX guards in scope, or is a private
-  fork/example the preferred path?
-
-**Gate G0.5:** the maintainers answer. If in scope, P2/P6 proceed. If not, P2
-is done only in the fork (`santiago200031/llama.cpp`) and P6 is dropped; the
-plan records their reason. The agent may prepare private technical notes for
-the human, but **never writes or posts the issue, a comment, or a PR**. Use
-ASCII in the issue (no em dash or arrows), as llama.cpp's style guide asks.
+**P0.5 Upstream issue — dropped (2026-11-18).** The port stays private, so no
+issue and no PR are opened with `ggml-org/llama.cpp`. The P0 facts above become
+the fork's README and commit evidence instead. If that decision ever changes,
+the issue-first, AI-disclosure and human-written-text rules in the original
+analysis apply.
 
 ### P1 — Userspace fastrpc on the phone (phone write: staged libs only; needs G0)
 
@@ -201,7 +187,7 @@ llama.cpp; collect the ioctl trace and fix the kernel/DT first.
 **Risk:** low (staged files, no boot change). A DSP user-PD crash should be
 isolated; if the CDSP itself faults, a reboot is the recovery (ask first).
 
-### P2 — Build the v66 HTP skel (laptop, container; only after G0.5 says in scope, or in the fork)
+### P2 — Build the v66 HTP skel (laptop, container; private fork)
 
 1. Clone llama.cpp to `~/Work/llama.cpp-r8q`, branch `r8q-hexagon-v66`.
 2. Prepare a build image with the v66-capable SDK from G0 (**SDK 5.4.0**).
@@ -273,25 +259,13 @@ clearly better on power/thermals; otherwise keep CPU and document.
 restart; `systemctl restart omamobile-ai` + config rollback returns to CPU; all
 the checks above pass.
 
-### P6 — Upstream PR (only if G0.5 said yes; the human owns it)
+### P6 — Upstream — dropped (private fork)
 
-- Rebase onto `ggml-org/llama.cpp` master; split commits:
-  `hexagon: build the v66 skel`, `hexagon: guard HMX for pre-v68`,
-  `hexagon: HVX fixes for v66`, `docs: v66 on SM8250`.
-- **The human writes the commit messages, the PR description and every reply.**
-  The agent does not push or open the PR; if it commits at the human's explicit
-  request, the message carries `Assisted-by: <assistant>` (never
-  `Co-authored-by:`). The human also creates the GitHub fork. Fill the PR
-  template's **AI usage disclosure** honestly.
-- Run `skills/code-review/SKILL.md` over the diff (private notes only), then
-  `ci/run.sh`, `test-backend-ops` (CPU vs HTP), `llama-perplexity` and
-  `llama-bench` before/after; include the v66 benchmark and the exact phone.
-- If the issue said no, or the PR is rejected: publish the fork
-  (`santiago200031/llama.cpp`) and keep the package as the deliverable. No
-  duplicate PRs.
-
-**Expect/pass (G6):** a human-submitted PR with the disclosure and the evidence,
-or a tagged fork documented as the supported path.
+The private fork is the deliverable. No issue, no PR and no upstream text. Keep
+the fork tagged (`r8q-v66`) with a README that records the build/test evidence,
+the SDK 5.4 requirement and the phone's results; package it as
+`omamobile-llama-hexagon` for this phone. If the decision ever changes, the
+upstream rules from the original analysis apply again.
 
 ---
 
@@ -343,13 +317,12 @@ CDSP track is not blocked by it.
 | P0.2 v66-capable SDK (5.4) | G0 | **blocked on owner download (QPM3)** | verify `-mv66` + `computev66` | |
 | P0.3 phone surface | G0 | planned | `logs/r8q/npu-p0-phone.log` | |
 | P0.4 license | G0 | planned | `NPU-PLAN.md` §5 note | |
-| P0.5 upstream issue | G0.5 | planned (human) | issue URL | |
 | P1 libcdsprpc + hello PD | G1 | planned | `logs/r8q/npu-p1-fastrpc.log` | |
 | P2 v66 skel build | G2 | planned | `logs/r8q/npu-p2-build.log` | |
 | P3 MUL_MAT + small model | G3 | planned | `logs/r8q/npu-p3-ops.log` | |
 | P4 LFM benchmark | G4 | planned | `logs/r8q/npu-p4-lfm.log` | |
 | P5 integration | G5 | planned | package + `AI-BENCHMARKS.md` | |
-| P6 upstream | G6 | planned | PR URL / fork tag | |
+| P6 upstream | — | **dropped (private fork)** | fork tag `r8q-v66` | 2026-11-18 |
 | B0/B1 dedicated NPU | go/no-go | planned | `logs/r8q/npu-b0-research.md` | |
 
 ---
@@ -372,29 +345,30 @@ CDSP track is not blocked by it.
 
 This work can produce code in three places, each with its own rules. The
 agent implements, tests and prepares **private** notes; the human owns every
-public word and every submission. llama.cpp forbids fully autonomous
-submissions: the agent works only under human supervision, and before any
-submission it verifies the human can explain the change and has reviewed every
-line.
+public word and every submission. The llama.cpp port stays in a private fork,
+so there is no upstream gate; the fork still keeps the project's license, its
+notices and a reproducible build, and this repository keeps its own package and
+kernel rules.
 
-### 10.1 llama.cpp (P6)
+### 10.1 llama.cpp private fork (no upstream)
 
-Source of truth: `CONTRIBUTING.md` and `AGENTS.md` in `ggml-org/llama.cpp`.
+There is no issue, PR, AI disclosure or maintainer review. The fork still
+keeps:
 
 | Rule | What it means here |
 |---|---|
-| **Issue before PR** | P0.5 is that issue. No upstream code before the maintainers answer. |
-| **AI disclosure** | The PR template has an `AI usage disclosure: YES/NO` line; fill it honestly (agent-assisted design, code, tests). |
-| **Human-written public text** | The human writes the issue, commit messages, PR description and reviewer replies. AI-written text is prohibited and can close the PR. |
-| **No agent submission** | The agent does not run `git push` or `gh pr create` for llama.cpp. If it commits at the human's explicit request, the message carries `Assisted-by: <assistant>`, never `Co-authored-by:`. |
-| **Understand every line** | The human must explain and debug the change without the agent; keep the v66 change small and reviewable. |
-| **One PR** | A new contributor keeps one open PR; no unrelated cleanup. |
-| **Local review** | Run `skills/code-review/SKILL.md` over the diff and fix the findings. The output is private notes, never posted. |
-| **CI and tests** | `ci/run.sh` locally; `test-backend-ops` (CPU vs HTP) for ggml changes; `llama-perplexity` and `llama-bench` before/after. |
-| **Style** | ASCII only (no em dash, arrows or unicode), 4 spaces, `void * ptr`, sized ints, concise comments, clang-format v15+, existing patterns. |
-| **Scope/maintenance** | v66 is niche: the issue must say who maintains it. Search issues/PRs first; no duplicates. The v66 skel must be **opt-in** so default v68+ builds and CI are untouched. |
-| **Fork** | Private forks are exempt from the project's merge standards; the fork is the fallback. |
-| **Comprehension** | Before submission, the human reads every line and can explain and debug each commit; the agent walks through the design and the diffs privately. |
+| **License** | Keep llama.cpp's MIT license and notices. |
+| **No vendor blobs** | `libcdsprpc.so`, `cdsp.mbn`, SDK files and prebuilt skels stay out of git; the build fetches the SDK or the user supplies it. |
+| **Small commits** | Build v66, HMX guards, HVX fixes and docs, each explaining why and what was tested. |
+| **Tests** | `test-backend-ops` (CPU vs HTP), a small model, LFM, `llama-perplexity` and `llama-bench`; record the results in the fork's README. |
+| **Opt-in v66** | `GGML_HEXAGON_V66=ON`, so the same fork still builds v68+ with SDK 6.7. |
+| **Reproducible** | Pin the llama.cpp commit, the SDK 5.4 path/version and the CMake command. |
+| **Package** | `omamobile-llama-hexagon`, versioned, with `test/all`. |
+| **Comprehension** | The human still reads every line and can explain the change; the agent walks through the design privately. |
+
+If the upstream decision ever changes, the original rules apply again:
+issue-first, AI disclosure, human-written public text, no agent push/PR, and
+the llama.cpp code-review skill.
 
 ### 10.2 This repository (the package and docs)
 
@@ -439,17 +413,15 @@ Source of truth: `CONTRIBUTING.md` §6.2 and
 ### 10.4 Pre-submission checklist
 
 - [ ] G0: SDK 5.4 `-mv66` + `computev66` verified
-- [ ] G0.5: upstream issue answered (in scope, or fork)
 - [ ] G1: unsigned-PD hello on the CDSP
 - [ ] G2: v66 skel builds, no HMX instructions
 - [ ] G3: `MUL_MAT` + small model correct
 - [ ] G4: LFM benchmark + 30-minute soak
 - [ ] G5: package + one-command CPU rollback
-- [ ] `skills/code-review` (llama.cpp) / `omamobile-reviewer` (this repo)
-- [ ] `ci/run.sh` + `test-backend-ops` + perplexity/bench
-- [ ] `tools/pr-check`, `tests/all`, `tests/packages`, `tools/phone-smoke`
-- [ ] AI disclosure filled in the llama.cpp PR template
-- [ ] The human wrote the issue, commit messages, PR description and replies
+- [ ] Fork README: pinned llama.cpp commit, SDK 5.4 path/version, CMake command
+- [ ] No vendor blobs in the fork or the package; MIT license kept
+- [ ] `test-backend-ops`, perplexity and bench results recorded
+- [ ] `omamobile-reviewer` (this repo) and `tools/pr-check`/`tests/all`/`tests/packages`/`tools/phone-smoke` for the package
 
 ---
 

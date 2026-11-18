@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: 0BSD
+# Upstream remotefs service (linux-msm/rmtfs), serving the flashless
+# SDX55M's file system over QRTR. The shipped unit runs it in read-only
+# shadow mode (-r): the modem's NV partitions are only ever read, and
+# every modem write stays in RAM. Upstream's -s (remoteproc) units are
+# deliberately not installed (MODEM-USERSPACE.md).
+# Maintainer: Santiago <villavicencioandrs@gmail.com>
+
+pkgname=rmtfs
+pkgver=1.3
+pkgrel=1
+pkgdesc='Qualcomm remotefs service over QRTR (read-only shadow mode for external MHI modems)'
+arch=(aarch64)
+url='https://github.com/linux-msm/rmtfs'
+license=(BSD-3-Clause)
+depends=(glibc qrtr systemd-libs)
+makedepends=(make)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/linux-msm/rmtfs/archive/refs/tags/v$pkgver.tar.gz"
+        rmtfs.service)
+sha256sums=('4b6c398806a1046e2256a685d592833de0f37b7245b8adc4797e1791f0e117ee'
+            'SKIP')
+
+build() {
+  make -C "$pkgname-$pkgver" prefix=/usr
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  # Install the binary and our unit by hand: `make install` would ship
+  # upstream's rmtfs.service (-r -P -s) and rmtfs-dir.service (-s, no -r),
+  # both built around an MPSS remoteproc that an external MHI modem has
+  # not, and rmtfs.rules for that same flow.
+  install -Dm755 rmtfs "$pkgdir/usr/bin/rmtfs"
+  install -Dm644 ../rmtfs.service "$pkgdir/usr/lib/systemd/system/rmtfs.service"
+}

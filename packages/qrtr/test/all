@@ -1,0 +1,33 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Offline checks for the qrtr package.
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."
+fails=0
+fail() { echo "FAIL: $*" >&2; fails=$((fails + 1)); }
+pass() { echo "ok: $*"; }
+
+(
+  # shellcheck disable=SC1091
+  source ./PKGBUILD
+  [[ $pkgname == qrtr ]] || exit 1
+  [[ $pkgver == "$(tr -d ' \n' < version)" ]] || exit 2
+  [[ ${#source[@]} == "${#sha256sums[@]}" ]] || exit 3
+  for i in "${!sha256sums[@]}"; do
+    [[ ${sha256sums[$i]} =~ ^[0-9a-f]{64}$ ]] || exit 4
+  done
+  [[ ${source[0]} == *"linux-msm/qrtr/archive/refs/tags/v$pkgver.tar.gz" ]] || exit 5
+) && pass "PKGBUILD pins the upstream tag tarball and checksums" \
+  || fail "PKGBUILD pin check failed (exit $?)"
+
+# The QRTR name service lives in the kernel: the userspace name server
+# must not be built (MODEM-USERSPACE.md "qrtr-ns is not needed").
+grep -q -- '-Dqrtr-ns=disabled' PKGBUILD \
+  && pass "qrtr-ns is not built (the name service is in-kernel)" \
+  || fail "PKGBUILD must pass -Dqrtr-ns=disabled"
+
+grep -q -- '-Dsystemd-service=disabled' PKGBUILD \
+  && pass "no qrtr-ns systemd unit is shipped" \
+  || fail "PKGBUILD must pass -Dsystemd-service=disabled"
+
+test "$fails" -eq 0

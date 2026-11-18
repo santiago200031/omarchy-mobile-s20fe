@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: 0BSD
+# Upstream protection-domain mapper (linux-msm/pd-mapper), answering the
+# modem's servreg location queries over QRTR. The in-kernel qcom_pd_mapper
+# is not built (marked broken upstream); the userspace daemon is the one
+# to run (MODEM-USERSPACE.md).
+# Maintainer: Santiago <villavicencioandrs@gmail.com>
+
+pkgname=pd-mapper
+pkgver=1.1
+pkgrel=1
+pkgdesc='Qualcomm protection-domain mapper service over QRTR'
+arch=(aarch64)
+url='https://github.com/linux-msm/pd-mapper'
+license=(BSD-3-Clause)
+depends=(glibc qrtr xz)
+makedepends=(make)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/linux-msm/pd-mapper/archive/refs/tags/v$pkgver.tar.gz"
+        pd-mapper.service)
+sha256sums=('7654a7fb8b70b0c7670f98ad9313649abc48eabcef84dad086ed01408fd538a2'
+            'SKIP')
+
+build() {
+  make -C "$pkgname-$pkgver" prefix=/usr
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 pd-mapper "$pkgdir/usr/bin/pd-mapper"
+  install -Dm644 ../pd-mapper.service "$pkgdir/usr/lib/systemd/system/pd-mapper.service"
+}

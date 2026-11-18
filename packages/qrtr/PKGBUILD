@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: 0BSD
+# Upstream QRTR userspace (linux-msm/qrtr): libqrtr, qrtr-lookup and
+# qrtr-cfg. The QRTR name service itself stays in the kernel, so the
+# qrtr-ns binary and its unit are not built (MODEM-USERSPACE.md).
+# Maintainer: Santiago <villavicencioandrs@gmail.com>
+
+pkgname=qrtr
+pkgver=1.2
+pkgrel=1
+pkgdesc='Qualcomm QRTR userspace: libqrtr, qrtr-lookup and qrtr-cfg (the name service is in the kernel)'
+arch=(aarch64)
+url='https://github.com/linux-msm/qrtr'
+license=(BSD-3-Clause)
+depends=(glibc)
+makedepends=(meson ninja)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/linux-msm/qrtr/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('7a82bf80246fe71287b13c66c0466208822e8337fcd4aaf302eee6c5fcb48a52')
+
+build() {
+  # qrtr-ns: the name service moved into the kernel, so the userspace
+  # name server (and its unit) must not be built or shipped.
+  arch-meson "$pkgname-$pkgver" build -Dqrtr-ns=disabled -Dsystemd-service=disabled
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}

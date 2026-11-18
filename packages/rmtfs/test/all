@@ -1,0 +1,55 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Offline checks for the rmtfs package. The read-only rule is a safety
+# invariant (MODEM-USERSPACE.md): Linux never writes the modem's NV
+# partitions, so the unit must keep -r and must never gain -s or -S.
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."
+fails=0
+fail() { echo "FAIL: $*" >&2; fails=$((fails + 1)); }
+pass() { echo "ok: $*"; }
+
+(
+  # shellcheck disable=SC1091
+  source ./PKGBUILD
+  [[ $pkgname == rmtfs ]] || exit 1
+  [[ $pkgver == "$(tr -d ' \n' < version)" ]] || exit 2
+  [[ ${#source[@]} == "${#sha256sums[@]}" ]] || exit 3
+  for i in "${!sha256sums[@]}"; do
+    [[ ${sha256sums[$i]} =~ ^([0-9a-f]{64}|SKIP)$ ]] || exit 4
+    if [[ ${sha256sums[$i]} != SKIP && $i -gt 0 ]]; then
+      [[ ${sha256sums[$i]} == "$(sha256sum "${source[$i]}" | cut -d' ' -f1)" ]] || exit 5
+    fi
+  done
+  [[ ${source[0]} == *"linux-msm/rmtfs/archive/refs/tags/v$pkgver.tar.gz" ]] || exit 6
+) && pass "PKGBUILD pins the upstream tag tarball and vendored checksums" \
+  || fail "PKGBUILD pin check failed (exit $?)"
+
+# The read-only invariant, encoded so a review cannot lose it.
+exec_line=$(grep -E '^ExecStart=' rmtfs.service) || { echo "FAIL: no ExecStart in rmtfs.service" >&2; exit 1; }
+grep -qE '^ExecStart=.* -r' rmtfs.service \
+  && pass "rmtfs runs with -r (writes stay in the RAM shadow)" \
+  || fail "rmtfs.service must run with -r"
+
+if grep -qE '^ExecStart=.*(^| )-s' rmtfs.service; then
+  fail "rmtfs.service must not use -s (MPSS remoteproc; an external MHI modem has none)"
+else
+  pass "no -s (no remoteproc dependency)"
+fi
+
+if grep -qE '^ExecStart=.*(^| )-S' rmtfs.service; then
+  fail "rmtfs.service must not use -S (no A/B slot suffix)"
+else
+  pass "no -S (the modem partitions are not slotted)"
+fi
+
+grep -q 'qcom_rmtfs_mem' rmtfs.service \
+  && fail "rmtfs.service conditions on the rproc shared-memory device" \
+  || pass "no rproc shared-memory condition"
+
+# Upstream's remoteproc units must not be shipped by the package.
+grep -q 'rmtfs-dir' PKGBUILD && grep -q 'make -C "$pkgname-$pkgver" .*install' PKGBUILD \
+  && fail "package() must not run upstream's make install (ships -s units)" \
+  || pass "package() installs the binary and unit by hand"
+
+test "$fails" -eq 0

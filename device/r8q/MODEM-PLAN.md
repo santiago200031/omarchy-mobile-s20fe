@@ -870,6 +870,29 @@ host's transaction before the endpoint answers). The one-channel loader's
 `unexpected cmd 9` after the `mode=2` HELLO is the final SBL command; it does
 not affect the transition.
 
+**Run 3 follow-up — the link dies after mission mode (2026-11-18).** The
+first mission-mode window was followed by a link that never settled:
+
+- `CmpltTO | Requester | Transaction Layer` (Uncorrectable Non-Fatal) with
+  `Link Down`, root-port reset, AER recovery;
+- then `RxErr | Receiver | Physical Layer` (Correctable) and more link-downs,
+  plus a fatal "no details found" from the ghost `0002:ff:1f.7`;
+- at 679 s: `Failed to reset Root Port: -5`, `broken device, retraining
+  non-functional downstream link at 2.5GT/s`, `Data Link Layer Link Active not
+  set in 100 msec`, `subordinate device reset failed`; `/dev/wwan*` gone.
+
+The link trains at **2.5 GT/s x1** (capability 8 GT/s x2). **ASPM is disabled**
+on the root port, and the L1 substates are off, so ASPM is not the trigger.
+The modem's `1c00000.pcie-vddpe-3v3` and `-vdda` are **dummy regulators**
+(0 mA, 0 mV): the 3.3 V rail is not modelled or monitored. The errors are
+physical-layer (RxErr) plus a completion timeout, so the leading hypotheses
+are the shared 3.3 V rail under the AMSS load and the PCIe PHY/link training,
+with the `0002:ff:1f.7` fatal as a possible MSI/doorbell side effect.
+
+A reboot is needed to power the endpoint again (the PCIe link reset no longer
+recovers). The next run should capture the regulator/clk state and the AER
+counters from the first second of mission mode.
+
 **Resolution (2026-11-18).** The root now lives on `userdata` (`sda36`, ext4
 label `omamobile-root`, 105 GiB), installed with
 [RUNBOOK-USERDATA-ROOT](RUNBOOK-USERDATA-ROOT.md) and verified: `systemd`

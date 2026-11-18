@@ -285,9 +285,13 @@ the userdata root; no modem overlay is needed.
 
 0. **Read-only:** `uname -r`, `findmnt -no SOURCE /` (expect `/dev/sda36`),
    `cat /sys/class/thermal/thermal_zone*/type` for the temperature.
-1. **Modules (write):**
-   `KERNEL_DIR=~/omamobile-kernel/wt-r8q KERNEL_OUT=~/omamobile-kernel/out-r8q-npu bin/omamobile modules-push`
-   (the tree is at the fix, so the release string matches the new kernel).
+1. **Modules (write):** the tree is at the fix, so the release is
+   `7.3.0-rc6-omamobile-push1-gcd919933b72c`. Install the tarball directly (the
+   root already has hand-installed modem modules, which `modules-push`'s
+   hand-edit guard would refuse):
+   `zstd -dc ~/omamobile-kernel/out-r8q-npu/modules-7.3.0-rc6-omamobile-push1-gcd919933b72c.tar.zst | tools/phone-ssh 'tar -C /usr/lib/modules -xf - && depmod -a 7.3.0-rc6-omamobile-push1-gcd919933b72c'`.
+   Keep sddm stopped (`systemctl disable --now sddm`) so the next boot stays
+   on the console and cannot restart the login loop.
 2. **Image (laptop):**
    `KERNEL_OUT=~/omamobile-kernel/out-r8q-npu tools/r8q-boot pack ~/omamobile-kernel/out-r8q-npu/recovery-npu-fastrpc.img`
    It must report `userdata` and `omamobile-root` in the ramdisk and no
@@ -295,8 +299,10 @@ the userdata root; no modem overlay is needed.
 3. **Flash (write, needs go):** `tools/r8q-flash-recovery <image>`; readback sha
    must match.
 4. **Reboot (needs go):** the native image boots `/dev/sda36` again.
-5. **Test:** start the CDSP daemon if it is not running
-   (`hexagonrpcd -f /dev/fastrpc-cdsp -d cdsp`), then
+5. **Test:** push the host tarball again (`/tmp` does not survive a reboot),
+   build it with the malloc shim (the phone has no `/dev/ion`):
+   `gcc -O2 -I. calculator_stub.c calculator_main.c calculator_test.c dsp_capabilities_utils.c pd_status_notification.c rpcmem_malloc.c -o calculator -L. -lcdsprpc -ldl -lpthread -Wl,-rpath,/tmp/calc-host`,
+   start the CDSP daemon (`hexagonrpcd -f /dev/fastrpc-cdsp -d cdsp`), then
    `cd /tmp/calc-host && LD_LIBRARY_PATH=/tmp/calc-host ./calculator -d 3 -U 1 -r 0 -n 16`.
    **Expect/pass:** no "falling back to signed pd"; the unsigned PD opens and
    the sum returns. **Stop:** a DSP fault, a PD load failure, or a reset; the

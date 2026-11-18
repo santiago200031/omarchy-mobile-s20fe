@@ -62,6 +62,26 @@
  * propagates up to CX. dev_pm_domain_attach() only attaches the first
  * power domain, so CX must come in through GCC, not through pcie2.
  */
+/*
+ * The flashless SDX55M reads and writes its EFS through a host DRAM
+ * window: rmtfs maps /dev/qcom_rmtfs_mem1 (created by the
+ * qcom,rmtfs-mem driver from this region) and hands the physical
+ * address to the modem over QMI, and the modem DMAs through PCIe.
+ * The address is negotiated, not fixed, so allocate the region
+ * dynamically from free System RAM (0xc0000000 is free per
+ * /proc/iomem; stock's low map has no hole to reuse).
+ */
+&{/reserved-memory} {
+	rmtfs_mem: rmtfs-region {
+		compatible = "qcom,rmtfs-mem";
+		alloc-ranges = <0x0 0xc0000000 0x0 0x40000000>;
+		size = <0x0 0x200000>;
+		no-map;
+
+		qcom,client-id = <1>;
+	};
+};
+
 &{/soc@0/clock-controller@100000} {
 	/* RPMHPD_CX = 0, dt-bindings/power/qcom,rpmhpd.h */
 	power-domains = <&rpmhpd 0>;

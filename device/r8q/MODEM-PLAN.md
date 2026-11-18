@@ -1060,6 +1060,29 @@ for its remote services over QRTR, gets no answer (no
 rmtfs/pd-mapper/tqftpserv installed) and reboots. **The remaining
 blocker is the userspace, not the link.**
 
+**Run 7 (userspace installed, 2026-11-18).** `qrtr`/`rmtfs`/`pd-mapper`/
+`tqftpserv` built and installed on the phone. From a cold boot with
+`tqftpserv` up and one clean serve, the modem reached mission mode and
+**`qrtr-lookup` showed its QRTR services for the first time**: node 3
+(the modem) advertising the *Modem embedded file system service* (the
+EFS counterpart of `rmtfs`), thermal and time services; node 1 carrying
+tqftpserv's TFTP service.
+
+It still dropped back to SBL within a minute, and the cause is now
+precise: **`rmtfs` has no shared-memory window**. It starts, fails to
+open `/dev/qcom_rmtfs_mem1` (the `qcom,rmtfs-mem` region is not in the
+DT and `CONFIG_QCOM_RMTFS_MEM` is not set), and its `/dev/mem` fallback
+cannot mmap. The EFS handshake can never complete, so the flashless
+modem reboots. `pd-mapper` also exited to its start limit (`no pd maps
+available`, no remoteproc bound) — the known caveat; QMI is tried
+without it first.
+
+Next: add `CONFIG_QCOM_RMTFS_MEM=y` and a dynamically allocated
+`qcom,rmtfs-mem` reserved-memory region (the address is negotiated with
+the modem over QMI, so `alloc-ranges` from free System RAM
+(`0xc0000000`, per `/proc/iomem`) instead of a stock hole; stock's map
+has none free).
+
 ### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
 
 The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q

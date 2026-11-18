@@ -980,6 +980,34 @@ The overlay therefore adds `power-domains = <&rpmhpd 0>` (RPMHPD_CX) to
 Verified in the packed DTB: required-opps resolves to `opp10`
 (`opp-level = <0x1a0>`) and the gcc domain to `rpmhpd` cell 0.
 
+**Run 5 result (CX vote, 2026-11-18).** The vote applies on every boot
+(`pm_genpd_summary`: `cx on 416`), and it **removed the AER-recovery
+hang**: a boot now runs through several complete recoveries
+(`Root Port has been reset` → `PCI slot reset done` →
+`AER: device recovery successful` → `PCIe Gen.1 x2 link up`) where every
+earlier boot hung in the first `pci_reset_bus_function` and was reset by
+`qcom_wdt` at ~60 s. The modem **reaches `EE: MISSION MODE`** and the
+phone stays reachable over USB while it is there.
+
+The autotest's endless retry still ends each boot (~2-3.5 min): the fatal
+cycle is `mhi_wwan_ctrl mhi0_SAHARA: Failed to queue buffer` (x16) →
+`wwan0sahara0 disconnected` → `mhi-pci-generic: failed to power up MHI
+controller` → `PCI error detected, state = 2` → `device recovery started`
+→ then a silent wedge (one pstore shows `[dpu error] enc35 frame done
+timeout` as the last line) and a watchdog reset with no panic recorded.
+During the cycles the modem's internal bridges report
+`AER: Multiple Correctable + Uncorrectable (Fatal) Error messages`
+(from `0002:ff:1f.7`).
+
+**Correction of an earlier reading:** the `Reached target Shutdown`
+lines in the journal are the **user manager** (`systemd --user`, the
+`Removed session` teardown after SSH logouts), not system shutdowns.
+The boots die silently mid-recovery; they are not clean shutdowns.
+
+The autotest is `enabled`, so every boot restarts the loop and the phone
+power-cycles on its own; it is masked on the phone to hold a stable
+state (`systemctl mask r8q-modem-autotest.service`, unmask to retest).
+
 ### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
 
 The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q

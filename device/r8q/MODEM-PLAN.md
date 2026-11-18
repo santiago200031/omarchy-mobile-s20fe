@@ -965,6 +965,21 @@ nodes; mainline `pcie2` has only `PCIE_2_GDSC`. The mainline idiom is
 propagates to its parent RPMHPD CX. Test with
 `required-opps = <&rpmhpd_opp_turbo>` on `pcie2`, DT-only.
 
+**Run 5 preparation (CX vote, 2026-11-18).** Stock votes VDD_CX to max on
+every PCIe node (`vreg-cx-supply` + `qcom,vreg-cx-voltage-level =
+<0xffff 0x100 0x0>`); mainline `pcie2` has only `PCIE_2_GDSC`. The
+mainline equivalent is the RPMHPD CX domain plus `required-opps`, as
+sc8280xp does, but `dev_pm_domain_attach()` attaches only the first power
+domain and `pcie-qcom` does not call `devm_pm_domain_attach_list()`, so CX
+cannot be attached through `pcie2`. It is attached through GCC instead
+(the gcc driver does attach all its domains), which makes every GDSC a CX
+subdomain and lets `pcie2`'s GDSC performance state propagate up to CX.
+The overlay therefore adds `power-domains = <&rpmhpd 0>` (RPMHPD_CX) to
+`clock-controller@100000` and `required-opps = <&rpmhpd_opp_turbo_l1>` to
+`pcie2`. Image `recovery-modem-cx.img` (`f2dfafa7…`), Gen1, no `noaer`.
+Verified in the packed DTB: required-opps resolves to `opp10`
+(`opp-level = <0x1a0>`) and the gcc domain to `rpmhpd` cell 0.
+
 ### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
 
 The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q

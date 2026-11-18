@@ -119,3 +119,12 @@ The modem test that failed on the SD root (§12) can be repeated with the native
 - The SD card is no longer required at boot. The stable SD-root image is
   untouched on the laptop and the way back is unchanged
   (`tools/r8q-flash-recovery --stable`).
+
+**Daily native image (2026-11-18).** With the SD-root `--dual-boot` image kept
+as the way back, the daily configuration is now
+`out-r8q-uw/recovery-stable-native.img` (sha256 `7799b1e2…`): stable kernel
+`7.3.0-rc6-omamobile-push1-g3667ab368ef9`, the `camera-uw` overlay, and the
+userdata root. Its first boot after flashing stopped before the USB gadget; a
+forced restart (Power + Volume Down) booted normally, and the S5K3L6
+(ultrawide) and HI-847 (tele) sensors are ENABLED in `/dev/media0`. Watch for
+a repeat; if it recurs, capture the initramfs console before restarting.

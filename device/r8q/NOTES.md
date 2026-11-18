@@ -559,3 +559,21 @@ on-screen keyboard). The lock screen is unaffected.
 
 The same session confirmed the NPU park: the CDSP secure boot rejects the
 unsigned v66 skel ([NPU-PLAN](NPU-PLAN.md) P1).
+
+## 22. The daily root is the native stable image (2026-11-18)
+
+The NPU test image was replaced with `out-r8q-uw/recovery-stable-native.img`
+(sha256 `7799b1e2…`): stable kernel `g3667ab368ef9`, the `camera-uw` overlay,
+and the userdata root. Verified: `/dev/sda36`, sddm active with one Hyprland
+and quickshell, ~44 C, battery Full, and the `s5k3l6xx` (ultrawide) and `hi847`
+(tele) sensors ENABLED in the media graph.
+
+**First boot after the flash stopped before the USB gadget** (boot logo/text
+console, no enumeration). A forced restart (Power + Volume Down) booted
+normally. The image and root checks are identical on the second boot, so it
+reads as a one-off initramfs/USB-path stop, not a bad image; watch for a
+repeat and capture the initramfs console first if it happens.
+
+The old SD-root dual-boot image (`66fe127f…`) stays the way back when the
+userdata root itself needs replacing; `tools/r8q-flash-recovery --stable`
+still restores it.

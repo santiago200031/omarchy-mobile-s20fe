@@ -56,4 +56,11 @@
 &{/soc@0/pcie@1c10000} {
 	pinctrl-0 = <&pcie2_default_state &mdm2ap_default &ap2mdm_default>;
 	status = "okay";
+	/*
+	 * The SBL image set moves at Gen3 x2, but the AMSS jump then trips
+	 * CmpltTO/RxErr and the link dies. Cap the rate at Gen2 (5 GT/s) as
+	 * the first signal-integrity test; Gen1 (<1>) is the next step if
+	 * this still flaps.
+	 */
+	max-link-speed = <2>;
 };

@@ -241,6 +241,42 @@ same `-R` root (or a root that contains the test skel). Nothing here writes
 boot or UFS; starting a CDSP instance and loading a user PD is a phone change
 and asks for a go.
 
+### P1 result (2026-11-18): the v66 skel builds; the host ABI is the blocker
+
+**The v66 skel works.** The SDK 5.4.2 `examples/calculator` built for v66 after
+two packaging fixes (`-DPREBUILT_LIB_DIR=toolv21_v66`, the `qaic` symlink):
+`libcalculator_skel.so` is a valid Hexagon DSP6 ELF (14 KB). That closes the
+skel half of G1.
+
+**The host half is a userspace ABI mismatch, not the DSP.** The phone's
+FastRPC userspace is **`hexagonrpc 0.5.0`** (`/usr/bin/hexagonrpcd`,
+`libhexagonrpc.so`: the raw `fastrpc`/`fastrpc2` ioctl wrappers), not
+Qualcomm's `libcdsprpc`. The SDK's `libcdsprpc.so` (UbuntuARM_aarch64) against
+the mainline driver says:
+
+```
+ERROR 0xffffffff: FastRPC Capability API failed. Falling back to signed pd.
+Overriding user request for unsigned PD. Only signed offload is allowed on domain 3.
+```
+
+The kernel driver's `fastrpc_get_info_from_kernel()` indexes only the DSP's
+attribute array; the SDK library asks for the driver-owned attributes
+`DOMAIN_SUPPORT (0)` and `UNSIGNED_PD_SUPPORT (1)` (`incs/remote.h`'s
+`enum remote_dsp_attributes`). `cctx->unsigned_support` is `true` for CDSP and
+GDSP in the mainline driver, but the capability ioctl never returns it, so the
+library concludes "signed only" and refuses the unsigned skel.
+
+**Next (kernel, laptop):** special-case `DOMAIN_SUPPORT` and
+`UNSIGNED_PD_SUPPORT` in `fastrpc_get_info_from_kernel()` to answer from the
+driver (`1` and `cctx->unsigned_support`), leaving the other attributes to the
+DSP. Then retest the calculator. If the SDK library's next step, `rpcmem_alloc`
+("Allocate 64 bytes from ION heap", `0x68`), still fails because there is no
+`/dev/ion` (the phone has `/dev/dma_heap/{system,reserved}`), write a minimal
+host that calls `calculator_sum` with a normal array and no rpcmem.
+
+The v66 skel itself is not the problem, and no DSP fault appeared. The
+`hexagonrpc` daemon runs on `/dev/fastrpc-cdsp`; the calculator opens domain 3.
+
 ### P2b — v66 integer matmul probe (the decision gate)
 
 The port only makes sense if integer HVX beats the CPU on the same quantized

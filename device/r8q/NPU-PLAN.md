@@ -277,6 +277,40 @@ host that calls `calculator_sum` with a normal array and no rpcmem.
 The v66 skel itself is not the problem, and no DSP fault appeared. The
 `hexagonrpc` daemon runs on `/dev/fastrpc-cdsp`; the calculator opens domain 3.
 
+### P1 second result (2026-11-18): the SDK Linux lib is a stub; the
+### mainline path is `libhexagonrpc`
+
+The capability fix was built into `7.3.0-rc6-omamobile-push1-gcd919933b72c`
+and did not change the result. Reading the SDK library settled why:
+
+- `ipc/fastrpc/remote/ship/UbuntuARM_aarch64/libcdsprpc.so` is a **link-time
+  stub**: `remote_handle64_open`, `remote_handle64_invoke`,
+  `remote_session_control` and `remote_handle64_control` all `mov w0, #-1;
+  ret`, `rpcmem_alloc` returns NULL. The calculator never reached the DSP; its
+  "capability API failed" message was the stub returning -1 for every call.
+- The Android ship (`android_aarch64/libcdsprpc.so`) is the real library, but
+  it is bionic and needs the Android runtime, not the Arch root.
+
+The mainline path is the phone's **`hexagonrpc`** userspace
+(`libhexagonrpc.so` + `hexagonrpcd`). Its repo master provides the client API
+the SDK stub lacks: `hexagonrpc_open(fd, "libcalculator_skel.so", &hdl, ...)`,
+a method definition (`HRPC_ARG_BLOB_SEQ` in, `HRPC_ARG_OUT_BLOB` out) and
+`hexagonrpc()`. The installed `hexagonrpc 0.5.0` predates those symbols, so a
+test binary built with the repo's `error.c handle.c hexagonrpc.c session.c
+interface/remotectl.c` links and runs (it was built on the phone as
+`/tmp/hrpc/calc_hrpc`).
+
+What is not settled: `hexagonrpcd -f /dev/fastrpc-cdsp -d cdsp -R
+/usr/share/qcom -p /tmp/hrpc/calc_hrpc` exits with no output. The `-p` mode
+runs the client on the **DSP remotectl listener**; that listener exists on the
+ADSP/SDSP (the sensors use it) but the CDSP may not expose one, or the installed
+0.5.0 daemon does not speak the repo master's listener protocol. The next step
+is to run the **repo master's** `hexagonrpcd` (or read its `-p`/listener code)
+and confirm the CDSP listener; that is a focused session, not a quick test.
+
+The kernel capability patch stays: it is the downstream behaviour and the
+vendor/bionic library would use it, but it is not on the `hexagonrpc` path.
+
 ### P1 retest runbook (after the driver fix; needs the human's go for writes)
 
 The kernel fix is `misc: fastrpc: answer the domain and unsigned-PD capability

@@ -277,6 +277,35 @@ host that calls `calculator_sum` with a normal array and no rpcmem.
 The v66 skel itself is not the problem, and no DSP fault appeared. The
 `hexagonrpc` daemon runs on `/dev/fastrpc-cdsp`; the calculator opens domain 3.
 
+### P1 retest runbook (after the driver fix; needs the human's go for writes)
+
+The kernel fix is `misc: fastrpc: answer the domain and unsigned-PD capability
+attributes` on branch `r8q-npu-fastrpc` (off `r8q-modem-msi`). The retest uses
+the userdata root; no modem overlay is needed.
+
+0. **Read-only:** `uname -r`, `findmnt -no SOURCE /` (expect `/dev/sda36`),
+   `cat /sys/class/thermal/thermal_zone*/type` for the temperature.
+1. **Modules (write):**
+   `KERNEL_DIR=~/omamobile-kernel/wt-r8q KERNEL_OUT=~/omamobile-kernel/out-r8q-npu bin/omamobile modules-push`
+   (the tree is at the fix, so the release string matches the new kernel).
+2. **Image (laptop):**
+   `KERNEL_OUT=~/omamobile-kernel/out-r8q-npu tools/r8q-boot pack ~/omamobile-kernel/out-r8q-npu/recovery-npu-fastrpc.img`
+   It must report `userdata` and `omamobile-root` in the ramdisk and no
+   `omamobile.loop=` in the cmdline (the native image).
+3. **Flash (write, needs go):** `tools/r8q-flash-recovery <image>`; readback sha
+   must match.
+4. **Reboot (needs go):** the native image boots `/dev/sda36` again.
+5. **Test:** start the CDSP daemon if it is not running
+   (`hexagonrpcd -f /dev/fastrpc-cdsp -d cdsp`), then
+   `cd /tmp/calc-host && LD_LIBRARY_PATH=/tmp/calc-host ./calculator -d 3 -U 1 -r 0 -n 16`.
+   **Expect/pass:** no "falling back to signed pd"; the unsigned PD opens and
+   the sum returns. **Stop:** a DSP fault, a PD load failure, or a reset; the
+   stable image is the way back.
+
+If the only remaining error is the ION allocation (`0x68`), replace the test
+with a minimal host that calls `calculator_sum` with a normal array and no
+`rpcmem` (the IDL stub copies the sequence); record that as the G1 pass.
+
 ### P2b — v66 integer matmul probe (the decision gate)
 
 The port only makes sense if integer HVX beats the CPU on the same quantized

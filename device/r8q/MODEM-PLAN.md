@@ -986,8 +986,16 @@ hang**: a boot now runs through several complete recoveries
 (`Root Port has been reset` → `PCI slot reset done` →
 `AER: device recovery successful` → `PCIe Gen.1 x2 link up`) where every
 earlier boot hung in the first `pci_reset_bus_function` and was reset by
-`qcom_wdt` at ~60 s. The modem **reaches `EE: MISSION MODE`** and the
-phone stays reachable over USB while it is there.
+`qcom_wdt` at ~60 s.
+
+**Correction (same day):** the `EE: MISSION MODE` read during these runs
+was `mhi1`, the **Wi-Fi** (QCA6390 on `0000:01:00.0`, mission mode when
+ath11k is up), not the modem. The modem is `mhi0` (SDX55 on
+`0002:01:00.0`); today it only cycles **SBL → failed AMSS → SBL**, and
+no `wwan0qmi0`/`wwan0mbim0`/`wwan0at0` appeared. Whether the modem
+itself reached mission mode in any of today's boots is unverified. With
+the autotest disabled, the modem sits in `EE: SECONDARY BOOTLOADER`,
+reachable on `/dev/wwan0sahara0`, and the phone stays up.
 
 The autotest's endless retry still ends each boot (~2-3.5 min): the fatal
 cycle is `mhi_wwan_ctrl mhi0_SAHARA: Failed to queue buffer` (x16) →

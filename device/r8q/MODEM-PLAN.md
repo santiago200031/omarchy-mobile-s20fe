@@ -718,6 +718,11 @@ mode: `Mission mode doorbell offsets: CHDBOFF=0x300 ERDBOFF=0x700`,
 `EE: MISSION MODE`, AMSS channels `QMI/MBIM/IPCR/IP_HW0/IP_SW0`, and
 `/dev/wwan0{qmi,mbim,qcdm,at}0` all present.
 
+**The image that achieved it:** `recovery-modem-rescue.img`, sha256
+`0e3c74b5…77f1acef`, packed 2026-11-18 with `--overlay modem
+--rescue-test` on kernel `gbd4cb8a49313` (sda24 held these exact
+bytes when AMSS was reached).
+
 The downstream `pci-msm-msi` source (winnerx tree) settled the data
 question: its compose programs the **parent GIC hwirq** (`irqd_to_hwirq`
 of the GIC irqdata). With the GIC's +32 SPI translation that is 864+i

@@ -75,6 +75,11 @@ package() {
     "$pkgdir/usr/lib/udev/rules.d/80-r8q-gpu.rules"
   install -Dm644 "$startdir/hyprland-r8q.conf" \
     "$pkgdir/usr/share/omamobile/hypr/r8q.conf"
+  # `uwsm start` returns after the compositor is up, so SDDM sees the
+  # autologin session end; the firstboot's Relogin=true then starts a new one
+  # every second (logind/journald spin, 80+ C). One autologin, no retry.
+  install -Dm644 "$startdir/zz-r8q-relogin.conf" \
+    "$pkgdir/etc/sddm.conf.d/zz-r8q-relogin.conf"
   # Suspend never wakes on this port: logind refuses it, the seat never idles
   # into it, and the targets are masked for anything that calls them directly
   # (README-suspend.md). The kernel command line masks them too, so even a

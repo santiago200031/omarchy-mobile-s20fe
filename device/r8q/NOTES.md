@@ -529,3 +529,33 @@ stale rescue-test blacklist from MODEM-PLAN §5 was moved aside
 then `mhi_pci_generic` bound, `mhi1` powered the SDX55 on, the MHI found it in
 SBL, and `/dev/wwan0sahara0` appeared. The SDX55's `QCOM-PCI-MSI` vectors are
 live and USB/Wi-Fi survived. Next: the Sahara firmware load on that channel.
+
+## 21. SDDM autologin loops every second; one autologin only (2026-11-18)
+
+The desktop was up, but the phone was hot: CPU zones **77-84 C**, load **12**,
+about **12,700 journal lines/min**, with `systemd-logind` and `journald`
+spinning while `sddm-helper` authenticated the same autologin every second:
+
+```
+Session started true
+[PAM] Closing session
+Auth: sddm-helper exited with 5
+Removing display ... Adding new display ...
+```
+
+**Cause:** the `omarchy.desktop` session is `uwsm start -g -1 -e -D Hyprland
+hyprland.desktop`; `uwsm` returns once the session is up, so SDDM reads the
+session as ended, and the firstboot's `Relogin=true` starts a fresh autologin
+immediately. The session itself was fine (Hyprland and quickshell running);
+every retry only added a PAM/logind/udev storm.
+
+**Fix:** `Relogin=false` from the r8q device package's
+`/etc/sddm.conf.d/zz-r8q-relogin.conf` (it sorts after `autologin.conf`, so it
+wins). One autologin, no retry: load **0.4**, **98.9 % idle**, one Hyprland,
+about **41 C**, and SDDM stays active. `systemctl enable sddm` keeps it on
+boot; the liveness monitor starts `display-manager.service` when it is enabled.
+The cost is the `TOUCH-PLAN` 0.4 caveat: a manual Logout shows the greeter (no
+on-screen keyboard). The lock screen is unaffected.
+
+The same session confirmed the NPU park: the CDSP secure boot rejects the
+unsigned v66 skel ([NPU-PLAN](NPU-PLAN.md) P1).

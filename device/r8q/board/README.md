@@ -19,3 +19,4 @@
 | [05 USB Gadget, Power/Battery & Memory/ZRAM](success/05-usb-power-battery-zram.md) | [05 `[omamobile]/mesa`, `misc.vfr` & `@120`](failed/05-omamobile-mesa-and-hyprland-vfr.md) | [05 Stability Soak, Pseudo-NMI & AI Bench](missing/05-soak-pseudonmi-and-ai-benchmarks.md) |
 | [06 Wi-Fi, Bluetooth, Clock Sync & Boot GUI](success/06-wifi-bluetooth-and-clock.md) | [06 Boot & Session Hazards](failed/06-boot-and-session-hazards.md) | |
 | [07 Stability Soak, Pseudo-NMI & On-Device AI](success/07-stability-soak-nmi-and-ai.md) | [07 `stmfts5` 8-Byte vs `fts5cu56a` 16-Byte Events](failed/07-stmfts5-8byte-vs-samsung-16byte-events.md) | |
+| [08 Vulkan `llama.cpp` Adreno GPU Wedge](failed/08-vulkan-llm-adreno-gpu-wedge.md) | |

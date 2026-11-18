@@ -3,7 +3,7 @@
 # Missing 05: Freedreno Above 305 MHz & Vulkan LLM (Optional)
 
 - **Priority:** P5 (`M8`), optional performance work.
-- **Status (`2026-11-19`):** the soak, pseudo-NMI and CPU AI parts of this card are **done** and recorded in [Success 07](../success/07-stability-soak-nmi-and-ai.md). The Mesa side of Freedreno/Turnip is **done**: `packages/mesa` `1:26.2.4-2.0` builds Gallium freedreno (`msm_dri.so`) and splits `vulkan-freedreno` (`libvulkan_freedreno.so`, `freedreno_icd.json`), validated by a full aarch64 build (signed, indexed) and **on the phone**: `vulkaninfo` shows `Turnip Adreno (TM) 650` (Vulkan 1.3.354) and `eglinfo` shows OpenGL 4.6 on `freedreno`, with the Turnip ICD working even beside Arch's newer `mesa 26.2.7`. The 305 -> 587 MHz GPU step is now **done** (sustained 587 MHz, `omamobile-device-r8q` 0.1.26). What remains: the Vulkan `llama.cpp` run (and the optional Hexagon CDSP offload).
+- **Status (`2026-11-19`):** the soak, pseudo-NMI and CPU AI parts of this card are **done** and recorded in [Success 07](../success/07-stability-soak-nmi-and-ai.md). The Mesa side of Freedreno/Turnip is **done**: `packages/mesa` `1:26.2.4-2.0` builds Gallium freedreno (`msm_dri.so`) and splits `vulkan-freedreno` (`libvulkan_freedreno.so`, `freedreno_icd.json`), validated by a full aarch64 build (signed, indexed) and **on the phone**: `vulkaninfo` shows `Turnip Adreno (TM) 650` (Vulkan 1.3.354) and `eglinfo` shows OpenGL 4.6 on `freedreno`, with the Turnip ICD working even beside Arch's newer `mesa 26.2.7`. The 305 -> 587 MHz GPU step is now **done** (sustained 587 MHz, `omamobile-device-r8q` 0.1.26). The Vulkan `llama.cpp` build is **done but blocked**: it builds and sees the Adreno 650, but the Vulkan compute/LLM path wedges the GPU (see [Failed 08](../failed/08-vulkan-llm-adreno-gpu-wedge.md)), so CPU stays the default. What remains: the optional Hexagon CDSP offload, and a Turnip/GMU fix before Vulkan LLM can be retried.
 - **Back:** [MISSING.md](../MISSING.md) · [Board Overview](../README.md)
 
 ## Done (moved to Success 07)
@@ -25,16 +25,10 @@ The transient Vulkan FP32 FMA benchmark (245.3 GFLOP/s at 587 MHz vs 127.6 at 30
 
 ## Remaining Work
 
-### 2. Vulkan `llama.cpp`
-- Install `extra/vulkan-headers` (`shaderc` and `vulkan-freedreno` are already
-  present), build `llama.cpp` with `-DGGML_VULKAN=ON`, and confirm
-  `llama-server --list-devices` shows the Adreno 650 (the installed build is
-  CPU-only).
-- Benchmark `LFM3-1.7B` against the CPU baseline (15.47 prompt / 10.6-11.0
-  generation tok/s) at 305 MHz and 587 MHz, and record the numbers in
-  [AI-BENCHMARKS.md](../../AI-BENCHMARKS.md).
-- Set `GPU_LAYERS` in `/etc/omamobile-ai.conf.d/` only for a build that passes;
-  keep `GPU_LAYERS=0` as the default.
+### 2. Vulkan `llama.cpp` — **built, but wedges the GPU** (see [Failed 08](../failed/08-vulkan-llm-adreno-gpu-wedge.md))
+- Done: `vulkan-headers` + `spirv-headers` installed, `llama.cpp` `1.0.0` built on the phone with `-DGGML_VULKAN=ON` (make, `-j8`, ~1 min), `llama-server --list-devices` reports `Vulkan0: Turnip Adreno (TM) 650 (4160 MiB)`.
+- **Blocker:** `llama-bench -ngl 99` on `LFM3-1.7B-Q4_K_M` faults at model load, even pinned at `305 MHz`: `device lost on Vulkan0` (`waitSemaphores: ErrorDeviceLost`), then `hangcheck detected gpu lockup rb 0` + `a6xx_recover: cx gdsc didn't collapse`. The GPU wedges, and `Hyprland` was taken down with it; it needed a reboot. The Vulkan *compute/LLM* path wedges; the *render* path (vkcube, Hyprland compositing) is fine, even at 587 MHz.
+- **So:** keep `GPU_LAYERS=0` (CPU) as the default; no GPU benchmark numbers until the Turnip/GMU recovery path is fixed and a Vulkan LLM run is clean.
 
 ### 3. Hexagon CDSP (optional)
 `/dev/fastrpc-cdsp` reports Hexagon v66, `UNSIGNED_PD_SUPPORT=1`, 4×128B HVX and

@@ -402,3 +402,32 @@ load. The earlier evidence was only a short FP32 FMA burst (245.3 GFLOP/s at
   stays 305 so it scales down; max is the cap, not a pin).
   `omamobile-device-r8q` 0.1.25 → **0.1.26**; the rule was pushed to the
   phone's `/usr/lib/udev/rules.d/` and re-triggered, so it survives a reboot.
+
+## 17. Vulkan `llama.cpp` Wedges the Adreno 650 (`2026-11-18`)
+
+The other open item on board card 05 was a Vulkan (`GGML_VULKAN`) `llama.cpp`
+run. It was built on the phone (needs `vulkan-headers` + `spirv-headers`; the
+ICD was already there) and the Adreno 650 shows up — but the first real
+compute pass **wedges the GPU**:
+
+- `llama.cpp` `1.0.0` (main) built on the phone with `-DGGML_VULKAN=ON`
+  (`cmake -B build -DGGML_VULKAN=ON -DGGML_NATIVE=ON`, `make -j8`, ~1 min).
+  `llama-server --list-devices` reports
+  `Vulkan0: Turnip Adreno (TM) 650 (4160 MiB, 3381 MiB free)`.
+- `llama-bench -m LFM3-1.7B-Q4_K_M.gguf -ngl 99 -p 512 -n 128`, pinned at
+  **305 MHz**, fails at model load: `device lost on Vulkan0`,
+  `vk::Device::waitSemaphores: ErrorDeviceLost`.
+- Kernel: `hangcheck detected gpu lockup rb 0!` (fence stuck), and
+  `adreno 3d00000.gpu: [drm:a6xx_recover [msm]] *ERROR* cx gdsc didn't
+  collapse` — the GMU CX power domain won't cycle, so the kernel cannot reset
+  the GPU in place. The recovery worker loops.
+- The wedge persisted: `vkcube` (fine at 587 MHz before) then **segfaulted**,
+  and the hangcheck started flagging **`Hyprland`** as the offending task,
+  taking `hyprland`/`omamobile-shell` down. Only a **reboot** cleared it.
+
+It is not a frequency problem (it faulted at the lowest OPP) and not the
+render path (vkcube/Hyprland compositing were stable at 587 MHz): it is the
+Vulkan **compute** path `llama.cpp` uses, plus a GMU recovery that can't
+collapse CX — the same hangcheck class card 04 tracks for `debayer_egl`.
+`GPU_LAYERS=0` (CPU) stays the default; a Vulkan LLM run waits on a
+Turnip/GMU fix. Full record: [board/failed/08](board/failed/08-vulkan-llm-adreno-gpu-wedge.md).

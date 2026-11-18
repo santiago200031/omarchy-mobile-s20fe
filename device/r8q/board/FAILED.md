@@ -14,4 +14,6 @@ Every failed approach, root cause, and permanent mitigation learned during `r8q`
 | [06 Boot & Session Hazards](failed/06-boot-and-session-hazards.md) | Unpaused `&uart6` / `-19` alias, `btmgmt` hang, `1975` RTC cycle, `sddm` on `multi-user.target`, `SIGPIPE` loop, `scp` | Pause `sync_state()`/`caa385175`, `--timeout`, `sysinit.target` RTC, link `sddm`, direct sysfs read, `r8q-push` |
 | [07 `stmfts5` 8-Byte vs `fts5cu56a` 16-Byte Events](failed/07-stmfts5-8byte-vs-samsung-16byte-events.md) | `stmfts5` split 16-byte Samsung Type-B touch events -> `unknown FTS5 event 0x80`/`0x1` | Parse `0x60`/`0x61` 16-byte Type-B packets (`5866f774c` / `stmfts-r8q.ko`) and pin `994000.i2c` `power/control="on"` |
 
+| [08 Vulkan `llama.cpp` Adreno GPU Wedge](failed/08-vulkan-llm-adreno-gpu-wedge.md) | `-DGGML_VULKAN=ON` `llama.cpp` model load -> `device lost`, `hangcheck gpu lockup`, `a6xx_recover: cx gdsc didn't collapse`; wedges the GPU and takes `Hyprland` down | Keep `GPU_LAYERS=0` (CPU); treat that combo as a reboot-required wedge; Vulkan *compute* wedges, render is fine |
+
 Back to [Board Overview](README.md).

@@ -311,6 +311,35 @@ and confirm the CDSP listener; that is a focused session, not a quick test.
 The kernel capability patch stays: it is the downstream behaviour and the
 vendor/bionic library would use it, but it is not on the `hexagonrpc` path.
 
+### P1 third result: the missing artifact is the unsigned PD shell
+
+Reading the daemon (`hexagonrpcd/rpcd.c`) settles the `-p` behaviour: without
+`-c` it does `FASTRPC_IOCTL_INIT_ATTACH` (the **signed root PD**), and `-c
+SHELL` creates a PD running a **DSP ELF shell**; the client's
+`hexagonrpc_open("libcalculator_skel.so")` then loads the skel into that PD.
+An unsigned skel needs the shell PD.
+
+The shell (`fastrpc_shell_unsigned*`) is **not** in:
+
+- the SDK 5.4.2 (any ship dir);
+- the vendor image's `/lib/rfsa/adsp/` (read directly from the EROFS
+  `vendor.img` with `fsck.erofs --path`: 16 skels, no shell);
+- the earlier `vendor_root` extraction (same files);
+- the local reference tree (only `boot.img`, `dtbo.img`, `vendor.img`; no
+  `super.img` or system image).
+
+It lives in the phone's **system** image (inside `super`, sda29) or in
+Samsung's factory firmware. Without it, the mainline `hexagonrpc` cannot
+create an unsigned CDSP PD; the alternative is the bionic
+`android_aarch64/libcdsprpc.so` with a bionic compatibility layer. Both are
+larger tasks than the skel build.
+
+**State:** the v66 skel, the client and the kernel capability patch are ready.
+The next NPU step is to obtain the shell — either extract the system image
+from `super` (a large read-only `dd` and `lpunpack`) or the Samsung firmware —
+then retry `hexagonrpcd -c <shell> -p /tmp/hrpc/calc_hrpc`. Park here until
+that artifact is available.
+
 ### P1 retest runbook (after the driver fix; needs the human's go for writes)
 
 The kernel fix is `misc: fastrpc: answer the domain and unsigned-PD capability

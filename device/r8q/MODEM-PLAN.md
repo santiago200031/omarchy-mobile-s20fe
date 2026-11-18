@@ -1016,6 +1016,31 @@ The autotest is `enabled`, so every boot restarts the loop and the phone
 power-cycles on its own; it is masked on the phone to hold a stable
 state (`systemctl mask r8q-modem-autotest.service`, unmask to retest).
 
+**Post-run 5 findings (2026-11-18).**
+
+- **The MHI controller numbering is probe-order dependent and swaps
+  between boots**: in earlier runs the modem was `mhi1` (see the quotes
+  above), on 2026-11-18 the modem was `mhi0` (SDX55 at `0002:01:00.0`)
+  and `mhi1` was the **Wi-Fi** (QCA6390 at `0000:01:00.0`, mission mode
+  whenever ath11k is up). Never identify the modem's controller by
+  name: resolve it from the PCI path
+  (`/sys/devices/platform/soc@0/1c10000.pcie/pci0002:00/0002:01:00.0/mhi*`).
+  The phone-side autotest script hardcodes `mhi1`, so its mission-mode
+  gate has been reading the Wi-Fi all along; fix it before the next run.
+- **Stability with the autotest disabled:** 8 samples over 6 minutes,
+  phone alive throughout (uptime 133 s to 452 s, 43-44.8 °C). The reboot
+  churn was entirely the autotest's endless retries.
+- **A mid-serve stop wedges the modem.** Stopping the loader while the
+  modem held a partial image set left it to make its own attempt
+  (~216 s): the link dropped, the AER recovery succeeded, and the modem
+  ended `EE: DISABLE / MHI state: RESET / Device: Inactive` with no
+  sahara port. It does not wait in SBL for a loader that vanished.
+- **`soc_reset` does not recover that state.**
+  `echo 1 > /sys/bus/mhi/devices/mhi0/soc_reset` produced no kernel
+  event, no port, and the state stayed DISABLE. A cold PMIC power cycle
+  (full power-off, not a warm reboot) is the only way back to a fresh
+  SBL from there.
+
 ### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
 
 The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q

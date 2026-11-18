@@ -751,3 +751,19 @@ on the BHI and event vectors, the host transition to SBL/M0, and
 delivery is DONE. What remains is the Sahara firmware download, which
 needs Python and the full firmware set — i.e. healthy storage, not a
 rescue shell.
+
+### Kernel branch state (2026-11-18)
+
+The work is on the local branch `r8q-modem-msi` in
+`~/omamobile-kernel/wt-r8q` (off `modem-stage2`, `4d5ae30a8`, which
+carries the r8q `mhi_pci_generic` BHI quirk from the device package's
+kernel config): the `qcom,pci-msi` binding and driver (doorbell, GIC
+SPI hwirq as message data, debugfs fire/SETSPI bring-up knobs), the
+MHI SBL/AMSS support (ported from the reference port, with the
+channel-START skip removed because r8q's SBL answers it), and a
+MAINTAINERS entry. `tools/kernel-pr-check` passes everything except
+the human `Signed-off-by`, which the maintainer adds through
+`tools/publish-kernel`'s flow; the two CHECKs it lists
+(`MACRO_ARG_REUSE`, `PARENTHESIS_ALIGNMENT`) are inherited style in
+the touched macro, not regressions. Build and gate were run with the
+tree's own output directory (`out-r8q-msi`).

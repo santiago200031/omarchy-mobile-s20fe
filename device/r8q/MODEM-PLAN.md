@@ -942,6 +942,29 @@ empty, and the hardware watchdog (`qcom_wdt`, 30 s) resets it; there is no
 stale-CPU liveness line. Next: `pci=noaer` to remove the AER reset path and
 see whether the phone survives the AMSS jump (Gen1 kept, `.no_m3` kept).
 
+**Run 4 result (noaer, 2026-11-18).** `pci=noaer` did not change the
+outcome. The pstore's last line is
+`pcieport 0002:00:00.0: unlocked secondary bus reset via:
+pci_reset_bus_function+0x1d0/0x1e8`, and the phone reboots via `qcom_wdt`
+after the hang. The reset is **not AER**: the controller's link-down
+interrupt calls `pci_host_handle_link_down()` →
+`pcie_do_recovery(..., pci_host_reset_root_port)` →
+`pci_bus_error_reset()` → `pci_reset_bus_function()`, which invokes
+qcom's `reset_root_port` callback (`qcom_pcie_reset_root_port`: flush
+wait, `qcom_pcie_host_deinit`, `qcom_pcie_host_init`, wait for link).
+`pci=noaer` only disables AER error reporting; this path is compiled in
+and runs regardless. So noaer is a dead end and is dropped from the next
+image. The boot also shows the link re-trains at Gen1 x2
+(`PCIe Gen.1 x2 link up`) both at boot and after the first reset.
+
+Next: the CX vote. Stock has `vreg-cx-supply` +
+`qcom,vreg-cx-voltage-level = <0xffff 0x100 0x00>` on all three PCIe
+nodes; mainline `pcie2` has only `PCIE_2_GDSC`. The mainline idiom is
+`required-opps` on the device node (as `sc8280xp` does): genpd parses it
+(`genpd_set_required_opp`), and the GDSC domain's performance state
+propagates to its parent RPMHPD CX. Test with
+`required-opps = <&rpmhpd_opp_turbo>` on `pcie2`, DT-only.
+
 ### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
 
 The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q

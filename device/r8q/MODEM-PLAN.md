@@ -910,6 +910,8 @@ its modules in the root) — that is the next run, and it is still attended.
    hardware has one; the stock DT does not describe one, so this needs the
    board schematic, not just the DT.
 3. **Then the userspace.** `ModemManager 1.24.2-2` is installed; the kernel QRTR
-   name service is in `qrtr.ko`. `qrtr`, `rmtfs` (upstream ships read-only
-   `-r -P -s`), `pd-mapper` and `tqftpserv` still need the r8q package; the
-   SIM/QMI test waits for a root that survives the modem power-on.
+   name service is in `qrtr.ko`. `qrtr`, `rmtfs`, `pd-mapper` and `tqftpserv`
+   are researched in [MODEM-USERSPACE](MODEM-USERSPACE.md): upstream tags,
+   the r8q-specific `rmtfs -r -P -v` (never `-s`), the by-partlabel and
+   `mdm1m9kefs*` caveats, and the read-only test order. The SIM/QMI test waits
+   for a link that survives the AMSS.

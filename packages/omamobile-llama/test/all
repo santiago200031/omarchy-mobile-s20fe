@@ -1,0 +1,32 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Static checks for omamobile-llama: package layout, pinned source, CPU-only
+# build and the phone's ARMv8.2 flags. The compiled binaries are checked by
+# the PKGBUILD's check() where the build exists.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+for f in PKGBUILD version README.md LICENSE test/all; do
+  [[ -f "$f" ]] || fail "missing: $f"
+done
+
+bash -n PKGBUILD || fail "PKGBUILD syntax"
+
+grep -q '^_commit=98d67c8d536dc584897c4adb2510509796517222$' PKGBUILD \
+  || fail "llama.cpp commit is not pinned"
+grep -q 'GGML_VULKAN=OFF' PKGBUILD || fail "Vulkan must stay off"
+grep -q 'GGML_OPENMP=OFF' PKGBUILD || fail "OpenMP must stay off"
+grep -q 'GGML_NATIVE=OFF' PKGBUILD || fail "build must not use -march=native"
+grep -q 'GGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16' PKGBUILD \
+  || fail "Kryo 585 ARM flags missing"
+grep -q 'BUILD_SHARED_LIBS=OFF' PKGBUILD || fail "build must be static"
+
+[[ "$(cat version)" == "1.0.0.20261118.98d67c8" ]] || fail "unexpected version"
+
+# The three binaries the supervisor and the benchmarks need.
+for b in llama-server llama-cli llama-bench; do
+  grep -q "build/bin/$b" PKGBUILD || fail "package does not install $b"
+done
+
+echo "ok - omamobile-llama layout and build flags"

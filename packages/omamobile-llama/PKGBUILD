@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: MIT
+# Maintainer: Omarchy Mobile contributors
+#
+# omamobile-llama: llama.cpp for on-device inference on the phone.
+#
+# CPU only, deliberately: the Adreno/Vulkan compute path wedges the GPU on
+# this board (device/r8q/board/failed/08-vulkan-llm-adreno-gpu-wedge.md), so
+# GPU_LAYERS stays 0 and the AI supervisor spawns this binary.
+#
+# The build is static and targets ARMv8.2-A with dot-product and FP16, the
+# features the Snapdragon 865's Kryo 585 cores implement. GGML_NATIVE is off
+# so the package builds the same in makepkg on the phone and in the aarch64
+# container on the laptop.
+pkgname=omamobile-llama
+pkgver=$(cat "${startdir:-.}/version")
+pkgrel=1
+pkgdesc="Omarchy Mobile: llama.cpp CPU inference backend (llama-server, llama-cli, llama-bench)"
+arch=(aarch64)
+url="https://github.com/ggml-org/llama.cpp"
+license=(MIT)
+depends=(glibc gcc-libs)
+makedepends=(cmake)
+options=(!debug)
+
+# Pinned 2026-11-18; llama.cpp has no 1.0.0 release tag, so the package
+# version carries the date and the short commit.
+_commit=98d67c8d536dc584897c4adb2510509796517222
+source=("llama.cpp-$_commit.tar.gz::https://github.com/ggml-org/llama.cpp/archive/$_commit.tar.gz")
+sha256sums=('48bd7b4899cee30543b98de580d7404542481af35a49b0f201a168ef1dc56065')
+
+build() {
+  cmake -S "llama.cpp-$_commit" -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DGGML_NATIVE=OFF \
+    -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 \
+    -DGGML_OPENMP=OFF \
+    -DGGML_VULKAN=OFF \
+    -DLLAMA_BUILD_TESTS=OFF \
+    -DLLAMA_BUILD_EXAMPLES=OFF \
+    -DLLAMA_BUILD_TOOLS=ON \
+    -DLLAMA_BUILD_SERVER=ON
+  cmake --build build -j"$(nproc)" --target llama-server llama-cli llama-bench
+}
+
+check() {
+  ./build/bin/llama-server --version
+  ./build/bin/llama-cli --version
+  ./build/bin/llama-bench --help >/dev/null
+  "$startdir/test/all"
+}
+
+package() {
+  install -Dm755 build/bin/llama-server "$pkgdir/usr/bin/llama-server"
+  install -Dm755 build/bin/llama-cli    "$pkgdir/usr/bin/llama-cli"
+  install -Dm755 build/bin/llama-bench  "$pkgdir/usr/bin/llama-bench"
+
+  install -Dm644 "$startdir/README.md" \
+    "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$startdir/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "llama.cpp-$_commit/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE.llama.cpp"
+}

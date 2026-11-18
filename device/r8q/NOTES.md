@@ -350,3 +350,18 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   restore procedure is therefore **flash the image AND push its
   modules**; add the modules step to `stable-image.conf`'s notes when
   the restore is next formalised.
+
+- **Session close: repo and phone state (`2026-11-18`).** The SDX55M
+  bring-up and its documentation are on `main` (merged incrementally,
+  branch deleted, `origin/main` in step). The kernel side lives on the
+  local branch `r8q-modem-msi` in `~/omamobile-kernel/wt-r8q` (6
+  commits: qcom,pci-msi binding and driver with the GIC-hwirq message
+  data and debugfs bring-up knobs, the MHI SBL/AMSS support, a
+  MAINTAINERS entry); `tools/kernel-pr-check` passes except the human
+  `Signed-off-by`, which goes through the maintainer's publish flow.
+  The phone runs the pinned stable release with the UI working (msm,
+  card1 + renderD128, backlight up, guard 77/77, modem off), and the
+  AMSS-capable image (`0e3c74b5…`) stays reproducible from
+  `out-r8q-msi`. Next for cellular: userspace SIM/QMI on the Arch root
+  (qrtr-ns, ModemManager) with a kernel carrying the three commits, and
+  the camera bring-up stays the separate open work.

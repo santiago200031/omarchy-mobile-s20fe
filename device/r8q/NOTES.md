@@ -365,3 +365,16 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   `out-r8q-msi`. Next for cellular: userspace SIM/QMI on the Arch root
   (qrtr-ns, ModemManager) with a kernel carrying the three commits, and
   the camera bring-up stays the separate open work.
+
+- **Freedreno/Turnip validated on the phone (`2026-11-18`).** The Mesa
+  branch's packages were installed from the local signing key and
+  verified on hardware: `vulkaninfo` reports
+  `deviceName = Turnip Adreno (TM) 650`, `driverID =
+  DRIVER_ID_MESA_TURNIP`, `driverInfo = Mesa 26.2.4-arch1.2.0.omamobile5`,
+  Vulkan 1.3.354; `eglinfo` reports `OpenGL core profile version 4.6
+  (Core Profile) Mesa 26.2.4-arch1.2.0.omamobile5` with vendor
+  `freedreno`. The Turnip ICD is standalone: after restoring Arch's
+  newer `mesa 1:26.2.7-1` from the rollback cache, `vulkan-freedreno
+  1:26.2.4-2.0` still enumerates the Adreno 650, so the phone's end
+  state is newest Mesa + our Turnip package. Rollback packages stay in
+  `/var/cache/pacman/pkg`; the test packages in `/tmp/mesa-test` (RAM).

@@ -925,6 +925,33 @@ rail. The stock `live.dts` shows the modem PHY supplies as L5A 0.88 V and L9A
 1.2 V and votes CX to max while pcie2 runs; the mainline overlay has the first
 two and no CX vote.
 
+### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
+
+The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q
+MHI entry (`r8q-modem-nom3`, commit `05ae9a461`), and the loader replies
+`HELLO_RESP mode=0` to the mode-2 MEMORY_DEBUG offer instead of accepting it.
+
+0. **Read-only preflight.** The endpoint from run 3 is failed; a reboot is
+   needed. `tools/nv-backup -d r8q --check <backup>` must be 15/15.
+1. **Modules (write):** install `out-r8q-nom3/modules-<release>.tar.zst`, then
+   `depmod -a <release>`.
+2. **Image (laptop):** pack `--overlay modem` from `out-r8q-nom3` to
+   `recovery-modem-nom3.img`; it must report `userdata`/`omamobile-root` and no
+   `omamobile.loop=`.
+3. **Flash (write):** write it to `sda24`; readback sha256 must match.
+4. **Reboot (needs go):** as soon as SSH answers, start the loader before the
+   modem powers: `r8q-sahara --wait 200 --probe 3 --idle 90`. The log should
+   show `declined memory-debug` at the end of the set.
+5. **Capture from mission-mode entry:** loader log; `dmesg` AER (no `CmpltTO`,
+   `RxErr` or `Link Down`); `lspci -vv -s 0002:01:00.0` `LnkSta`;
+   `cat /sys/bus/pci/devices/0002:01:00.0/power/runtime_status` (`active`, no
+   M3); MHI `EE: MISSION MODE`; `/dev/wwan*`.
+
+**Pass:** the mission window survives past 60 s with clean AER and
+`runtime_status=active`. **Stop:** any `CmpltTO`, `RxErr`, link-down or reset;
+capture the first second's AER/LnkSta/PM state and stop. Rollback: the stable
+native image (`7799b1e2…`).
+
 **Resolution (2026-11-18).** The root now lives on `userdata` (`sda36`, ext4
 label `omamobile-root`, 105 GiB), installed with
 [RUNBOOK-USERDATA-ROOT](RUNBOOK-USERDATA-ROOT.md) and verified: `systemd`

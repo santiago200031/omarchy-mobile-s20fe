@@ -708,6 +708,16 @@ human's go for Download Mode + the rescue SSH session.
 
 ### Results — Stage 4 rescue trigger test (2026-11-17, DELIVERY PROVEN)
 
+**2026-11-18: the modem reaches AMSS.** See NOTES for the full record.
+The remaining gate after delivery was the modem's own jump: the host was
+not asserting AP2MDM_STATUS (gpio56), and the SAHARA walk was spread over
+14 channel reopenings (each a STOP/RESET/START) where stock serves it over
+one session (`ks -n`). With gpio56 high from the PCIe2 pinctrl state and
+one open channel, the SBL completed the image set and entered mission
+mode: `Mission mode doorbell offsets: CHDBOFF=0x300 ERDBOFF=0x700`,
+`EE: MISSION MODE`, AMSS channels `QMI/MBIM/IPCR/IP_HW0/IP_SW0`, and
+`/dev/wwan0{qmi,mbim,qcdm,at}0` all present.
+
 The downstream `pci-msm-msi` source (winnerx tree) settled the data
 question: its compose programs the **parent GIC hwirq** (`irqd_to_hwirq`
 of the GIC irqdata). With the GIC's +32 SPI translation that is 864+i

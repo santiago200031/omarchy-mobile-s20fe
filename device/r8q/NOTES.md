@@ -306,3 +306,19 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   (`gpio56: in low`). The modem-gateway reference for this flashless setup
   asserts gpio56 high + gpio57 low from the PCIe2 pinctrl state. Ours now does
   the same (modem.dtso).
+
+- **THE MODEM REACHES AMSS ON MAINLINE (`2026-11-18`).** With AP2MDM_STATUS
+  (gpio56) driven high from the PCIe2 pinctrl state, the SDX55M walked the
+  complete 14-image SAHARA set on one open MHI channel and jumped to mission
+  mode by itself after `apps.mbn`: the kernel logged
+  `Mission mode doorbell offsets: CHDBOFF=0x300 ERDBOFF=0x700` (exactly the
+  reference values), `/sys/kernel/debug/mhi/mhi0/states` reads
+  `EE: MISSION MODE`, the AMSS channels enumerated (`mhi0_QMI`,
+  `mhi0_MBIM`, `mhi0_IPCR`, `mhi0_IP_HW0`, `mhi0_IP_SW0`) and the modem's
+  real ports appeared: `/dev/wwan0qmi0`, `/dev/wwan0mbim0`,
+  `/dev/wwan0qcdm0`, `/dev/wwan0at0`. The three fixes that mattered, in
+  order of discovery: the `qcom,pci-msi` doorbell (GIC SPI hwirq as
+  message data), the MHI SBL/AMSS handling (SBL power-up, context-register
+  zeroing, M0 at SBL, mission-mode doorbell re-read), and AP2MDM_STATUS
+  high + one SAHARA channel per boot. QRTR is empty because no userspace
+  daemon runs in the rescue shell; the modem is up regardless.

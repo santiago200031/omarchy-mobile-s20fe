@@ -19,11 +19,31 @@
 		bias-disable;
 	};
 
+	/*
+	 * AP2MDM_STATUS (gpio56) must read HIGH before the modem boots:
+	 * stock's modem driver asserts it as "AP alive", and with it low
+	 * the SDX55M stays in SBL after its SAHARA image set instead of
+	 * jumping to AMSS. AP2MDM_ERRFATAL (gpio57) stays LOW (no error).
+	 * Driving them from this pinctrl state puts them in place at
+	 * PCIe2 probe, before the link comes up (the reference port for
+	 * this flashless-modem setup does the same).
+	 */
 	ap2mdm_default: ap2mdm-default-state {
-		pins = "gpio56", "gpio57";
-		function = "gpio";
-		drive-strength = <16>;
-		bias-disable;
+		ap2mdm-status-pins {
+			pins = "gpio56";
+			function = "gpio";
+			drive-strength = <16>;
+			bias-disable;
+			output-high;
+		};
+
+		ap2mdm-errfatal-pins {
+			pins = "gpio57";
+			function = "gpio";
+			drive-strength = <16>;
+			bias-disable;
+			output-low;
+		};
 	};
 };
 

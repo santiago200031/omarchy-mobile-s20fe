@@ -292,3 +292,17 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   (libmdmimgload.so, inspected from the extracted vendor EROFS) is a pure
   Sahara server — no post-Sahara magic step exists on stock; the stock
   mdm_helper just waits for the MDM2AP_STATUS GPIO.
+
+- **Full image set served on ONE channel; AP2MDM_STATUS was never asserted (`2026-11-18`).**
+  Holding one open MHI channel across all image mini-sessions (instead of
+  reopening per image) let the modem walk the complete 14-image set with every
+  DONE acked: IDs 34, 40, 36, 41, 25, 33, 42, 23, 16, 17, 20, 29, 8 (qdsp6sw,
+  83 MB), 6 (apps). The reference port's notes confirm the rule: stock's `ks`
+  serves with `-n` (no reset) and the SBL allows one SAHARA session per boot.
+  After the set the modem stayed in SBL (BHI_EXECENV 0x1, no error) and the
+  host never saw an EE event, while MDM2AP_STATUS (gpio3) reads HIGH. Stock
+  drives AP2MDM_STATUS (gpio56) high from its vendor modem driver before
+  power-on; in mainline nothing claims gpio56/57, so they sit as inputs, low
+  (`gpio56: in low`). The modem-gateway reference for this flashless setup
+  asserts gpio56 high + gpio57 low from the PCIe2 pinctrl state. Ours now does
+  the same (modem.dtso).

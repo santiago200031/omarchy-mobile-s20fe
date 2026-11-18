@@ -520,5 +520,12 @@ ext4 or I/O errors. One benign `ufshcd_query_attr_retry` (`idn 31`, `-22`) at
   (`boot` sda23, `super` sda29) and every NV/calibration partition are
   untouched.
 
-**Next:** repeat the normal-boot modem test (§19/MODEM-PLAN §12) with the
-`out-r8q-msi` kernel as a native image and its modules installed in the root.
+**Modem retest on this root (same day).** `recovery-modem-native.img`
+(`g70a925aeee09`, `--overlay modem`) booted from `sda36`. The SD card **dropped
+again** at modem power-on (`mmc0: card 0001 removed`) and the root stayed `rw`,
+which is exactly what the move was for. The driver stayed unbound until the
+stale rescue-test blacklist from MODEM-PLAN §5 was moved aside
+(`/etc/modprobe.d/omamobile-r8q-sahara-bringup.conf` → `/root/bringup-backup/`);
+then `mhi_pci_generic` bound, `mhi1` powered the SDX55 on, the MHI found it in
+SBL, and `/dev/wwan0sahara0` appeared. The SDX55's `QCOM-PCI-MSI` vectors are
+live and USB/Wi-Fi survived. Next: the Sahara firmware load on that channel.

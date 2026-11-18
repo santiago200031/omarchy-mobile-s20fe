@@ -818,6 +818,32 @@ shows `sdhc_2: cd-gpios = <&tlmm 77>` (not the AP2MDM 56/57 pins), no
 therefore always on and shared with the SD card; the modem's power-on current
 browns the card out. The rescue image worked because it had no SD root.
 
+**Run 2 on the native root (2026-11-18).** `recovery-modem-native.img` (kernel
+`7.3.0-rc6-omamobile-push1-g70a925aeee09`, `--overlay modem`, no
+`omamobile.loop=`, `UFS_RW=userdata`) booted with `/dev/sda36` as the root.
+The SD card **still dropped** (`mmc0: card 0001 removed`) at modem power-on, and
+the root stayed `rw` with no ext4/I/O errors: the blocker is gone.
+
+The first attempt did not bring the modem up because the copied root still held
+the rescue-test blacklist from §5 Step 2,
+`/etc/modprobe.d/omamobile-r8q-sahara-bringup.conf` (`blacklist
+mhi_pci_generic`). With it moved to `/root/bringup-backup/`, `modprobe
+mhi_pci_generic` produced:
+
+```
+mhi-pci-generic 0002:01:00.0: MHI PCI device found: qcom-sdx55m
+mhi mhi1: Requested to power ON
+mhi mhi1: Power on setup success
+mhi mhi1: Device already in SBL, queuing transition
+wwan wwan0: port wwan0sahara0 attached
+```
+
+The SDX55's MSI vectors are live (`QCOM-PCI-MSI-PCI-MSI-0002:01:00.0` 1-4,
+`mhi`), and `/dev/wwan0sahara0` is the firmware channel. USB and Wi-Fi both
+survived the power-on. **Lesson:** a bring-up blacklist in `/etc/modprobe.d`
+shadows the driver after the root moves; the plan's Step 3 removal is not
+optional.
+
 **Resolution (2026-11-18).** The root now lives on `userdata` (`sda36`, ext4
 label `omamobile-root`, 105 GiB), installed with
 [RUNBOOK-USERDATA-ROOT](RUNBOOK-USERDATA-ROOT.md) and verified: `systemd`

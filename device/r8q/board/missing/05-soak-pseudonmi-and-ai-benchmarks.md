@@ -3,7 +3,7 @@
 # Missing 05: Freedreno Above 305 MHz & Vulkan LLM (Optional)
 
 - **Priority:** P5 (`M8`), optional performance work.
-- **Status (`2026-11-18`):** the soak, pseudo-NMI and CPU AI parts of this card are **done** and recorded in [Success 07](../success/07-stability-soak-nmi-and-ai.md). The Mesa side of Freedreno/Turnip is **done**: `packages/mesa` `1:26.2.4-2.0` builds Gallium freedreno (`msm_dri.so`) and splits `vulkan-freedreno` (`libvulkan_freedreno.so`, `freedreno_icd.json`), validated by a full aarch64 build (signed, indexed) and **on the phone**: `vulkaninfo` shows `Turnip Adreno (TM) 650` (Vulkan 1.3.354) and `eglinfo` shows OpenGL 4.6 on `freedreno`, with the Turnip ICD working even beside Arch's newer `mesa 26.2.7`. What remains: the 305 -> 587 MHz GPU step and the Vulkan `llama.cpp` run.
+- **Status (`2026-11-19`):** the soak, pseudo-NMI and CPU AI parts of this card are **done** and recorded in [Success 07](../success/07-stability-soak-nmi-and-ai.md). The Mesa side of Freedreno/Turnip is **done**: `packages/mesa` `1:26.2.4-2.0` builds Gallium freedreno (`msm_dri.so`) and splits `vulkan-freedreno` (`libvulkan_freedreno.so`, `freedreno_icd.json`), validated by a full aarch64 build (signed, indexed) and **on the phone**: `vulkaninfo` shows `Turnip Adreno (TM) 650` (Vulkan 1.3.354) and `eglinfo` shows OpenGL 4.6 on `freedreno`, with the Turnip ICD working even beside Arch's newer `mesa 26.2.7`. The 305 -> 587 MHz GPU step is now **done** (sustained 587 MHz, `omamobile-device-r8q` 0.1.26). What remains: the Vulkan `llama.cpp` run (and the optional Hexagon CDSP offload).
 - **Back:** [MISSING.md](../MISSING.md) · [Board Overview](../README.md)
 
 ## Done (moved to Success 07)
@@ -11,20 +11,19 @@
 2. **Pseudo-NMI (`M2.8`):** `CONFIG_ARM64_PSEUDO_NMI=y` with `irqchip.gicv3_pseudo_nmi=1`; `NMI watchdog: Enabled`, no GICv3/TZ regression.
 3. **CPU AI baseline (`M8`):** `omamobile-ai` + `LFM3-1.7B`, 15.47 prompt / 10.6-11.0 generation tok/s on the stable kernel ([AI-BENCHMARKS.md](../../AI-BENCHMARKS.md) §2).
 
+## Done (2026-11-19)
+
+### Freedreno above 305 MHz — adopted 587 MHz as the default cap
+The transient Vulkan FP32 FMA benchmark (245.3 GFLOP/s at 587 MHz vs 127.6 at 305, 1.92×) was a short burst, so the cap was raised with a sustained run:
+
+- `max_freq` lifted live to `587000000`, governor `userspace` pinned at 587 MHz (the devfreq only offers `userspace`/`simple_ondemand`; there is no `performance`), a real Vulkan workload (`vkcube` on Turnip, render fds confirmed) running on the panel, `power/control=on` on the GPU and GMU.
+- **~33 minutes sustained at 587 MHz** (20 min + 13 min `vkcube`, `12:29`–`13:03`), sampled every 15 s.
+- **Result: clean.** Frequency held `587 MHz` for the whole run; no GMU faults, no RPMh timeouts, no GPU hangs, no thermal trips. GPU zones `gpu-top` 40-43 °C / `gpu-bottom` 41-43 °C; hottest of all 28 zones peaked at **49 °C** (single sample) and sat at **44-45 °C** — large thermal margin.
+- On completion the governor was restored to `simple_ondemand`; the device now scales `305-587 MHz` and idles at 305 (no load).
+- `80-r8q-gpu.rules` now sets `min_freq=305000000`, `max_freq=587000000` (min kept at 305 so it scales down; max is the cap, not a pin). `omamobile-device-r8q` bumped to **0.1.26**; the rule was pushed to the phone's `/usr/lib/udev/rules.d/` and re-triggered, so it survives a reboot.
+- Logs: `logs/r8q/gpu587-sample.log`, `logs/r8q/gpu587-sample2.log`, `logs/r8q/gpu587-vkcube.log`, `logs/r8q/gpu587-vkcube2.log`, `logs/r8q/gpu587-dmesg.log` (gitignored).
+
 ## Remaining Work
-
-### 1. Freedreno above 305 MHz
-[`80-r8q-gpu.rules`](../../../../packages/omamobile-device-r8q/80-r8q-gpu.rules) caps
-`max_freq=305000000` at boot. A transient Vulkan FP32 FMA benchmark measured
-**245.3 GFLOP/s at 587 MHz vs 127.6 GFLOP/s at 305 MHz (1.92×)** with no
-GMU/RPMh/GPU errors, but that was a short burst, not a sustained desktop or
-inference load.
-
-- Raise the cap in one step (`305 → 587 MHz`), keep `power/control=on`, and run
-  the 30-minute soak plus a sustained Vulkan workload.
-- Watch `dmesg` for GMU faults, RPMh timeouts, GPU hangs and thermal throttling;
-  record the hottest zone and the achieved frequency.
-- Keep `305 MHz` as the default until the sustained run is clean.
 
 ### 2. Vulkan `llama.cpp`
 - Install `extra/vulkan-headers` (`shaderc` and `vulkan-freedreno` are already

@@ -378,3 +378,27 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   1:26.2.4-2.0` still enumerates the Adreno 650, so the phone's end
   state is newest Mesa + our Turnip package. Rollback packages stay in
   `/var/cache/pacman/pkg`; the test packages in `/tmp/mesa-test` (RAM).
+
+## 16. Adreno 650 Sustained at 587 MHz: Clean; Cap Adopted (`2026-11-19`)
+
+The last open item on the freedreno side of board card 05 was whether the
+Adreno 650 could hold its top OPP (587 MHz) under a real, sustained Vulkan
+load. The earlier evidence was only a short FP32 FMA burst (245.3 GFLOP/s at
+587 vs 127.6 at 305, 1.92×), so the cap was raised and held under load:
+
+- `max_freq` lifted live to `587000000`; governor `userspace` pinned at
+  587 MHz (the devfreq offers only `userspace`/`simple_ondemand` — there is no
+  `performance` governor); a real Vulkan workload (`vkcube` on Turnip, render
+  fds confirmed) rendering on the panel; `power/control=on` on GPU and GMU.
+- **~33 minutes sustained at 587 MHz** (20 min + 13 min `vkcube`,
+  `12:29`–`13:03`), sampled every 15 s.
+- **Clean:** frequency held 587 MHz throughout; no GMU faults, no RPMh
+  timeouts, no GPU hangs, no thermal trips. `gpu-top` 40-43 °C /
+  `gpu-bottom` 41-43 °C; hottest of all 28 zones peaked at 49 °C (one sample)
+  and sat 44-45 °C — large margin.
+- After the run the governor was restored to `simple_ondemand`; the device now
+  scales 305-587 MHz and idles at 305.
+- `80-r8q-gpu.rules` now sets `min_freq=305000000`, `max_freq=587000000` (min
+  stays 305 so it scales down; max is the cap, not a pin).
+  `omamobile-device-r8q` 0.1.25 → **0.1.26**; the rule was pushed to the
+  phone's `/usr/lib/udev/rules.d/` and re-triggered, so it survives a reboot.

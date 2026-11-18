@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: MIT
-# Omarchy Mobile: Adreno 650 (3d00000.gpu) devfreq governor, pinned 305 MHz OPP, and active GMU/GPU runtime PM
+# Omarchy Mobile: Adreno 650 (3d00000.gpu) devfreq governor, 305-587 MHz OPP range, and active GMU/GPU runtime PM.
+# 587 MHz is the highest stock OPP; sustained clean under vkcube load (see board card 05). Min stays 305 so the
+# governor scales down when idle; max is the cap, not a pin.
 ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{governor}="simple_ondemand"
 ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{min_freq}="305000000"
-ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{max_freq}="305000000"
+ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{max_freq}="587000000"
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="3d00000.gpu", ATTR{power/control}="on"
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="3d6a000.gmu", ATTR{power/control}="on"
 # Keep I2C1 (max77705/max17042), I2C5 (stmfts touchscreen), and their GENI QUP wrapper awake: runtime PM suspends trigger RPMh BCM/QUP churn.

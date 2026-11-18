@@ -95,23 +95,26 @@ read -r pushed < <("${SSH[@]}" "$REMOTE" "sha256sum /tmp/omamobile-recovery.img 
 [[ $pushed == "$sha" ]] || die "staged image sha mismatch ($pushed != $sha)"
 
 say "Writing $PART (the phone must stay awake; this is ~80 MB)"
-# The storage guard leaves the whole UFS LUN read-only, not only its
-# partitions, so clearing the partition flag alone leaves $PART writable
-# looking but every write dropped (dd "succeeds" with 0 bytes). Clear the LUN
-# flag too, and set both back afterwards.
+# The storage guard leaves the whole UFS LUN read-only when it is not the
+# root, so clearing the partition flag alone leaves $PART writable looking
+# but every write dropped (dd "succeeds" with 0 bytes). Clear the LUN flag
+# too, and set the partition back afterwards.
 DISK="${PART%%[0-9]*}"
 # $DISK's /dev node may be absent: the storage guard removes whole-disk
-# nodes in the rescue initramfs (only /sys/block/sda stays). The flag lives
-# in sysfs either way, so fall back to it when the node is gone.
+# nodes in the rescue initramfs (only /sys/block/sda stays). The disk is
+# left writable in that mode, but /sys/block/<disk>/ro is read-only (0444)
+# on this kernel, so it cannot clear the flag: assert it is already clear
+# rather than writing it.
 "${SSH[@]}" "$REMOTE" "set -e
   disk_sysfs=/sys/block/${DISK##*/}
   disk_setrw() {
     if [ -e $DISK ]; then blockdev --setrw $DISK
-    else echo 0 > \$disk_sysfs/ro; fi
+    elif [ \"\$(cat \$disk_sysfs/ro)\" != 0 ]; then
+      echo \"error: \$DISK is read-only and has no device node\" >&2; exit 1
+    fi
   }
   disk_setro() {
-    if [ -e $DISK ]; then blockdev --setro $DISK
-    else echo 1 > \$disk_sysfs/ro; fi
+    if [ -e $DISK ]; then blockdev --setro $DISK; fi
   }
   cleanup() {
     blockdev --setro $PART 2>/dev/null || true

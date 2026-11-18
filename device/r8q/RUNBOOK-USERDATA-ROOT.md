@@ -2,7 +2,7 @@
 
 # Runbook: move the r8q root from the SD card to `userdata`
 
-- **Status:** ready to run (2026-11-18); no step below has been run on the phone.
+- **Status:** **executed successfully 2026-11-18** (steps 1-5; see Result at the end).
 - **Why:** the root image lives on the microSD (`mmcblk0p1`, `/omarchy-r8q.img`). Powering the SDX55M modem browns out the SD card, and the root goes read-only within 0.3 s ([MODEM-PLAN](MODEM-PLAN.md) §12). A root on `userdata` (`sda36`) does not depend on the SD card, so the modem can be brought up in a normal boot.
 - **Cost:** formatting `sda36` **destroys LineageOS's userdata** (encrypted app data, photos, accounts). The Android system (`boot` sda23, `super` sda29) is untouched; a future Android boot would factory-reset its data. The Omarchy root data was backed up to `~/omamobile-kernel/reference-r8q/root-data-20261118.tar.zst`.
 - **Safety:** the storage guard allows exactly `userdata` writable in these images; all other UFS partitions stay `ro=1`. No NV/modem partition is touched. Slot A / bootloader / vbmeta are not touched.
@@ -97,3 +97,25 @@ tools/phone-ssh 'sync; reboot'
 ## After this
 
 The modem test that failed on the SD root (§12) can be repeated with the native root: pack the SDX55M/MSI kernel (`out-r8q-msi`) as a **native** image, flash it, and follow [MODEM-PLAN](MODEM-PLAN.md) M2.5 with the SD card out or ignored. One change per boot: verify the native root on the stable kernel first (this runbook), then the modem kernel.
+
+## Result (2026-11-18)
+
+- Steps 1-5 ran as written. The copy took 265 s (`rsync --bwlimit=80000`, 13.9 GiB),
+  the post-copy dry run reported **0 differences**, and the first native boot grew
+  the filesystem from 24 GiB to **105 GiB**.
+- Running system: `/dev/sda36 ext4 rw`, kernel
+  `7.3.0-rc6-omamobile-push1-g3667ab368ef9`, `systemd` **running**, Hyprland and
+  quickshell up, **exactly one writable UFS partition** (`sda36`; every other
+  `sda*` is `ro=1`). One benign UFS attribute query (`idn 31`, `-22`) at 25 s;
+  no ext4 errors, no I/O errors.
+- Two boot-path facts to keep:
+  - **`reboot` from the rescue initramfs returns 0 and does not reboot.** Use
+    `sync; echo b > /proc/sysrq-trigger` (busybox `reboot` is a no-op here, as
+    the old notes warned for other phones).
+  - `tools/r8q-flash-recovery` needed its sysfs fallback fixed before it could
+    write from the rescue shell: `/sys/block/sda/ro` is mode `0444` here, and
+    the whole disk is already writable when its node is removed. It now
+    asserts that instead of writing the flag (`44ca4352`).
+- The SD card is no longer required at boot. The stable SD-root image is
+  untouched on the laptop and the way back is unchanged
+  (`tools/r8q-flash-recovery --stable`).

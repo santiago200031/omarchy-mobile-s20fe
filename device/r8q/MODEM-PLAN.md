@@ -818,11 +818,19 @@ shows `sdhc_2: cd-gpios = <&tlmm 77>` (not the AP2MDM 56/57 pins), no
 therefore always on and shared with the SD card; the modem's power-on current
 browns the card out. The rescue image worked because it had no SD root.
 
+**Resolution (2026-11-18).** The root now lives on `userdata` (`sda36`, ext4
+label `omamobile-root`, 105 GiB), installed with
+[RUNBOOK-USERDATA-ROOT](RUNBOOK-USERDATA-ROOT.md) and verified: `systemd`
+running, Hyprland up, exactly one writable UFS partition. The SD card is no
+longer in the boot path, so its drop at modem power-on is now harmless. The
+normal-boot test can be repeated with the `out-r8q-msi` kernel (native image +
+its modules in the root) — that is the next run, and it is still attended.
+
 **Next, in order.**
 
-1. **Move the root to `userdata` (UFS).** The descriptor already sets
-   `UFS_RW="userdata"`; the SD card must stop being the root. The SD card can
-   still drop, but the phone survives and the modem can power.
+1. ~~**Move the root to `userdata` (UFS).**~~ **Done** (2026-11-18): the root is
+   on `userdata`; the descriptor's `UFS_RW="userdata"` and the label-gated
+   native image are in place. Repeat the modem test against it.
 2. **Or model a modem 3.3 V load switch/rail** from the schematic, if the
    hardware has one; the stock DT does not describe one, so this needs the
    board schematic, not just the DT.

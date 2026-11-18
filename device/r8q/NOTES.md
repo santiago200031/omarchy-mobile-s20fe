@@ -486,3 +486,39 @@ EIO, `mhi_wwan_ctrl` could not load, and no `/dev/wwan*` appeared.
   userspace (`ModemManager` is installed; `qrtr`, read-only `rmtfs`,
   `pd-mapper`, `tqftpserv`) and test SIM/QMI. Full record:
   [MODEM-PLAN.md](MODEM-PLAN.md) §12.
+
+## 20. Root on `userdata`: the SD card leaves the boot path (2026-11-18)
+
+The root ran from `/omarchy-r8q.img` on the microSD (loop0). Powering the SDX55M
+dropped the card 0.3 s after `mhi_pci_generic` bound and the root went
+`emergency_ro` (§19). The root now lives on `userdata` (`sda36`, 107 GiB, ext4
+label `omamobile-root`), so the SD card is not in the boot path at all.
+
+**Install** ([RUNBOOK-USERDATA-ROOT](RUNBOOK-USERDATA-ROOT.md)): a rescue-shell
+image with `UFS_RW=userdata`, `rsync` and `mkfs.ext4`; `mkfs.ext4 -L
+omamobile-root`; `rsync -aHAX --numeric-ids --bwlimit=80000` from the SD image
+(13.9 GiB, 265 s, post-copy dry run 0 differences); then a native image with no
+`omamobile.loop=` whose init refuses anything but the `omamobile-root` label.
+The first boot ran `e2fsck -f` + `resize2fs` to 105 GiB.
+
+**Verified:** `/dev/sda36 ext4 rw`; `systemd` running; Hyprland and quickshell
+up; exactly one writable UFS partition (`sda36`), every other `sda*` `ro=1`; no
+ext4 or I/O errors. One benign `ufshcd_query_attr_retry` (`idn 31`, `-22`) at
+25 s.
+
+**Gotchas:**
+- The loop-root rule (`is_non_ufs_root`) sets **every** UFS partition
+  read-only, so a loop root cannot be the one that formats `userdata`: use the
+  initramfs rescue shell (native allowlist, no loop token) for the install.
+- `reboot` in the rescue initramfs returns 0 and does nothing. Use
+  `sync; echo b > /proc/sysrq-trigger`.
+- `/sys/block/sda/ro` is `0444` on this kernel; a tool that clears the LUN flag
+  through sysfs gets EACCES. The rescue mode removes `/dev/sda` but leaves the
+  disk writable, so only the partition flag needs clearing
+  (`tools/r8q-flash-recovery`, `44ca4352`).
+- LineageOS's userdata was overwritten (the accepted cost); the Android system
+  (`boot` sda23, `super` sda29) and every NV/calibration partition are
+  untouched.
+
+**Next:** repeat the normal-boot modem test (§19/MODEM-PLAN §12) with the
+`out-r8q-msi` kernel as a native image and its modules installed in the root.

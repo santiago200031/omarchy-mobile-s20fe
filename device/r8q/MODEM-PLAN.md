@@ -1041,6 +1041,25 @@ state (`systemctl mask r8q-modem-autotest.service`, unmask to retest).
   (full power-off, not a warm reboot) is the only way back to a fresh
   SBL from there.
 
+**Run 6 (one-shot from a cold boot, 2026-11-18).** With the autotest
+disabled and the phone cold-power-cycled, a single `r8q-sahara` serve
+(apdp → acdb → **qdsp6sw 83 MB** → apps, `HELLO mode=1` after the big
+image) **completed the AMSS jump cleanly**: no AER storm, no link-down
+recovery, `mhi mhi0: Mission mode doorbell offsets`, and the
+mission-mode ports attached (`wwan0qcdm0/mbim0/qmi0/at0`). The loader
+exited when the sahara channel dropped (`could not reopen`) — no churn.
+The earlier RxErr/CmpltTO storms were the autotest's reopen loop
+re-serving a transitioning modem, not the jump itself.
+
+The modem then left mission mode within ~60 s and now cycles on its
+own: it retains the images in RAM, re-attempts AMSS, drops the link
+each time, and the AP recovers every cycle (the CX vote) back to
+`EE: SECONDARY BOOTLOADER`. The phone stays up through the cycles.
+This is the flashless-modem pattern: AMSS boots from RAM, asks the host
+for its remote services over QRTR, gets no answer (no
+rmtfs/pd-mapper/tqftpserv installed) and reboots. **The remaining
+blocker is the userspace, not the link.**
+
 ### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
 
 The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q

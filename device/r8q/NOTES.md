@@ -458,3 +458,31 @@ was replaced by the packaged backend:
   git metadata; the package version pins the commit. The source, flags and
   benchmark are recorded in [AI-BENCHMARKS.md](AI-BENCHMARKS.md) §2.1 and
   `packages/omamobile-llama/README.md`.
+
+## 19. Modem Normal Boot: SBL Reached, but the SD Card Browns Out (`2026-11-18`)
+
+The first **normal** (non-rescue) boot of the modem kernel reached SBL:
+`recovery-modem.img` (sha256 `344eafe5…`, kernel
+`7.3.0-rc6-omamobile-push1-g70a925aeee09`, `--dual-boot --overlay modem`)
+brought PCIe2 up, enumerated the SDX55 (`0002:01:00.0 [17cb:0306]`), and
+`mhi1` reported `Power on setup success` / `Device already in SBL`.
+
+At the `mhi_pci_generic` bind, `mmc0: card 0001 removed` fired 0.3 s later.
+The root went `rw,...,emergency_ro`, `wwan.ko`/`blockdev`/`sha256sum` returned
+EIO, `mhi_wwan_ctrl` could not load, and no `/dev/wwan*` appeared.
+
+- The stock DT shows `sdhc_2: cd-gpios = <&tlmm 77>` (not AP2MDM 56/57),
+  `sdhc_2` has no `vmmc-supply`, and `pcie2` has `vreg-1p8`/`vreg-0p9`/
+  `vreg-cx`/`gdsc-vdd` but no 3.3 V rail. The mainline `pcie-qcom` logs
+  `supply vddpe-3v3 not found, using dummy regulator`. The modem's power-on
+  browns out the always-on 3.3 V rail shared with the SD card.
+- The rescue image (no SD root) remains the only working modem configuration.
+- Recovery: heimdall wrote the stable image (`66fe127f…`) to `sda24`; the SD
+  card re-detected, the root is read-write again, and the data backup is
+  `~/omamobile-kernel/reference-r8q/root-data-20261118.tar.zst`
+  (sha256 `3762e761…`, 1.7 GiB).
+- Next: move the root to `userdata` (UFS), or model a modem 3.3 V load
+  switch from the schematic if the hardware has one; then package the
+  userspace (`ModemManager` is installed; `qrtr`, read-only `rmtfs`,
+  `pd-mapper`, `tqftpserv`) and test SIM/QMI. Full record:
+  [MODEM-PLAN.md](MODEM-PLAN.md) §12.

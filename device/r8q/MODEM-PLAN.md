@@ -6,6 +6,19 @@
 **Safety:** All 77 UFS partitions read-only (`ro=1`); single-slot recovery boot (`sda24`) leaves LineageOS untouched; 15/15 NV partitions match the full off-repo backup; no NV partition has ever been written by this work
 **Last Updated:** 2026-11-18
 
+**Normal boot (2026-11-18): the modem reaches SBL, but the modem power-on
+removes the SD card.** With the normal `recovery-modem.img` (kernel
+`g70a925aeee09`, modem overlay), PCIe2 comes up and the SDX55 enumerates
+(`0002:01:00.0 [17cb:0306]`); `mhi1` powers on and reports `Device already in
+SBL`. When `mhi_pci_generic` binds, `mmc0: card 0001 removed` fires 0.3 s later,
+the root goes `emergency_ro`, `wwan.ko` becomes unreadable and
+`mhi_wwan_ctrl` cannot create `/dev/wwan*`. The stock DT explains it: `sdhc_2`
+uses `cd-gpios = gpio77` (not AP2MDM 56/57), has no `vmmc-supply`, and `pcie2`
+has no 3.3 V rail; the modem's power-on browns out the always-on 3.3 V rail.
+The rescue image (no SD root) is the only working modem configuration. See
+§12. The stable image was restored with heimdall; the SD card came back and the
+root is read-write again.
+
 ---
 
 ## 1. Safety Rules (Mandatory)
@@ -767,3 +780,53 @@ the human `Signed-off-by`, which the maintainer adds through
 (`MACRO_ARG_REUSE`, `PARENTHESIS_ALIGNMENT`) are inherited style in
 the touched macro, not regressions. Build and gate were run with the
 tree's own output directory (`out-r8q-msi`).
+
+
+---
+
+## 12. Normal Boot vs the SD Card (`2026-11-18`)
+
+**What was run.** `recovery-modem.img` (sha256 `344eafe5…`, kernel
+`7.3.0-rc6-omamobile-push1-g70a925aeee09`, `--dual-boot --overlay modem`,
+normal initramfs + Arch root on the microSD image) was flashed to `sda24`
+and booted. The loader and modules were staged on the root beforehand.
+
+**What worked.**
+
+- PCIe2 link up: `qcom-pcie 1c00000.pcie: PCIe Gen.2 x1 link up`.
+- SDX55 enumerated: `0002:01:00.0 [17cb:0306] Qualcomm SDX55`.
+- `mhi1: Requested to power ON`, `Power on setup success`,
+  `Device already in SBL, queuing transition`.
+- `qcom-pci-msi` is built in (`CONFIG_QCOM_PCI_MSI=y`); the PCI2 MSI works.
+
+**What failed.**
+
+- At the `mhi_pci_generic` bind (`43.7 s`), `mmc0: card 0001 removed` fired at
+  `44.0 s`. The root became `rw,...,emergency_ro`; `blockdev`, `sha256sum` and
+  `wwan.ko` returned EIO; `mhi_wwan_ctrl` could not load; no `/dev/wwan*`.
+- The SD card came back after the stable image was restored (heimdall, image
+  `66fe127f…`) and the root is read-write again; the journal aborted, so the
+  root image is not pristine. A data backup was taken at
+  `~/omamobile-kernel/reference-r8q/root-data-20261118.tar.zst`
+  (sha256 `3762e761…`, 1.7 GiB).
+
+**Why it is a board power issue, not the modem stack.** The stock `live.dts`
+shows `sdhc_2: cd-gpios = <&tlmm 77>` (not the AP2MDM 56/57 pins), no
+`vmmc-supply` on `sdhc_2`, and a `pcie2` node with `vreg-1p8`, `vreg-0p9`,
+`vreg-cx` and `gdsc-vdd` but no 3.3 V supply. The mainline `pcie-qcom` logs
+`supply vddpe-3v3 not found, using dummy regulator`. The modem's 3.3 V rail is
+therefore always on and shared with the SD card; the modem's power-on current
+browns the card out. The rescue image worked because it had no SD root.
+
+**Next, in order.**
+
+1. **Move the root to `userdata` (UFS).** The descriptor already sets
+   `UFS_RW="userdata"`; the SD card must stop being the root. The SD card can
+   still drop, but the phone survives and the modem can power.
+2. **Or model a modem 3.3 V load switch/rail** from the schematic, if the
+   hardware has one; the stock DT does not describe one, so this needs the
+   board schematic, not just the DT.
+3. **Then the userspace.** `ModemManager 1.24.2-2` is installed; the kernel QRTR
+   name service is in `qrtr.ko`. `qrtr`, `rmtfs` (upstream ships read-only
+   `-r -P -s`), `pd-mapper` and `tqftpserv` still need the r8q package; the
+   SIM/QMI test waits for a root that survives the modem power-on.

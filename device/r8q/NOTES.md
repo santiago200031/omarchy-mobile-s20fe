@@ -333,3 +333,20 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   all `SAME` (`param` differs as expected). The modem image that
   reached AMSS stays recorded in MODEM-PLAN (`0e3c74b5…`), and the
   kernel branch `r8q-modem-msi` holds the commits.
+
+- **A restored stable image needs the stable release's modules (`2026-11-18`).**
+  Flashing `recovery-cam-uw.img` alone boots `g3667ab368ef9` with an
+  empty `/usr/lib/modules/7.3.0-rc6-omamobile-push1-g3667ab368ef9`, so
+  `msm` cannot load: simpledrm stays up, Hyprland runs with no render
+  node, and the screen is black with an all-black `/dev/fb0` even though
+  `hyprctl` reports the monitor and DPMS fine. The last working UI had
+  run a test kernel whose modules were installed, which is why the
+  missing folder only showed after switching back. Fix:
+  `KERNEL_OUT=$HOME/omamobile-kernel/out-r8q-uw bin/omamobile
+  modules-push`, then a reboot (loading `msm` by hand fails:
+  `DSI PLL(0) lock failed`, since simpledrm already owns the panel).
+  After that: `msm` bound, `card1` + `renderD128`, backlight
+  `ae94000.dsi.0` at 1023/1023, Hyprland up, guard 77/77. The stable
+  restore procedure is therefore **flash the image AND push its
+  modules**; add the modules step to `stable-image.conf`'s notes when
+  the restore is next formalised.

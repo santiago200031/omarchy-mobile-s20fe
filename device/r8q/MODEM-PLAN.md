@@ -1077,6 +1077,11 @@ modem reboots. `pd-mapper` also exited to its start limit (`no pd maps
 available`, no remoteproc bound) — the known caveat; QMI is tried
 without it first.
 
+The 6-minute hold watch after the serve: the modem cycled SBL for
+~2 minutes (30-90 s samples), then wedged into `EE: DISABLE` and stayed
+there for the rest of the watch, with rmtfs never serving a request (its
+log never grew past the startup errors).
+
 Next: add `CONFIG_QCOM_RMTFS_MEM=y` and a dynamically allocated
 `qcom,rmtfs-mem` reserved-memory region (the address is negotiated with
 the modem over QMI, so `alloc-ranges` from free System RAM

@@ -184,18 +184,29 @@ isolated; if the CDSP itself faults, a reboot is the recovery (ask first).
 
 ### P2 — Build the v66 HTP skel (laptop, container; private fork)
 
-**Status (2026-11-18): configured, then blocked by v68+ intrinsics.** The v66
-skel configures with SDK 5.4.2 once `qaic` is symlinked to
-`ipc/fastrpc/qaic/bin/qaic` (the SDK ships it under `qaic/Ubuntu20/qaic`), and
-the Hexagon toolchain starts compiling. It then stops at the QFloat/HMX code:
-`hvx-base.h` uses `Q6_Vqf32*`, `Q6_Vsf_equals_Vqf32` and
-`Q6_Wqf32_vmpy_VhfVhf`, and the kernels carry **664 QFloat uses and 860 HMX
-references** (`matmul`, `flash-attn`, `gated-delta-net`, `conv2d`). The v66
-compiler (Tools 8.7.06) has no QFloat or HMX, and the v68 compiler (6.7) has no
-v66 target. `GGML_HEXAGON_NHMX=0` only selects the runtime HMX path; it does not
-remove the compile-time HMX/QFloat code. So v66 needs a **fallback kernel set**
-(fp16/integer HVX, no QFloat/HMX), which is the own-minimal-skel branch of §3
-and P0.2, not a one-line build change.
+**Status (2026-11-18): configured; the v66 compiler stops at the v68 float
+ISA, and a probe shows v66 HVX is integer-only.** The v66 skel configures with
+SDK 5.4.2 once `qaic` is symlinked to `ipc/fastrpc/qaic/bin/qaic` (the SDK
+ships it under `qaic/Ubuntu20/qaic`), and the Hexagon toolchain starts
+compiling. It then stops at the QFloat/HMX code: `hvx-base.h` uses `Q6_Vqf32*`,
+`Q6_Vsf_equals_Vqf32` and `Q6_Wqf32_vmpy_VhfVhf`, and the kernels carry **664
+QFloat uses and 860 HMX references** (`matmul`, `flash-attn`,
+`gated-delta-net`, `conv2d`).
+
+That is not a missing include: `hvx_hexagon_protos.h` guards **all** `Q6_Vsf_*`
+and `Q6_Vhf_*` arithmetic at `__HVX_ARCH__ >= 68`, and QFloat at 68 too. A
+compile probe with `hexagon-clang -mv66 -mhvx -mhvx-length=128b`
+(`__HVX_ARCH__ 66`) fails for `Q6_Vsf_vadd_VsfVsf`, `Q6_Vsf_vmpy_VsfVsf`,
+`Q6_Vhf_vadd_VhfVhf`, `Q6_Vhf_vmpy_VhfVhf`, `Q6_Vqf32_*` and `Q6_Vqf16_*`; only
+the integer HVX intrinsics remain. The v68 compiler (6.7) has no v66 target.
+`GGML_HEXAGON_NHMX=0` only selects the runtime HMX path; it does not remove the
+compile-time HMX/QFloat code.
+
+**So the v66 port is an integer-only kernel rewrite**, not a build flag and not
+just a "fallback set": the ggml-hexagon kernels represent activations and
+accumulators as `sf`/`hf`/QFloat, and v66 has none of them. A real v66 matmul
+would dequantize to integer and use `Q6_Vw_vrmpy*` (uint8×int8 dot), i.e. a new
+kernel family beside the v68+ one. P2 therefore splits:
 
 1. Clone llama.cpp to `~/Work/llama.cpp-r8q`, branch `r8q-hexagon-v66`.
 2. Prepare a build image with the v66-capable SDK from G0 (**SDK 5.4.0**).
@@ -217,6 +228,35 @@ no HMX instructions; the host `libggml-hexagon.so` loads.
 with a sensible HVX fallback. Record it and reassess (older kernel sources or a
 different op).
 **Risk:** none on the phone; all in the container.
+
+### P2a — FastRPC on the phone (gate G1): the stack is already up
+
+Read-only check on the stable system (2026-11-18): `fastrpc` is loaded,
+`remoteproc2` (`adsp`) and `remoteproc1` (`cdsp`) are **running**, the
+`/dev/fastrpc-{adsp,cdsp,cdsp-secure,sdsp}` nodes exist, and `hexagonrpcd` is
+installed. The packaged instance serves only `sdsp`
+(`/usr/bin/hexagonrpcd -f /dev/fastrpc-sdsp -d sdsp -s -R /usr/share/qcom/sm8250/samsung/r8q`),
+so a CDSP test needs a second instance on `/dev/fastrpc-cdsp -d cdsp` with the
+same `-R` root (or a root that contains the test skel). Nothing here writes
+boot or UFS; starting a CDSP instance and loading a user PD is a phone change
+and asks for a go.
+
+### P2b — v66 integer matmul probe (the decision gate)
+
+The port only makes sense if integer HVX beats the CPU on the same quantized
+matmul. Before touching ggml's kernels, build one small v66 shared object that
+does a Q4_0×Q8_0-style `Q6_Vw_vrmpyacc_VwVubVb` dot product over a few MB of
+weights, load it through `libcdsprpc.so` from the SDK
+(`ipc/fastrpc/remote/ship/UbuntuARM_aarch64/`), and time it on the phone
+against `llama-bench`'s CPU number for the same shape. If the DSP is not
+clearly faster, park the NPU track with the measurement instead of starting
+the rewrite.
+
+**Expect/pass (probe):** the CDSP loads the unsigned PD, the checksum matches
+the CPU reference, and the measured GMAC/s exceeds the CPU's Q4_0 matmul.
+**Stop:** a DSP fault, a signature/secure-PD refusal, or throughput at or below
+the CPU. Record it and park P3/P4.
+**Risk:** low (a user PD on a running CDSP; no boot change).
 
 ### P3 — First ops on the HTP (phone)
 
@@ -323,10 +363,11 @@ CDSP track is not blocked by it.
 |---|---|---|---|---|
 | P0.1 toolchain 6.7 | G0 | **done — no v66** | `-mv66` rejected; arch table `v68..v85`; `libcdsprpc` OK | 2026-11-18 |
 | P0.2 v66-capable SDK (5.4.2) | G0 | **done** | SDK 5.4.2; `-mv66`; `computev66`; `libcdsprpc` aarch64 | 2026-11-18 |
-| P0.3 phone surface | G0 | planned | `logs/r8q/npu-p0-phone.log` | |
-| P0.4 license | G0 | planned | `NPU-PLAN.md` §5 note | |
-| P1 libcdsprpc + hello PD | G1 | planned | `logs/r8q/npu-p1-fastrpc.log` | |
-| P2 v66 skel build | G2 | **blocked: v68+ QFloat/HMX** | v66 compiles until `hvx-base.h`; needs fallback kernels | 2026-11-18 |
+| P0.3 phone surface | G0 | **done** | fastrpc + cdsp running; `/dev/fastrpc-cdsp`; hexagonrpcd (sdsp) | 2026-11-18 |
+| P0.4 license | G0 | **done** | HexagonSDK5.x ACTIVE to 2030 (qsc-cli) | 2026-11-18 |
+| P1 libcdsprpc + hello PD | G1 | **in progress** | needs a cdsp `hexagonrpcd` + user PD | 2026-11-18 |
+| P2 v66 skel build | G2 | **blocked: v66 is integer-only** | v68+ sf/hf/QFloat/HMX; probe fails all float intrinsics | 2026-11-18 |
+| P2b integer matmul probe | G2b | **next — decision gate** | measure vrmpy GMAC/s vs CPU before the rewrite | |
 | P3 MUL_MAT + small model | G3 | planned | `logs/r8q/npu-p3-ops.log` | |
 | P4 LFM benchmark | G4 | planned | `logs/r8q/npu-p4-lfm.log` | |
 | P5 integration | G5 | planned | package + `AI-BENCHMARKS.md` | |

@@ -112,7 +112,9 @@ cmd_pack() {
   tar -xzf "$cache_dir/$tarball" -C "$stage/root"
 
   local pkgs="dropbear kexec-tools e2fsprogs e2fsprogs-extra"
-  ((rescue_test)) && pkgs="$pkgs pciutils"
+  # rsync is for a native root install from the rescue shell: copy the root
+  # image off the SD card onto userdata with owners, ACLs and xattrs intact.
+  ((rescue_test)) && pkgs="$pkgs pciutils rsync"
   say "Fetching and staging packages ($pkgs)"
   local apks
   apks=$(python3 -I "$ROOT/tools/alpine-fetch.py" "$ver" "$cache_dir/apks" $pkgs) ||
@@ -131,6 +133,10 @@ cmd_pack() {
     : > "$stage/root/etc/omamobile-ufs-rw"
   else
     echo "userdata" > "$stage/root/etc/omamobile-ufs-rw"
+    # A native install mounts the root from userdata. Identify it by its
+    # filesystem label so a wrong (encrypted, foreign) partition is never
+    # mounted: the init refuses anything but "omamobile-root".
+    echo "omamobile-root" > "$stage/root/etc/omamobile-root-label"
   fi
   chmod 644 "$stage/root/etc/omamobile-ufs-rw"
   echo "Samsung Galaxy S20 FE (r8q)" > "$stage/root/etc/omamobile-usb-product"

@@ -934,6 +934,14 @@ does not hold. The pstore is empty and the restarts seen were clean Shutdown
 targets (no stale-CPU liveness reboot). Next: **Gen1**
 (`max-link-speed = <1>`, 2.5 GT/s), then the PHY/3.3 V suspects.
 
+**Run 4 result (Gen1, 2026-11-18).** `LnkSta: Speed 2.5GT/s (downgraded), Width x2`
+— the cap works, but the AMSS jump still reports `RxErr`, `Rollover`, `Timeout`
+and `CmpltTO`, then link down. **The phone restarts because the AER recovery
+hangs**: the last kernel event is `pci_reset_bus_function+0x1d0`, the pstore is
+empty, and the hardware watchdog (`qcom_wdt`, 30 s) resets it; there is no
+stale-CPU liveness line. Next: `pci=noaer` to remove the AER reset path and
+see whether the phone survives the AMSS jump (Gen1 kept, `.no_m3` kept).
+
 ### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
 
 The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q

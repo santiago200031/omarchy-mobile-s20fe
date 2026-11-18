@@ -3,7 +3,7 @@
 # Missing 05: Freedreno Above 305 MHz & Vulkan LLM (Optional)
 
 - **Priority:** P5 (`M8`), optional performance work.
-- **Status (`2026-11-17`):** the soak, pseudo-NMI and CPU AI parts of this card are **done** and recorded in [Success 07](../success/07-stability-soak-nmi-and-ai.md). Only GPU performance and Vulkan inference remain.
+- **Status (`2026-11-18`):** the soak, pseudo-NMI and CPU AI parts of this card are **done** and recorded in [Success 07](../success/07-stability-soak-nmi-and-ai.md). The Mesa side of Freedreno/Turnip is **done**: `packages/mesa` `1:26.2.4-2.0` builds Gallium freedreno (`msm_dri.so`) and splits `vulkan-freedreno` (`libvulkan_freedreno.so`, `freedreno_icd.json`), validated by a full aarch64 build (signed, indexed). What remains is hardware: installing the packages on r8q, the 305 -> 587 MHz GPU step, and the Vulkan `llama.cpp` run.
 - **Back:** [MISSING.md](../MISSING.md) · [Board Overview](../README.md)
 
 ## Done (moved to Success 07)

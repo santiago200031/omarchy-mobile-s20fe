@@ -844,6 +844,32 @@ survived the power-on. **Lesson:** a bring-up blacklist in `/etc/modprobe.d`
 shadows the driver after the root moves; the plan's Step 3 removal is not
 optional.
 
+**Run 3 — AMSS reached on the userdata root (2026-11-18).** The same image
+and root, with the one-channel loader (`--wait 200 --probe 3 --idle 90`)
+started over Wi-Fi before the modem powered: the SBL's set was served in one
+open channel (`acdb`, `qdsp6sw` 83 MB, `apps`, `apdp`, ...), the MHI entered
+**`EE: MISSION MODE`**, and `wwan0qmi0`, `wwan0mbim0`, `wwan0at0` appeared.
+That is the first mission-mode window on the userdata root.
+
+About 1 s later the root port reported a **Completion Timeout**:
+
+```
+pcieport 0002:00:00.0: Recovering Root Port due to Link Down
+AER: Multiple Uncorrectable (Non-Fatal) Error messages received
+pcieport 0002:00:00.0: PCIe Bus Error: severity=Uncorrectable (Non-Fatal)
+  device [17cb:010b] error status/mask=00004000/00400000
+  [14] CmpltTO | Requester | Transaction Layer (First)
+Root Port has been reset ... AER: device recovery successful
+```
+
+No SMMU context fault. The host's first AMSS transaction timed out, the link
+dropped and the endpoint reset back to SBL. The mission-mode channels were
+real but short-lived. The next questions: the shared 3.3 V rail under the
+AMSS load (the same rail that browns the SD), or the AMSS init timing (the
+host's transaction before the endpoint answers). The one-channel loader's
+`unexpected cmd 9` after the `mode=2` HELLO is the final SBL command; it does
+not affect the transition.
+
 **Resolution (2026-11-18).** The root now lives on `userdata` (`sda36`, ext4
 label `omamobile-root`, 105 GiB), installed with
 [RUNBOOK-USERDATA-ROOT](RUNBOOK-USERDATA-ROOT.md) and verified: `systemd`

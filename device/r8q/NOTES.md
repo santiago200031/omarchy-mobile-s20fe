@@ -577,3 +577,20 @@ repeat and capture the initramfs console first if it happens.
 The old SD-root dual-boot image (`66fe127f…`) stays the way back when the
 userdata root itself needs replacing; `tools/r8q-flash-recovery --stable`
 still restores it.
+
+## 23. Modem reaches AMSS on the userdata root, then a completion timeout (2026-11-18)
+
+With the one-channel Sahara loader started before the modem powered on, the
+SBL's full set was served over one open channel (`acdb`, `qdsp6sw` 83 MB,
+`apps`, `apdp`, ...). The MHI entered **`EE: MISSION MODE`** and the mission
+channels (`wwan0qmi0`, `wwan0mbim0`, `wwan0at0`) appeared: the first
+mission-mode window on the userdata root.
+
+About a second later the root port logged a **Completion Timeout**
+(`[14] CmpltTO | Requester`, Uncorrectable Non-Fatal), the link went down, the
+slot reset and the modem returned to SBL. No SMMU context fault. The host's
+first AMSS transaction never completed, so either the AMSS was not answering
+yet or the shared 3.3 V rail sagged under the AMSS load (the same rail that
+browns the SD). The loader's `unexpected cmd 9` after the `mode=2` HELLO is
+the last SBL command and is harmless. Full record: [MODEM-PLAN](MODEM-PLAN.md)
+§12 run 3.

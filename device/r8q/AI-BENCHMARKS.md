@@ -2,8 +2,8 @@
 
 # On-Device AI & Accelerator Probe — Samsung Galaxy S20 FE (r8q)
 
-**Status:** `omamobile-ai` supervisor (CPU, `LFM3-1.7B`) verified end-to-end on the stable kernel `2026-11-17`; GPU Vulkan 1.3 and 587 MHz scaling measured; Vulkan LLM build optional
-**Last Updated:** 2026-11-17
+**Status:** `omamobile-ai` supervisor (CPU, `LFM3-1.7B`) verified end-to-end on the stable kernel; the backend is now the packaged `omamobile-llama` (`llama.cpp` `98d67c8`), measured at **15.3 tok/s generation / 35.2 tok/s pp512** on 2026-11-18; GPU Vulkan 1.3 and 587 MHz scaling measured; Vulkan LLM build blocked (Failed 08)
+**Last Updated:** 2026-11-18
 
 The supported design is the `omamobile-ai` supervisor package: one small Rust
 process that owns `llama-server`, starts it lazily on the first request, proxies
@@ -23,13 +23,44 @@ gone.
 | **Dedicated NPU (`npu@9910000`)** | ❌ Not usable | Mainline Linux has no Qualcomm SM8250 NPU kernel driver (`npu_mem` is deleted in `sm8250-samsung-common.dtsi`). |
 | **Hexagon CDSP (`8300000.remoteproc`)** | ⏳ HW live, userspace missing | `remoteproc1` (`cdsp.mbn`) running; `/dev/fastrpc-cdsp` `GET_DSP_INFO` reports **Hexagon v66 (`0x8f66`)**, **`UNSIGNED_PD_SUPPORT=1`**, **`4× 128B HVX`**, **`256 KiB VTCM`** (`HMX=0`). No `libcdsprpc.so` or Hexagon v66 ELF runtime staged yet. |
 | **`omamobile-ai` (`:8080`, CPU)** | ✅ Verified on the stable kernel | `LFM3-1.7B-Q4_K_M.gguf` (`1.1G`, `THREADS=3`, `CPU_AFFINITY=4-6`, `GPU_LAYERS=0`), `llama-server` CPU-only (`--list-devices`: `(none)`). See §2 for today's numbers. |
+| **`omamobile-llama` (backend)** | ✅ Installed from the package | `llama.cpp` pinned `98d67c8d536dc584897c4adb2510509796517222` (2026-11-18), `omamobile-llama 1.0.0.20261118.98d67c8-1`; static CPU build, `-march=armv8.2-a+dotprod+fp16`, no OpenMP, `GGML_VULKAN=OFF`; installs `/usr/bin/{llama-server,llama-cli,llama-bench}`. |
 
 ---
 
-## 2. CPU Baseline on the Stable Kernel (`2026-11-17`)
+## 2. CPU Baseline on the Stable Kernel (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`)
 
-Kernel `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (the image pinned in
-[`stable-image.conf`](stable-image.conf)), `omamobile-ai.service` active, model
+### 2.1 2026-11-18 refresh — packaged `omamobile-llama` `98d67c8`
+
+The backend moved from the hand-built `1.0.0-dev` (commit `1719dbb`,
+`/usr/local/bin`) to `omamobile-llama 1.0.0.20261118.98d67c8-1` (`/usr/bin`,
+static, CPU-only, `-march=armv8.2-a+dotprod+fp16`, no OpenMP). The old binary is
+backed up at `/root/llama-old/llama-server-1.0.0-dev-1719dbb`; `/usr/local/bin`
+no longer shadows the package.
+
+`llama-bench` on the three Gold cores (`taskset -c 4-6`, `-t 3`, two runs):
+
+| test | t/s |
+|---|---|
+| pp512 | **35.18 ± 0.01** |
+| tg128 | **15.70 ± 0.03** |
+
+The supervisor, same prompt and 128 generated tokens as the old baseline
+(three runs after the model loaded):
+
+| Run | Prompt tokens | Prompt tok/s | Generated | Generated tok/s |
+|---|---|---|---|---|
+| 1 | 27 | 32.19 | 128 | **15.29** |
+| 2 | 4 | 28.22 | 128 | 15.26 |
+| 3 | 4 | 27.83 | 128 | 15.28 |
+
+Thermals: 47.5 °C (hottest of 28 zones) before the `llama-bench` pair, 68.7 °C
+after. Generation is **~15.3 tok/s vs 10.6-11.0** on the old build (~1.4x);
+`llama-bench` reports `build: unknown (0)` because the release tarball has no
+git metadata, but the package version pins the commit.
+
+### 2.2 2026-11-17 baseline (kept for comparison)
+
+On the old hand-built binary, `omamobile-ai.service` active and the model
 already resident. One warm-up plus three runs of the same request
 (`max_tokens=128`, `temperature=0`), timings from llama.cpp's `timings` block:
 
@@ -53,7 +84,17 @@ tok/s, inside the same spread.
 OMAMOBILE_SSH_KEY=~/.ssh/omamobile-r8q tools/r8q-ai status
 OMAMOBILE_SSH_KEY=~/.ssh/omamobile-r8q tools/r8q-ai ask \
   "Write one paragraph explaining why the sky is blue during the day and red at sunset."
+
+# standardised benchmark on the phone (three Gold cores):
+OMAMOBILE_SSH_KEY=~/.ssh/omamobile-r8q tools/phone-ssh \
+  'taskset -c 4-6 llama-bench \
+     -m /usr/share/omamobile-ai/models/LFM3-1.7B-Q4_K_M.gguf \
+     -t 3 -p 512 -n 128 -r 2'
 ```
+
+`pacman -Q omamobile-llama` shows the pinned package; the binary is
+`/usr/bin/llama-server` (the old hand-built `/usr/local/bin` copy is backed up in
+`/root/llama-old/`).
 
 `ask` prints the answer and, on stderr, `[<n> prompt tok @ <x> tok/s; <m>
 generated @ <y> tok/s]`. For the raw JSON (the `timings` block above), POST the
@@ -77,7 +118,7 @@ pins inference to the three Gold cores.
 | `THREADS` | `3` | llama.cpp threads (one per pinned core) |
 | `CPU_AFFINITY` | `4-6` | Gold cores; 0-3 stay with the desktop, 7 is excluded |
 | `CTX_SIZE` | `32768` | Context window |
-| `GPU_LAYERS` | `0` | CPU inference until a Vulkan llama.cpp is built |
+| `GPU_LAYERS` | `0` | CPU inference; the packaged backend is CPU-only (Vulkan compute wedges, [Failed 08](board/failed/08-vulkan-llm-adreno-gpu-wedge.md)) |
 | `IDLE_TIMEOUT` | `180` | Seconds before the model is unloaded |
 | `LISTEN_HOST` / `LISTEN_PORT` | `0.0.0.0` (drop-in) / `8080` | Supervisor on the USB link; the base config alone listens on loopback |
 | `LLAMA_PORT` | `18080` | Private loopback port for `llama-server` |
@@ -111,6 +152,6 @@ override the base URL and answer length.
 
 ## 4. Optional Future Work
 
-1. **Vulkan LLM (`GGML_VULKAN=ON`) & `587 MHz` GPU rule:** Install `extra/vulkan-headers` (`shaderc` and `vulkan-freedreno` are already installed), build `llama.cpp` with `-DGGML_VULKAN=ON`, uncap `80-r8q-gpu.rules` `max_freq` from `305000000` to `587000000`, and re-benchmark `LFM3-1.7B` against the 10.6-11.0 tok/s CPU baseline.
+1. **Vulkan LLM (`GGML_VULKAN=ON`)** — **blocked** by the GMU `cx gdsc` wedge ([Failed 08](board/failed/08-vulkan-llm-adreno-gpu-wedge.md)); the GPU already caps at 587 MHz. CPU is the packaged default; retry only after a Turnip/kernel fix.
 2. **Adreno `libcamera` SoftISP (`debayer_egl`):** Re-test removing `LIBCAMERA_SOFTISP_MODE=cpu` (`packages/omamobile-device-r8q/70-r8q-libcamera.conf`) against `587 MHz` / `SWIspWorker` hangcheck debugging.
-3. **Hexagon CDSP Compute:** Stage `libcdsprpc` + Hexagon v66 HVX runtime/kernel ELF (`UNSIGNED_PD_SUPPORT=1`) if offloading quantized ops to CDSP.
+3. **Hexagon CDSP Compute:** now planned in [`NPU-PLAN.md`](NPU-PLAN.md): a private `ggml-hexagon` fork for Hexagon v66 (HVX-only, no HMX), needing Hexagon SDK 5.4 and `libcdsprpc`.

@@ -431,3 +431,30 @@ Vulkan **compute** path `llama.cpp` uses, plus a GMU recovery that can't
 collapse CX — the same hangcheck class card 04 tracks for `debayer_egl`.
 `GPU_LAYERS=0` (CPU) stays the default; a Vulkan LLM run waits on a
 Turnip/GMU fix. Full record: [board/failed/08](board/failed/08-vulkan-llm-adreno-gpu-wedge.md).
+
+## 18. llama.cpp Refresh and the `omamobile-llama` Package (`2026-11-18`)
+
+The hand-built `/usr/local/bin/llama-server` (`1.0.0-dev`, commit `1719dbb`)
+was replaced by the packaged backend:
+
+- `omamobile-llama 1.0.0.20261118.98d67c8-1`, pinned to llama.cpp
+  `98d67c8d536dc584897c4adb2510509796517222` (2026-11-18). The package is
+  static, CPU-only (`GGML_VULKAN=OFF`, `GGML_OPENMP=OFF`), built with
+  `-march=armv8.2-a+dotprod+fp16` and `GGML_NATIVE=OFF` so the same flags work
+  in `makepkg` on the phone and in the aarch64 container. It installs
+  `/usr/bin/{llama-server,llama-cli,llama-bench}`.
+- Built natively on the phone with `tools/phone-install-package
+  packages/omamobile-llama` (~9 min, all cores) and installed with `pacman -U`.
+  The old binary is at `/root/llama-old/llama-server-1.0.0-dev-1719dbb`;
+  `/usr/local/bin` no longer shadows the package, and `omamobile-ai` was
+  restarted against the new binary.
+- **Benchmark** (`taskset -c 4-6`, `-t 3`, two runs):
+  `pp512 35.18 ± 0.01 tok/s`, `tg128 15.70 ± 0.03 tok/s`.
+  Through the supervisor, same prompt and 128 generated tokens, three runs:
+  **15.29 / 15.26 / 15.28 generation tok/s** (27-32 prompt tok/s).
+  Thermals 47.5 °C before the pair, 68.7 °C after (hottest of 28 zones).
+  The old baseline was 10.6-11.0 generation tok/s, so this is ~1.4x.
+- `llama-bench` prints `build: unknown (0)` because the release tarball has no
+  git metadata; the package version pins the commit. The source, flags and
+  benchmark are recorded in [AI-BENCHMARKS.md](AI-BENCHMARKS.md) §2.1 and
+  `packages/omamobile-llama/README.md`.

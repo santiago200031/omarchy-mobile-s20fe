@@ -2,7 +2,7 @@
 
 # Samsung Galaxy S20 FE (`r8q`, SM-G780G) Porting Board
 
-- **Hardware / Kernel:** Qualcomm Snapdragon 865 (`SM8250`), stable kernel `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (pinned in [`stable-image.conf`](../stable-image.conf)) with native DT + touch, `CONFIG_BT_LE=y` modules, `omamobile-device-r8q` `0.1.24` on the phone (`0.1.25` in the repo), and `omamobile-ai` `0.1.0-1` serving `LFM3-1.7B`.
+- **Hardware / Kernel:** Qualcomm Snapdragon 865 (`SM8250`), stable kernel `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (pinned in [`stable-image.conf`](../stable-image.conf)) with native DT + touch, `CONFIG_BT_LE=y` modules, `omamobile-device-r8q` `0.1.24` on the phone (`0.1.26` in the repo), `omamobile-ai` `0.1.0-1` and the packaged `omamobile-llama` `1.0.0.20261118.98d67c8-1` serving `LFM3-1.7B`.
 - **Boot & Safety Model:** Dual-boot via `recovery` (`sda24`) + `/omarchy-r8q.img` on microSD (`mmcblk0p1`). All `77/77` `/dev/sda*` UFS partitions remain read-only (`ro=1`).
 - **Detailed Archive & Runbooks:** [PORT-PLAN.md](../PORT-PLAN.md) · [NOTES.md](../NOTES.md) · [RUNBOOK-DISPLAY-GPU.md](../RUNBOOK-DISPLAY-GPU.md) · [CRASH-DOSSIER.md](../CRASH-DOSSIER.md)
 

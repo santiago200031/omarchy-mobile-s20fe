@@ -55,7 +55,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | 04 | [Adreno 650, Freedreno & Hyprland Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) | GPU at 305 MHz; Hyprland + quickshell + squeekboard + Xwayland; touch + keys | `3d00000.gpu` pinned; `stmfts-r8q.ko` live |
 | 05 | [USB Gadget, Power/Battery & ZRAM](board/success/05-usb-power-battery-zram.md) | USB NCM `172.16.42.1`; battery telemetry `99%`; zram + swapfile + MGLRU | `max77705`/`max17042` as modules |
 | 06 | [Wi-Fi, Bluetooth, Clock Sync & Boot GUI](board/success/06-wifi-bluetooth-and-clock.md) | `wlp1s0` UP; `hci0` Powered (BR/EDR+LE); RTC sync; `sddm` auto-start | `ath11k` + `qca6390` firmware ok |
-| 07 | [Stability Soak, Pseudo-NMI & On-Device AI](board/success/07-stability-soak-nmi-and-ai.md) | `1800 s` soak `failures=0`; `NMI watchdog: Enabled`; `omamobile-ai` + `LFM3-1.7B` on `:8080` | 15.47 prompt / 10.6-11.0 generation tok/s on `3667ab368` |
+| 07 | [Stability Soak, Pseudo-NMI & On-Device AI](board/success/07-stability-soak-nmi-and-ai.md) | `1800 s` soak `failures=0`; `NMI watchdog: Enabled`; `omamobile-ai` + `LFM3-1.7B` on `:8080`; `omamobile-llama` packaged | 15.3 generation tok/s / 35.2 pp512 tok/s (2026-11-18), old 10.6-11.0 generation |
 
 ---
 
@@ -145,7 +145,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | 30-min GUI + writeback soak | ✅ | `tools/r8q-stability-soak` passed live on `gf3a5609d121b` (`1800s`, 6 iterations, `failures=0`) |
 | `CONFIG_ARM64_PSEUDO_NMI` | ✅ | Verified live with `irqchip.gicv3_pseudo_nmi=1` and `NMI watchdog: Enabled` (0 regressions) |
 | `omamobile-ai` supervisor | ✅ | `omamobile-ai.service` live on `:8080`: lazy `llama-server`, OpenAI + llama.cpp router surfaces, `IDLE_TIMEOUT=180`, pinned to cores 4-6; `tools/r8q-ai` drives it (SSH fallback) |
-| On-device AI benchmarks | ✅ | `AI-BENCHMARKS.md` §2: `LFM3-1.7B` on the stable kernel, **15.47 prompt tok/s / 10.56-11.01 generation tok/s**, 46.3 → 74.1 °C |
+| On-device AI benchmarks | ✅ | `AI-BENCHMARKS.md` §2: `omamobile-llama` `98d67c8` (packaged), **15.26-15.29 generation tok/s / pp512 35.18 tok/s** on 2026-11-18; old hand-built baseline 10.6-11.0 generation; 47.5 → 68.7 °C |
 | Freedreno perf tuning | 🔴 | GPU devfreq above 305 MHz once stable; 587 MHz measured 1.92× at 74 °C, still opt-in |
 
 **Files involved:**
@@ -256,7 +256,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | `CAMERA-UW-PLAN.md` | ✅ | Ultrawide (S5K3L6) driver, DT, and `libcamera 0.7.2-4.25` verified end-to-end |
 | `DPMS-PLAN.md` | ✅ | DPMS & physical Power-key wake plan (verified) |
 | `MODEM-PLAN.md` | ⏳ | Modem & cellular plan: Stage 1 PASS, Stage 2/3A results (§8), and the offline design (§9: stock `qcom,pci-msi` memory doorbell, `msi-parent` on `&pcie2`) |
-| `AI-BENCHMARKS.md` | ✅ | Supervisor design, stable-kernel benchmark (15.47 prompt / 10.6-11.0 generation tok/s) and reproduction |
+| `AI-BENCHMARKS.md` | ✅ | Supervisor design, packaged `omamobile-llama` `98d67c8` (15.3 generation / 35.2 pp512 tok/s), old baseline and reproduction |
 | `board/README.md` | ✅ | Board overview |
 | `board/SUCCESS.md` | ✅ | 6 success cards |
 | `board/FAILED.md` | ✅ | 7 failed cards |

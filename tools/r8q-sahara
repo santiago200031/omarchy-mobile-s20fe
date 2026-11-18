@@ -13,7 +13,9 @@ The image-ID map below was observed in this device's own vendor loader
 """
 
 import argparse
+import errno
 import os
+import select
 import struct
 import sys
 import time
@@ -155,7 +157,9 @@ def recv_exact(port, length):
         try:
             data = os.read(port, length - got)
         except OSError as e:
-            raise IOError("read failed: %s" % e)
+            # Keep the errno: the caller reopens the channel on EIO/ENODEV
+            # (a fresh bind can expose the node before the channel is ready).
+            raise OSError(e.errno, "read failed: %s" % e.strerror)
         if not data:
             return b""
         chunks.append(data)
@@ -199,6 +203,13 @@ def main():
                     help="wait up to SECONDS for the port to appear (default: 60)")
     ap.add_argument("--max-images", type=int, default=0, metavar="N",
                     help="serve at most N images, then exit (0 = unlimited)")
+    ap.add_argument("--idle", type=int, default=20, metavar="SECONDS",
+                    help="with no packet for SECONDS, close the channel and exit "
+                         "(default: 20); the SBL sends the next HELLO on the same "
+                         "open channel, so do not reopen it per image")
+    ap.add_argument("--probe", type=int, default=3, metavar="SECONDS",
+                    help="before the first HELLO, reopen the port every SECONDS "
+                         "to restart the channel (default: 3) until --wait expires")
     ap.add_argument("--dry-run", action="store_true",
                     help="verify image sources only; do not open or write the port")
     args = ap.parse_args()
@@ -235,10 +246,60 @@ def main():
 
     served = 0
     active_source = None
+    session_started = False
     try:
         while True:
+            # Keep one open channel across the whole image set: after DONE_RESP
+            # the SBL sends the next HELLO on this fd. Reopening the device per
+            # image resets the channel (STOP/RESET/START) and the SBL gives up
+            # before the AMSS images (2026-11-18).
+            timeout = args.idle if session_started else args.probe
+            try:
+                ready, _, _ = select.select([port], [], [], timeout)
+            except OSError:
+                ready = [port]
+            if not ready:
+                if not session_started and time.monotonic() < deadline:
+                    # Opening the WWAN port starts the Sahara channel. If the
+                    # SBL's service was not up for the first START, restart it
+                    # until it answers with HELLO.
+                    try:
+                        os.close(port)
+                    except OSError:
+                        pass
+                    time.sleep(0.2)
+                    port = os.open(args.device, os.O_RDWR | os.O_CLOEXEC)
+                    continue
+                log("no packet within %ds; closing the channel" % timeout)
+                return 0
             # A Sahara packet is at most HELLO_LENGTH bytes on the wire.
-            pkt = recv_exact(port, 8)
+            # Opening the WWAN port starts the Sahara channel. On a fresh
+            # bind the device node can appear a moment before the channel is
+            # ready, and the first read then fails with EIO: reopen and keep
+            # waiting until the --wait deadline instead of giving up.
+            try:
+                pkt = recv_exact(port, 8)
+            except OSError as e:
+                if e.errno not in (errno.EIO, errno.ENODEV, errno.EBADF) or \
+                        time.monotonic() >= deadline:
+                    raise
+                log("channel not ready (%s); reopening" % e.strerror)
+                try:
+                    os.close(port)
+                except OSError:
+                    pass
+                while time.monotonic() < deadline:
+                    try:
+                        port = os.open(args.device, os.O_RDWR | os.O_CLOEXEC)
+                        break
+                    except OSError as e2:
+                        if e2.errno not in (errno.ENOENT, errno.EIO, errno.ENODEV):
+                            raise
+                        time.sleep(0.2)
+                else:
+                    log("could not reopen %s within the wait" % args.device)
+                    return 2
+                continue
             if not pkt:
                 log("port closed by peer")
                 return 0
@@ -256,8 +317,16 @@ def main():
                 if length != HELLO_LENGTH:
                     log("WARNING: HELLO length %#x (expected %#x)" %
                         (length, HELLO_LENGTH))
-                send_hello_resp(port, mode)
-                log("sent HELLO_RESP (version=%d, mode=%d)" % (SAHARA_VERSION, mode))
+                session_started = True
+                # A mode=2 HELLO offers the MEMORY_DEBUG/EFS dump. Accepting
+                # it (echoing mode=2) makes the modem wait for a MEMORY_READ
+                # that this loader does not serve, and it resets via PS_HOLD
+                # about 38 s later, taking the PCIe link down. Decline it.
+                resp_mode = 0 if mode == 2 else mode
+                send_hello_resp(port, resp_mode)
+                log("sent HELLO_RESP (version=%d, mode=%d%s)" %
+                    (SAHARA_VERSION, resp_mode,
+                     "; declined memory-debug" if mode == 2 else ""))
 
             elif cmd == READ_DATA_CMD:
                 image_id, offset, data_len = struct.unpack_from("<3I", pkt, 8)
@@ -299,12 +368,19 @@ def main():
                 log("sent DONE")
 
             elif cmd == DONE_RESP_CMD:
-                log("DONE_RESP received - Sahara transfer complete")
-                return 0
+                log("DONE_RESP received - transfer complete; keeping the channel open")
+                continue
 
             elif cmd in (RESET_CMD, RESET_RESP_CMD):
                 log("%s received - stopping" % CMD_NAMES.get(cmd, cmd))
                 return 1
+
+            elif cmd == 0x9:  # MEMORY_DEBUG
+                # Only reachable if the modem sent it before reading our
+                # decline; wait for its next packet instead of exiting, so the
+                # idle timeout decides.
+                log("MEMORY_DEBUG offered; waiting for the modem to continue")
+                continue
 
             else:
                 log("unexpected cmd %s (length %#x) - stopping" %

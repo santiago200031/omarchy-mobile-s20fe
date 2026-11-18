@@ -893,6 +893,38 @@ A reboot is needed to power the endpoint again (the PCIe link reset no longer
 recovers). The next run should capture the regulator/clk state and the AER
 counters from the first second of mission mode.
 
+**Research result (2026-11-18, independent review).** Two corrections and two
+mechanisms:
+
+- **Which controller is the modem:** `1c10000.pcie` (`linux,pci-domain = <2>`,
+  the modem) trains **Gen3 x2** and carried the 83 MB SBL set at that rate;
+  `1c00000.pcie` is the QCA6390 Wi-Fi and is the source of the "Gen.2 x1" line.
+  The link degraded to 2.5 GT/s x1 only after the first CmpltTO.
+- **MSI is not the cause:** a rejected MSI is a posted write and cannot produce
+  `CmpltTO | Requester`; an unmapped endpoint write would raise an SMMU context
+  fault, and none was logged. The `0002:ff:1f.7` fatal is AER decoding a
+  garbage TLP header on the retraining link.
+- **PHY is secondary:** 83 MB moved error-free at Gen3 x2 before the CmpltTO;
+  RxErr appears only after it. **3.3 V** remains plausible (dummy
+  `vddpe-3v3`/`vdda`, shared rail) but a brown-out should bite during the SBL
+  transfer, not exactly at the AMSS jump.
+- **Best fit: the modem resets itself.** The one-channel log ends with a
+  `mode=2` HELLO and `unexpected cmd 9`; cmd 9 is **MEMORY_DEBUG**, the modem's
+  EFS-dump offer. The reference port documents that without a response the
+  modem times out (~38 s) and crashes via a **PS_HOLD warm reset**, which
+  drops PCIe. Second: the MHI entry has no `.no_m3`, so the first M3 runtime
+  suspend arms 2 s after the mission ports idle; the reference port sets
+  `.no_m3 = true` for the same reason.
+
+**Next experiment (ranked):** (1) `.no_m3 = true` in
+`mhi_samsung_r8q_sdx55_info`; (2) the loader declines the `mode=2` HELLO
+(`HELLO_RESP mode=0`) instead of accepting it and stopping on cmd 9; (3)
+capture AER counters, `LnkSta` and MHI PM state from mission-mode entry; (4)
+only if those fail, cap the link (`max-link-speed = <2>`) or model the 3.3 V
+rail. The stock `live.dts` shows the modem PHY supplies as L5A 0.88 V and L9A
+1.2 V and votes CX to max while pcie2 runs; the mainline overlay has the first
+two and no CX vote.
+
 **Resolution (2026-11-18).** The root now lives on `userdata` (`sda36`, ext4
 label `omamobile-root`, 105 GiB), installed with
 [RUNBOOK-USERDATA-ROOT](RUNBOOK-USERDATA-ROOT.md) and verified: `systemd`

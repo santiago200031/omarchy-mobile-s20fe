@@ -340,6 +340,44 @@ from `super` (a large read-only `dd` and `lpunpack`) or the Samsung firmware —
 then retry `hexagonrpcd -c <shell> -p /tmp/hrpc/calc_hrpc`. Park here until
 that artifact is available.
 
+### P1 fourth result: the CDSP secure boot accepts only signed skels
+
+The `dsp` partition (**sda21**, ext4, read-only) is the missing piece's home:
+
+```
+/adsp/fastrpc_shell_0
+/cdsp/fastrpc_shell_3             (production-signed shell)
+/cdsp/fastrpc_shell_unsigned_3    (test-signed shell)
+/cdsp/{libc++.so.1, libc++abi.so.1, ...}   31 files, 16 MiB
+/sdsp/fastrpc_shell_2
+```
+
+With the skel served from the daemon's virtual `usr/lib/qcom/adsp`
+(`<root>/dsp/cdsp/`), the results are:
+
+- `-c fastrpc_shell_3` (signed): the shell **loads** (`INIT_CREATE` works), then
+  `signature verify start failed for libcalculator_skel.so` — the production
+  shell only accepts **production-signed** skels.
+- `-c fastrpc_shell_unsigned_3` (test-signed): `Could not attach to FastRPC
+  node: No such file or directory` — the test shell needs the device's
+  `testsig-0xb3d5f68c.so` (the name carries the app serial) and
+  `oemconfig.so`; neither is in the dsp/vendor/system images, `persist`
+  (including `persist/rfs/msm/cdsp`), `efs` or `sec_efs`.
+
+**Conclusion: the CDSP secure boot is the wall.** The v66 skel is unsigned;
+the production shell rejects it, and the test shell that would allow it cannot
+be verified without the device's test signature, which Samsung does not ship
+on this retail device. No kernel or userspace change fixes that; it needs a
+Qualcomm-signed skel or the device's test signature.
+
+The vendor's **signed** skels (`libhexagon_nn_skel.so`, `libhta_dsp_skel.so`,
+...) can run in the signed shell, but they are the proprietary QNN/HTA path,
+not llama.cpp; the plan's B1 already calls that a no-go for an open LLM stack.
+
+**State:** v66 skel, client, serving root and shell analysis are complete;
+the NPU track is parked at secure boot until a signed artifact or the test
+signature exists.
+
 ### P1 retest runbook (after the driver fix; needs the human's go for writes)
 
 The kernel fix is `misc: fastrpc: answer the domain and unsigned-PD capability

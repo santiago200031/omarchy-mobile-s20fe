@@ -204,6 +204,7 @@ fn write_all_chunked(file: &File, mut data: &[u8]) -> std::io::Result<()> {
 unsafe fn sys_read(fd: i32, buf: *mut u8, count: usize) -> isize {
     unsafe {
         extern "C" {
+            #[link_name = "read"]
             fn sys_read(fd: i32, buf: *mut u8, count: usize) -> isize;
         }
         sys_read(fd, buf, count)
@@ -213,6 +214,7 @@ unsafe fn sys_read(fd: i32, buf: *mut u8, count: usize) -> isize {
 unsafe fn sys_write(fd: i32, buf: *const u8, count: usize) -> isize {
     unsafe {
         extern "C" {
+            #[link_name = "write"]
             fn sys_write(fd: i32, buf: *const u8, count: usize) -> isize;
         }
         sys_write(fd, buf, count)
@@ -336,7 +338,7 @@ fn serve(args: &Args) -> ExitCode {
     log(&format!("listening on {}", args.device));
 
     let mut served: u64 = 0;
-    let mut _active: Option<Source> = None;
+        let mut _active: Option<Source> = None;
     loop {
         let mut hdr = [0u8; 8];
         if read_exact(&port, &mut hdr).is_err() {
@@ -443,8 +445,17 @@ fn serve(args: &Args) -> ExitCode {
                 log("sent DONE");
             }
             DONE_RESP_CMD => {
-                log("DONE_RESP received - Sahara transfer complete");
-                return ExitCode::SUCCESS;
+                /* Stock's loader holds one channel for the whole image
+                 * walk (klein: "15 images in 15 mini-sessions, each
+                 * with HELLO/DONE cycle").  Keep the fd open and wait
+                 * for the next HELLO instead of exiting and forcing a
+                 * channel reset on every reopen.
+                 */
+                log("DONE_RESP received - keeping the channel open");
+                if args.max_images != 0 && served >= args.max_images {
+                    log(&format!("reached --max-images={}; exiting", args.max_images));
+                    return ExitCode::SUCCESS;
+                }
             }
             RESET_CMD | RESET_RESP_CMD => {
                 log(&format!("{} received - stopping", cmd_name(cmd)));

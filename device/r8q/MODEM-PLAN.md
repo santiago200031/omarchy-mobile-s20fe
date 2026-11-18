@@ -925,6 +925,15 @@ rail. The stock `live.dts` shows the modem PHY supplies as L5A 0.88 V and L9A
 1.2 V and votes CX to max while pcie2 runs; the mainline overlay has the first
 two and no CX vote.
 
+**Run 4 result (Gen2, 2026-11-18).** The DTB cap took effect
+(`qcom-pcie 1c10000.pcie: PCIe Gen.2 x2 link up`), but the AMSS jump still
+trips `RxErr` (Physical Layer) then `CmpltTO` (Transaction Layer), the link
+resets, and the loader's loop repeats (apdp → mode-2 declined →
+`multi_image_qti` → channel EIO). The mission mode is reached, but the link
+does not hold. The pstore is empty and the restarts seen were clean Shutdown
+targets (no stale-CPU liveness reboot). Next: **Gen1**
+(`max-link-speed = <1>`, 2.5 GT/s), then the PHY/3.3 V suspects.
+
 ### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
 
 The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q

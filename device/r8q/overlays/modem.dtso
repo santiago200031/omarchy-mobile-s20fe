@@ -58,9 +58,9 @@
 	status = "okay";
 	/*
 	 * The SBL image set moves at Gen3 x2, but the AMSS jump then trips
-	 * CmpltTO/RxErr and the link dies. Cap the rate at Gen2 (5 GT/s) as
-	 * the first signal-integrity test; Gen1 (<1>) is the next step if
-	 * this still flaps.
+	 * CmpltTO/RxErr and the link dies. Gen2 (5 GT/s) still failed the
+	 * same way; Gen1 (2.5 GT/s) is the last speed step before the PHY
+	 * and 3.3 V rail are the suspects.
 	 */
-	max-link-speed = <2>;
+	max-link-speed = <1>;
 };

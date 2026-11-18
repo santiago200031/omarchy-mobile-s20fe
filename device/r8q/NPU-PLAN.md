@@ -12,7 +12,9 @@ is clean (only libc/libm/libstdc++), and the kernel side is already in place.
 No phone write has been made for this plan. The phone runs the stable kernel
 `7.3.0-rc6-omamobile-push1-g3667ab368ef9`, the `omamobile-ai` supervisor serves
 `LFM3-1.7B` on the CPU (15.47 prompt / 10.6-11.0 generation tok/s), and the
-Adreno 650 is on Turnip for render.
+Adreno 650 is on Turnip for render. Section 10 records the contribution rules
+this plan must satisfy (llama.cpp issue-first and AI disclosure; this repo's
+package and kernel checks).
 **Target:** run `LFM3-1.7B-Q4_K_M` on the Hexagon CDSP through llama.cpp's
 Hexagon backend, then decide whether it beats or complements the CPU.
 **Kernel worktree:** `~/omamobile-kernel/wt-r8q` (only if a kernel/DT patch is
@@ -70,10 +72,11 @@ CPU baseline and a one-command rollback to CPU.
 1. **Primary track: CDSP HTP v66.** Port the existing `ggml-hexagon` backend to
    v66 and run `LFM3-1.7B` on it. This is the only block with a live driver, a
    running firmware, a supported RPC path and an existing llama.cpp backend.
-2. **Upstream first.** Work on a local branch `r8q-hexagon-v66` of
-   `ggml-org/llama.cpp` and open a PR/discussion with the v66 evidence. Keep a
-   fork (`santiago200031/llama.cpp`) as the fallback if upstream does not want
-   v66.
+2. **Upstream first, but issue first.** The human opens an issue in
+   `ggml-org/llama.cpp` with the v66 evidence and asks whether v66 is in scope
+   before any upstream code is written. AI must not write or post that issue.
+   If the maintainers say no (or prefer a private fork/example), the fork is the
+   path and no upstream PR is attempted.
 3. **Fork fallback is planned from day one.** The first commits are small and
    separable: build v66, guard HMX, fix HVX assumptions, docs. If the PR is
    rejected, the same commits become the fork's `r8q-v66` branch and a package.
@@ -161,6 +164,26 @@ skels. Record whether a package may redistribute them. Default: ship only our
 binaries; the package fetches the SDK at build time or the user supplies it;
 never commit the `.so`, the SDK or vendor firmware.
 
+**P0.5 Upstream issue (the human writes it; gate for P2/P6).**
+
+llama.cpp requires a feature to start as an issue, and it forbids AI-written
+issue/PR text. With the P0 facts in hand, the human opens an issue in
+`ggml-org/llama.cpp` that states:
+
+- the device (SM8250, CDSP HTP v66, 4x128B HVX, 256 KiB VTCM, no HMX) and the
+  working mainline fastrpc path;
+- that the backend already has an HVX-only mode (`GGML_HEXAGON_NHMX=0`);
+- the build dependency problem: SDK 6.7/6.4 target v68+, so v66 needs the
+  licensed SDK 5.4, and upstream CI has no such hardware;
+- the question: is a v66 build + HMX guards in scope, or is a private
+  fork/example the preferred path?
+
+**Gate G0.5:** the maintainers answer. If in scope, P2/P6 proceed. If not, P2
+is done only in the fork (`santiago200031/llama.cpp`) and P6 is dropped; the
+plan records their reason. The agent may prepare private technical notes for
+the human, but **never writes or posts the issue, a comment, or a PR**. Use
+ASCII in the issue (no em dash or arrows), as llama.cpp's style guide asks.
+
 ### P1 — Userspace fastrpc on the phone (phone write: staged libs only; needs G0)
 
 1. Copy the SDK's `libcdsprpc.so` and its dependencies to
@@ -178,13 +201,16 @@ llama.cpp; collect the ioctl trace and fix the kernel/DT first.
 **Risk:** low (staged files, no boot change). A DSP user-PD crash should be
 isolated; if the CDSP itself faults, a reboot is the recovery (ask first).
 
-### P2 — Build the v66 HTP skel (laptop, container)
+### P2 — Build the v66 HTP skel (laptop, container; only after G0.5 says in scope, or in the fork)
 
 1. Clone llama.cpp to `~/Work/llama.cpp-r8q`, branch `r8q-hexagon-v66`.
 2. Prepare a build image with the v66-capable SDK from G0 (**SDK 5.4.0**).
    If 5.4 has the 6.x `hexagon_fun.cmake`/`build_idl` helpers, map it into the
    v0.8 image; if not, add the shim (direct `hexagon-clang -mv66` + `qaic`).
-3. Add `build_htp_skel(v66)` to `ggml/src/ggml-hexagon/CMakeLists.txt`.
+3. Add `build_htp_skel(v66)` to `ggml/src/ggml-hexagon/CMakeLists.txt`,
+   **behind an opt-in** (e.g. `-DGGML_HEXAGON_V66=ON`), so the default build
+   with SDK 6.7 (v68+) is unchanged and CI keeps working. The v66 skel is
+   additive; nothing in the v68+ path may change.
 4. Guard HMX code with `#if __HVX_ARCH__ >= 68` (sources/headers that use HMX
    intrinsics), keeping the HVX path intact.
 5. Build `libggml-htp-v66.so`:
@@ -235,23 +261,37 @@ clearly better on power/thermals; otherwise keep CPU and document.
 - Add a backend selector to `omamobile-ai` (CPU vs HTP) with CPU as the default
   until G4 passes; one config drop-in switches it.
 - Package our build as `omamobile-llama-hexagon` (our binaries and skel; no
-  Qualcomm blobs in git; `libcdsprpc` from the SDK or the user's phone).
-- Update `AI-BENCHMARKS.md`, the board card and NOTES with the numbers.
+  Qualcomm blobs in git; `libcdsprpc` from the SDK or the user's phone), with
+  the repo's `PKGBUILD`/`version`/`README.md`/`test/all` layout.
+- Update `AI-BENCHMARKS.md`, the board card, NOTES and the r8q row of
+  `docs/DEVICES.md` with only what was verified.
+- Run `tools/pr-check origin/main`, `tests/all`, `tests/packages` and
+  `tools/phone-smoke`; put the smoke report in the PR; run the
+  `omamobile-reviewer` agent before posting.
 
 **Expect/pass (G5):** `omamobile-ai` serves LFM on the chosen backend after a
-restart; `systemctl restart omamobile-ai` + config rollback returns to CPU.
+restart; `systemctl restart omamobile-ai` + config rollback returns to CPU; all
+the checks above pass.
 
-### P6 — Upstream
+### P6 — Upstream PR (only if G0.5 said yes; the human owns it)
 
 - Rebase onto `ggml-org/llama.cpp` master; split commits:
   `hexagon: build the v66 skel`, `hexagon: guard HMX for pre-v68`,
   `hexagon: HVX fixes for v66`, `docs: v66 on SM8250`.
-- Run the project's CI/format checks; open a PR or a discussion with the
-  benchmark and the exact phone (SM8250, CDSP v66, 256 KiB VTCM, no HMX).
-- If rejected, publish the fork and keep the package as the deliverable.
+- **The human writes the commit messages, the PR description and every reply.**
+  The agent does not push or open the PR; if it commits at the human's explicit
+  request, the message carries `Assisted-by: <assistant>` (never
+  `Co-authored-by:`). The human also creates the GitHub fork. Fill the PR
+  template's **AI usage disclosure** honestly.
+- Run `skills/code-review/SKILL.md` over the diff (private notes only), then
+  `ci/run.sh`, `test-backend-ops` (CPU vs HTP), `llama-perplexity` and
+  `llama-bench` before/after; include the v66 benchmark and the exact phone.
+- If the issue said no, or the PR is rejected: publish the fork
+  (`santiago200031/llama.cpp`) and keep the package as the deliverable. No
+  duplicate PRs.
 
-**Expect/pass (G6):** PR opened with evidence, or the fork is tagged and
-documented as the supported path.
+**Expect/pass (G6):** a human-submitted PR with the disclosure and the evidence,
+or a tagged fork documented as the supported path.
 
 ---
 
@@ -303,6 +343,7 @@ CDSP track is not blocked by it.
 | P0.2 v66-capable SDK (5.4) | G0 | **blocked on owner download (QPM3)** | verify `-mv66` + `computev66` | |
 | P0.3 phone surface | G0 | planned | `logs/r8q/npu-p0-phone.log` | |
 | P0.4 license | G0 | planned | `NPU-PLAN.md` §5 note | |
+| P0.5 upstream issue | G0.5 | planned (human) | issue URL | |
 | P1 libcdsprpc + hello PD | G1 | planned | `logs/r8q/npu-p1-fastrpc.log` | |
 | P2 v66 skel build | G2 | planned | `logs/r8q/npu-p2-build.log` | |
 | P3 MUL_MAT + small model | G3 | planned | `logs/r8q/npu-p3-ops.log` | |
@@ -327,7 +368,92 @@ CDSP track is not blocked by it.
 
 ---
 
-## 10. References
+## 10. Contribution rules and checklist
+
+This work can produce code in three places, each with its own rules. The
+agent implements, tests and prepares **private** notes; the human owns every
+public word and every submission. llama.cpp forbids fully autonomous
+submissions: the agent works only under human supervision, and before any
+submission it verifies the human can explain the change and has reviewed every
+line.
+
+### 10.1 llama.cpp (P6)
+
+Source of truth: `CONTRIBUTING.md` and `AGENTS.md` in `ggml-org/llama.cpp`.
+
+| Rule | What it means here |
+|---|---|
+| **Issue before PR** | P0.5 is that issue. No upstream code before the maintainers answer. |
+| **AI disclosure** | The PR template has an `AI usage disclosure: YES/NO` line; fill it honestly (agent-assisted design, code, tests). |
+| **Human-written public text** | The human writes the issue, commit messages, PR description and reviewer replies. AI-written text is prohibited and can close the PR. |
+| **No agent submission** | The agent does not run `git push` or `gh pr create` for llama.cpp. If it commits at the human's explicit request, the message carries `Assisted-by: <assistant>`, never `Co-authored-by:`. |
+| **Understand every line** | The human must explain and debug the change without the agent; keep the v66 change small and reviewable. |
+| **One PR** | A new contributor keeps one open PR; no unrelated cleanup. |
+| **Local review** | Run `skills/code-review/SKILL.md` over the diff and fix the findings. The output is private notes, never posted. |
+| **CI and tests** | `ci/run.sh` locally; `test-backend-ops` (CPU vs HTP) for ggml changes; `llama-perplexity` and `llama-bench` before/after. |
+| **Style** | ASCII only (no em dash, arrows or unicode), 4 spaces, `void * ptr`, sized ints, concise comments, clang-format v15+, existing patterns. |
+| **Scope/maintenance** | v66 is niche: the issue must say who maintains it. Search issues/PRs first; no duplicates. The v66 skel must be **opt-in** so default v68+ builds and CI are untouched. |
+| **Fork** | Private forks are exempt from the project's merge standards; the fork is the fallback. |
+| **Comprehension** | Before submission, the human reads every line and can explain and debug each commit; the agent walks through the design and the diffs privately. |
+
+### 10.2 This repository (the package and docs)
+
+Source of truth: `CONTRIBUTING.md` §6, `AGENTS.md` §2, the PR template.
+
+- **Package layout:** `packages/omamobile-llama-hexagon/` with `PKGBUILD`,
+  `install`, `version`, `README.md` and `test/all`; bump `version` and put it in
+  the commit subject.
+- **SPDX:** every file; MIT for ours, GPL-2.0 for kernel/DTS.
+- **No vendor blobs:** `libcdsprpc.so`, `cdsp.mbn`, the SDK and the skels built
+  from Qualcomm headers are never committed; the package points at the user's
+  SDK or a build-time fetch.
+- **Checks:** `tools/pr-check origin/main`, `tests/all`, `tests/packages` and
+  `tools/phone-smoke`; paste the smoke report into the PR.
+- **PR content:** phone, `uname -r`, package versions, the plan steps that
+  passed, and what was not tested.
+- **Device matrix:** update the r8q row of `docs/DEVICES.md` only for what is
+  verified.
+- **Review:** run the `omamobile-reviewer` agent before posting; add confirmed
+  lessons to `docs/review/lessons/` in a `docs/review:` commit.
+- **AI trailers:** `Co-Authored-By:`/`Assisted-by:`, never `Signed-off-by:`.
+
+### 10.3 Kernel (only if a fastrpc/DT patch is needed)
+
+Source of truth: `CONTRIBUTING.md` §6.2 and
+`Documentation/process/coding-assistants.rst`.
+
+- One subsystem per branch (`omamobile-<subsystem>`);
+  `dt-bindings:` -> driver -> `arm64: dts:`; each commit builds.
+- Prefixes from `git log --oneline <file>`; 72-column messages that say why and
+  cite the evidence.
+- `scripts/checkpatch.pl --strict`, `W=1`, `dt_binding_check`, `CHECK_DTBS`,
+  and `tools/kernel-pr-check --build OUT --merge BASE`.
+- The human author's `Signed-off-by:`; AI help is `Assisted-by:`, never
+  `Signed-off-by:`.
+- New hardware stays `disabled` in the DTS until it passes on the phone;
+  overlays only switch it on for a test boot.
+- `fastrpc` is a shared driver: gate any change by DT/compatible data and show
+  the other boards (cheetah first) are unchanged, as `CONTRIBUTING.md` §6.2
+  requires.
+
+### 10.4 Pre-submission checklist
+
+- [ ] G0: SDK 5.4 `-mv66` + `computev66` verified
+- [ ] G0.5: upstream issue answered (in scope, or fork)
+- [ ] G1: unsigned-PD hello on the CDSP
+- [ ] G2: v66 skel builds, no HMX instructions
+- [ ] G3: `MUL_MAT` + small model correct
+- [ ] G4: LFM benchmark + 30-minute soak
+- [ ] G5: package + one-command CPU rollback
+- [ ] `skills/code-review` (llama.cpp) / `omamobile-reviewer` (this repo)
+- [ ] `ci/run.sh` + `test-backend-ops` + perplexity/bench
+- [ ] `tools/pr-check`, `tests/all`, `tests/packages`, `tools/phone-smoke`
+- [ ] AI disclosure filled in the llama.cpp PR template
+- [ ] The human wrote the issue, commit messages, PR description and replies
+
+---
+
+## 11. References
 
 - llama.cpp Snapdragon/Hexagon backend:
   `docs/backend/snapdragon/README.md`, `developer.md`, `linux.md`;

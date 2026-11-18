@@ -3,7 +3,7 @@
 # Missing 03: Cellular / Modem & Sustained Wireless Soak
 
 - **Priority:** P3 (`M4.2` soak, `M5.1` modem).
-- **Status (`2026-11-17`):** Wi-Fi/BT and the sustained soak are **done**; the modem is **parked, design done** — Stage 3A (`PCIe2` MSI) resets the phone when `mhi_pci_generic` binds ([MODEM-PLAN](../../MODEM-PLAN.md) §8), and §9 adopts the stock `qcom,pci-msi` memory doorbell with `msi-parent` on `&pcie2` as the next design. Items below are kept as history; the live modem decision is in [MISSING.md](../MISSING.md).
+- **Status (`2026-11-18`):** Wi-Fi/BT and the sustained soak are **done**, and **the modem boots to AMSS on mainline** ([MODEM-PLAN](../../MODEM-PLAN.md) §10): full SAHARA set over one MHI channel, mission mode entered by the modem itself, QMI/MBIM/DIAG/AT ports up. What remains for cellular in daily use is userspace (SIM/QMI via qrtr-ns and ModemManager on the Arch root), tracked in [MISSING.md](../MISSING.md).
 - **Done & Moved:** Wi-Fi (`wlp1s0`, `ath11k` + `r8q-wifi-aspm`) and Bluetooth (`hci0`, `qca6390` on `998000.serial`) are now verified working in [Success 06](../success/06-wifi-bluetooth-and-clock.md).
 - **Back:** [MISSING.md](../MISSING.md) · [Board Overview](../README.md)
 

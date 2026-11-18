@@ -41,7 +41,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | --- | --- | --- |
 | ✅ SUCCESS | 7 | 2026-11-17 |
 | ❌ FAILED (known, mitigated) | 7 | 2026-11-17 |
-| 🔲 MISSING | 4 open (main/front cameras; modem design done and parked; Freedreno/Vulkan optional; kernel sign-offs upstream) | 2026-11-17 |
+| 🔲 MISSING | 3 open (main/front cameras; modem userspace SIM/QMI; Freedreno/Vulkan optional) + kernel sign-offs upstream | 2026-11-18 |
 
 ---
 
@@ -113,7 +113,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | Item | Status | Details |
 |------|--------|---------|
 | Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | 🛑 Halted (storage) | MSI allocation proven live (root-port vector + 10 modem vectors, no faults, no oops); delivery needs the bank-offset fix (`ff311d19e`, packed as `b2d18af5…`, not yet run). Halted on SD I/O errors (`emergency_ro`, phone powered off cleanly); NV 15/15 `SAME`, no NV write. Next: laptop fsck of the SD/ext4 image. `MODEM-PLAN.md` §10. |
+| Modem/cellular | ✅ AMSS reached | **The modem boots to AMSS on mainline (2026-11-18)**: full 14-image SAHARA set over one open MHI channel, modem jumps to mission mode itself (`CHDBOFF=0x300 ERDBOFF=0x700`, `EE: MISSION MODE`), `mhi0_QMI/MBIM/IPCR/IP_HW0/IP_SW0` and `/dev/wwan0{qmi,mbim,qcdm,at}0` present. Fixes: `qcom,pci-msi` doorbell (GIC hwirq data), ported MHI SBL/AMSS support, AP2MDM_STATUS high + single-channel serving. Next: userspace SIM/QMI on the Arch root; kernel commits need the human Signed-off-by. `MODEM-PLAN.md` §10. |
 
 **Files involved:**
 - `tools/r8q-stabilize` (exists)

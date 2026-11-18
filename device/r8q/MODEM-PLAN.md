@@ -2,9 +2,9 @@
 
 # Modem & Cellular — Samsung Galaxy S20 FE (r8q)
 
-**Status:** Phase 1 PASS; Phase 2 first run stalled (device stayed in PRIMARY BOOTLOADER, no SAHARA channel). Stage 3A (PCIe2 MSI-in-IOMMU, kernel `modem-stage3`) **failed unsafely on 2026-11-17**: the phone reset as soon as `mhi_pci_generic` powered the modem on, before any SBL/Sahara transition. Phone recovered, root clean, guard ok, NV 15/15 `SAME`; the driver stays blacklisted. See §8 results. **Parked, design done:** §9 explains the failure (an IOVA programmed into a DWC address-matching doorbell) and adopts the stock MSI topology — a `qcom,pci-msi` memory doorbell at `0x17a10040` with `msi-parent` on `&pcie2` — as the next design. The phone is back on the recorded stable image ([stable-image.conf](stable-image.conf), restored 2026-11-17); the driver, binding and gated runbook are laptop work, and every flash or reboot still needs the human's go.
-**Safety:** All 77 UFS partitions read-only (`ro=1`); single-slot recovery boot (`sda24`) leaves LineageOS untouched; 15/15 NV partitions match the full off-repo backup
-**Last Updated:** 2026-11-17
+**Status:** **THE MODEM REACHES AMSS ON MAINLINE (2026-11-18).** The SDX55M runs its full flashless boot: PCIe2 enumerates, the kernel BHI-loads `sbl1`, the SBL's complete 14-image SAHARA set is served over one open MHI channel, and the modem jumps to mission mode by itself (`Mission mode doorbell offsets: CHDBOFF=0x300 ERDBOFF=0x700`, `EE: MISSION MODE`), exposing `mhi0_QMI/MBIM/IPCR/IP_HW0/IP_SW0` and `/dev/wwan0{qmi,mbim,qcdm,at}0`. Three fixes got there: the `qcom,pci-msi` doorbell with GIC-hwirq message data; the ported MHI SBL/AMSS support (SBL power-up, context-register zeroing, M0 at SBL, mission-mode doorbell re-read); and AP2MDM_STATUS (gpio56) driven high with one SAHARA channel per boot. Rich history: §8 (Stage 3A failure), §9 (design), §10 (Stage 4 runs, the AMSS result and the exact image). Next for daily use: SIM/QMI through userspace on the Arch root (qrtr-ns, ModemManager), and a kernel release with the three commits signed off.
+**Safety:** All 77 UFS partitions read-only (`ro=1`); single-slot recovery boot (`sda24`) leaves LineageOS untouched; 15/15 NV partitions match the full off-repo backup; no NV partition has ever been written by this work
+**Last Updated:** 2026-11-18
 
 ---
 

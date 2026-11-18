@@ -322,3 +322,14 @@ Verified booted on `7.3.0-rc6-omamobile-push1-ge96cf40a1ee9` (2026-11-14) alongs
   zeroing, M0 at SBL, mission-mode doorbell re-read), and AP2MDM_STATUS
   high + one SAHARA channel per boot. QRTR is empty because no userspace
   daemon runs in the rescue shell; the modem is up regardless.
+
+- **Stable Omarchy restored after the AMSS milestone (`2026-11-18`).**
+  `recovery-cam-uw.img` (`66fe127f…`, the pinned stable image) flashed
+  to `sda24` via Download Mode/Heimdall and verified on the phone:
+  `uname -r` reads `7.3.0-rc6-omamobile-push1-g3667ab368ef9`, root is
+  `/dev/loop0` ext4 `rw`, the guard holds 77/77 UFS partitions
+  read-only, PCIe2 is `disabled` with no `mhi_pci_generic` and no wwan
+  ports, Hyprland and quickshell run, and the 15-partition NV check is
+  all `SAME` (`param` differs as expected). The modem image that
+  reached AMSS stays recorded in MODEM-PLAN (`0e3c74b5…`), and the
+  kernel branch `r8q-modem-msi` holds the commits.

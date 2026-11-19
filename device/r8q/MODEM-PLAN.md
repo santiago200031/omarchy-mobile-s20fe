@@ -1727,3 +1727,391 @@ its modules in the root) — that is the next run, and it is still attended.
    the r8q-specific `rmtfs -r -P -v` (never `-s`), the by-partlabel and
    `mdm1m9kefs*` caveats, and the read-only test order. The SIM/QMI test waits
    for a link that survives the AMSS.
+
+---
+
+## 13. Stage 5 — SFR capture, `remotefs_sahara.c:850`, and SAHARA-in-AMSS (2026-11-19)
+
+### 13.1 What Runs 15–19 added (kernel `7.3.0-rc6-omamobile-push1-g238696e3884c-dirty`)
+
+Three changes on `r8q-modem-nom3` (`wt-r8q`, uncommitted on top of `g238696e3884c`), all
+verified live in Run 19 (`logs/r8q/run19-*.log`):
+
+1. **MHI SFR (Subsystem Failure Reason).** `MHI_CMD_SFR_CFG` (opcode 73) support in
+   the MHI host (`common.h`, `internal.h`, `init.c`, `main.c`, `pm.c`,
+   `include/linux/mhi.h`) with `mhi_cntrl->sfr_len = 256` for `samsung,r8q`
+   (`pci_generic.c`): a 256-byte DMA buffer configured at mission-mode entry
+   (`mhi_init_sfr()`), logged and freed at power-down, readable at
+   `/sys/bus/mhi/devices/mhi0/sfr`. The SDX55M DMA's its exact crash string there
+   during the ~0.9 s `mdm2ap_errfatal` (gpio1) window before the `PS_HOLD` reset.
+2. **QRTR HELLO race fix** (`net/qrtr/af_qrtr.c`): the name service announces all
+   local services immediately when a remote HELLO arrives — all 18 services on
+   Node 2 (APSS) and Node 3 (MPSS) now enumerate at T+0 of mission mode, with zero
+   "failed to announce new service" errors.
+3. **`mhi_pci_recovery_work` uses `mhi_async_power_up()`:** SBL idle recovery no
+   longer times out after 50 s and locks up display/USB (Run 12's `[621.55]`
+   failure mode). Run 19 exercised it live: AER link-down at `[157.2]` → slot
+   reset → `device recovery started` → back to `EE: SECONDARY BOOTLOADER` at
+   `[158.260]` in ~1 s, display and USB unaffected.
+
+**Run 19 (2026-11-19).** `r8q-sahara --wait 25` served the image set, mission mode
+entered at `[133.776]` (`Mission mode doorbell offsets: CHDBOFF=0x300 ERDBOFF=0x700`,
+`MHI SFR configured (iova=0x1fff3000 len=256)`), `rmtfs`/`tqftpserv` saw no requests,
+and at `[157.210]` (**+23.4 s** after mission mode) the SFR buffer captured the exact
+APSS crash reason before the reset:
+
+    ssr:AP:remotefs_sahara.c:850:Assertion remotefs_sahara_info.sahara_status == SAHARA_END_OF_IMG_TRANSFER fail:
+
+### 13.2 Why the assert fires (apps.mbn RE, 2026-11-19)
+
+`apps.mbn` (SDX55M APSS) ships `remotefs_sahara.c`, a Sahara memory-debug client on
+MHI channels 2/3 (`SAHARA`). RE of `0x808a89ae..0x808a92a0` (literal pool at
+`0x809217a4`) shows `remotefs_sahara_memory_debug()` sets
+`sahara_state = SAHARA_MEM_DBG_START`, builds a 48-byte `HELLO` in mode 2
+(`SAHARA_MODE_MEMORY_DEBUG`) and transmits it on channel 3 with a 5000 ms timeout,
+then waits for `HELLO_RESP` on channel 2. Our table declared SAHARA
+`ee_mask = BIT(MHI_EE_SBL)` only, so at the SBL → AMSS transition
+`mhi_pm_mission_mode_transition()` destroys the SAHARA MHI device — the destroy
+pass runs with the *old* EE and `mhi_unprepare_from_transfer()` resets both
+channels — the transmit fails, `sahara_status` never reaches
+`SAHARA_END_OF_IMG_TRANSFER`, and APSS asserts at line 850. That assert resets the
+whole modem and wipes the very crash data (MPSS reason, `err_fatal`, ULogs) the
+memory-debug session was supposed to deliver — which is why Run 12's post-reset
+crashdload capture found empty MPSS/APPS fields. The shipped client using ch 2/3
+in AMSS means the stock host table keeps them valid in AMSS; ours did not.
+
+### 13.3 The Stage 5 change (Run 20, same worktree)
+
+- `drivers/bus/mhi/host/pci_generic.c`: new
+  `MHI_CHANNEL_CONFIG_UL/DL_SBL_AMSS` macros
+  (`ee_mask = BIT(MHI_EE_SBL) | BIT(MHI_EE_AMSS)`) and the r8q table entries for
+  channels 2/3 use them. The transition still destroys and re-creates the SAHARA
+  port (fresh channel, fresh `mhi_wwan_ctrl` port at the same
+  `/dev/wwan0sahara0` node), now valid in AMSS. **Module-only change** — the
+  `sda24` recovery image is unchanged, and `mhi_pci_generic.ko` can be reloaded
+  live.
+- `run17_diag.py memdump --after-mission SECONDS` (source: scratch
+  `run17_diag.py`, deployed `/usr/local/bin/`): waits for `mhi0` MISSION MODE,
+  then opens the fresh port and answers the in-AMSS `HELLO mode=2` — accepting
+  the memory-debug session that the SBL loader deliberately declines — reading
+  the debug table and dumping every non-DDR region, the ULog list, `mhi_ctx`,
+  `pcie_ctx`, `smem_head`, `tz_data` into `/tmp/sdx55-crash/`.
+- `r8q-sahara` (source: scratch `r8q-sahara.py`): once its SBL session has
+  started, an EIO now means the EE transition tore the port down — it exits
+  instead of reopening, so it cannot steal the recreated port from the memdump
+  listener.
+
+### 13.4 Run 20 gated runbook — SAHARA-in-AMSS + in-mission-mode dump capture
+
+Runs on the phone as it stands (SBL, USB up). The only shared-storage write is the
+same-release modules replace; **no `sda24` flash, no reboot**. Same userspace set
+as Run 19 (`rmtfs -r -P -v`, `tqftpserv`, `run17_diag.py watch`, no `pd-mapper`),
+so the only delta is the channel masks plus the listener.
+
+#### Step 0 — read-only preflight (LOW risk)
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh --fresh '
+  uname -r
+  cat /sys/kernel/debug/mhi/mhi0/states
+  cat /sys/bus/mhi/devices/mhi0/sfr
+  r8q-preflight --json
+'
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/nv-backup -d r8q --check \
+  ~/omamobile-kernel/reference-r8q/nv-backup-20261117-full
+```
+
+- **Expect / Pass:** `-dirty` kernel; `EE: SECONDARY BOOTLOADER`; NV backup
+  15/15 `SAME`; `r8q-preflight --json` reports only `sda36` writable (the
+  approved `UFS_RW="userdata"` root — the guard's `ok:false` names no other
+  partition).
+- **Stop condition:** any NV mismatch or any `ro=0` block besides `sda36`.
+
+#### Step 1 — push the rebuilt modules (MEDIUM risk — WRITE, needs go)
+
+```sh
+sha256sum ~/omamobile-kernel/out-r8q-nom3/modules-7.3.0-rc6-omamobile-push1-g238696e3884c-dirty.tar.zst
+KERNEL_DIR="$HOME/omamobile-kernel/wt-r8q" KERNEL_OUT="$HOME/omamobile-kernel/out-r8q-nom3" \
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" OMAMOBILE_SSH_SHARE=1 \
+  ./bin/omamobile modules-push
+```
+
+- **Expect / Pass:** same-release in-place replace (the phone runs the same
+  release and its tree matches the last push's manifest, so no
+  `OMAMOBILE_MODULES_REPLACE=1` is needed or wanted).
+- **Stop condition:** any refusal — do not force it without understanding why.
+- **Rollback:** none needed; the running kernel keeps its loaded modules until
+  Step 3 re-probes.
+
+#### Step 2 — deploy the updated tools (LOW risk — `/usr/local/bin` only)
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh \
+  'cat > /usr/local/bin/run17_diag.py && python3 -m py_compile /usr/local/bin/run17_diag.py' \
+  < "$HOME/.gemini/antigravity-cli/brain/e4be2a24-e1c7-43ec-a0aa-8d1b484d6e83/scratch/run17_diag.py"
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh \
+  'cat > /usr/local/bin/r8q-sahara && python3 -m py_compile /usr/local/bin/r8q-sahara' \
+  < "$HOME/.gemini/antigravity-cli/brain/e4be2a24-e1c7-43ec-a0aa-8d1b484d6e83/scratch/r8q-sahara.py"
+```
+
+#### Step 3 — live MHI reload with the new channel table (MEDIUM risk — modem only)
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh '
+  pkill -x rmtfs 2>/dev/null || true
+  pkill -x tqftpserv 2>/dev/null || true
+  pkill -f "run17_diag.py" 2>/dev/null || true
+  echo 0002:01:00.0 > /sys/bus/pci/drivers/mhi-pci-generic/unbind
+  sleep 1
+  modprobe -r mhi_pci_generic
+  modprobe mhi_pci_generic
+  sleep 3
+  cat /sys/kernel/debug/mhi/mhi0/states
+  ls -l /dev/wwan0sahara0
+'
+```
+
+- **Expect / Pass:** `mhi0` re-probes with the new table and lands back in
+  `EE: SECONDARY BOOTLOADER` (the SDX55M stays powered; the SBL survives host
+  MHI re-init the same way it survives AP reboots).
+- **Stop condition:** unbind hangs (SSH still answers) or `EE: DISABLE` after
+  re-probe → stop and recover with a reboot (human at the phone; the warm-reboot
+  USB re-enumeration quirk may need one replug).
+- **Risk:** display/USB are untouched (separate controller); worst case is a
+  wedged modem driver, recovered by reboot.
+
+#### Step 4 — Run 20 capture (attended; modem RAM only, NV `ro=1`)
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh '
+  rm -rf /tmp/sdx55-crash /tmp/run20-*.log
+  nohup dmesg -w > /tmp/run20-dmesg.log 2>&1 </dev/null &
+  nohup rmtfs -r -P -v > /tmp/run20-rmtfs.log 2>&1 </dev/null &
+  nohup tqftpserv -d > /tmp/run20-tqftpserv.log 2>&1 </dev/null &
+  nohup python3 -u /usr/local/bin/run17_diag.py watch > /tmp/run20-watch.log 2>&1 </dev/null &
+  nohup python3 -u /usr/local/bin/run17_diag.py memdump --after-mission 90 --wait-sec 150 \
+    > /tmp/run20-memdump.log 2>&1 </dev/null &
+  python3 -u /usr/local/bin/r8q-sahara --wait 30 > /tmp/run20-sahara.log 2>&1
+'
+```
+
+Then poll for ~2 min: `cat /sys/kernel/debug/mhi/mhi0/states`,
+`/sys/bus/mhi/devices/mhi0/sfr`, `tail /tmp/run20-memdump.log`, and — the decisive
+check — `ls -l /dev/wwan0sahara0` **in mission mode** (the node used to vanish).
+
+- **Expect / Pass — any of:**
+  - **A:** at ~+20-25 s the memdump log shows `HELLO ... mode=2` → the debug
+    table → regions saved to `/tmp/sdx55-crash/` **without a modem reset**. Stream
+    the dump + logs to `logs/r8q/run20-*` and read the MPSS crash reason — this
+    is the data every prior run lost to the `:850` reset.
+  - **B:** no memory-debug offer and `gpio1` never asserts for 60+s — the closed
+    channels were themselves the +23 s trigger; proceed to pd-mapper/rmtfs work
+    in a live mission mode.
+- **Stop condition:** the SFR prints a *new* assert line (progress — capture it
+  and iterate), an unexpected kernel oops, or any NV `ro=0`.
+- **Rollback:** `tools/r8q-flash-recovery --stable` restores the verified
+  no-modem baseline if the modem work needs to be abandoned.
+
+#### After the run
+
+- `tools/nv-backup -d r8q --check ~/omamobile-kernel/reference-r8q/nv-backup-20261117-full`
+  (always, per §1).
+- Record the outcome here with the kernel release; commit the Stage 5 kernel
+  work (`SFR`, QRTR fix, `mhi_async_power_up`, SAHARA `SBL|AMSS`) on
+  `r8q-modem-nom3` once the human signs off.
+
+**Run 20 results (2026-11-19, live module reload, no reboot, kernel
+`7.3.0-rc6-omamobile-push1-g238696e3884c-dirty`).**
+
+- Steps 1-3 executed as written: same-release modules replace (tarball
+  `809b95ff…`), `/usr/local/bin` tool deploy, unbind → `modprobe -r` →
+  `modprobe mhi_pci_generic` — all clean, `sda24` untouched, NV 15/15 `SAME`
+  before and after, display/USB unaffected throughout.
+- The serve completed (14 images, `apps.mbn` via `mode=1`) but the modem
+  died **~0.3 s after the AMSS handoff**: AER `CmpltTO → Link Down` at
+  `[9710.8]`, no `gpio1` ERRFATAL pulse, no mission-mode transition (no
+  doorbell-offsets line, SFR never configured), AER recovery back to SBL in
+  ~1.9 s. First occurrence of an *instant* handoff death — runs 17-19 all
+  had +13-23 s AMSS windows.
+
+**Run 21 results (merged lifecycle tool, same kernel, no reboot).**
+
+- `tools/r8q-sahara` rewritten into stock-`mdm_helper` shape: one fd held
+  across the whole lifecycle, EIO → reopen the AMSS-re-created port, `HELLO
+  mode=2` accepted and served through `run17_diag.py`'s table walker, and a
+  `RESET` sent after each completed dump (the SBL crashdload client waits
+  for it — without it the SBL sits forever; a bare `RESET` probe also
+  revived a wedged SBL client, `RESET_RESP` received). Deployed to the
+  phone; the repo copy is the source of record.
+- The SBL crashdload flow is now served end-to-end for the first time:
+  `apdp` → `HELLO mode=2` → full 32-entry table (`2.87 MB`: Summary,
+  `sbl1_{pre,post}_log`, OCIMEM, AOP/DCC regions, `DDR CS0` listed) →
+  `RESET` → clean normal boot. The post-crash `Summary.txt` again: MPSS and
+  APPS crash fields wiped by the reset, `TZ reset reason : (6) :
+  TZBSP_ERR_FATAL_NOC_ERROR`, `SECURE_WDOG_EXPIRE`, PS_HOLD warm PON.
+- **The crash loop is a warm-boot pathology:** every modem boot since the
+  phone's 18:19 power-on (the modem never lost power) dies **~250 ms into
+  AMSS** — `gpio3` (`mdm2ap_status`) goes `in:high` at AMSS entry,
+  `gpio1` (`mdm2ap_errfatal`) pulses ~250 ms later, no host mission-mode
+  transition runs (states never show MISSION MODE, SFR stays `empty`, no
+  doorbell lines in dmesg). Cold boots (runs 9-19 first boots) gave +13-23 s
+  windows with a completed transition. Stock never warm-resets this modem
+  (`esoc` cuts its power rails), so the instant death is a warm-cycle
+  artifact, not the `remotefs_sahara` story of §13.2.
+- Logs: `logs/r8q/run20-*.log`, `run21*.log`, `run20-21-logs.tgz`; two dump
+  sets pulled to the laptop (run 20's and the warm-loop's, both stale, both
+  `TZBSP_ERR_FATAL_NOC_ERROR`).
+
+### Run 22 runbook — cold-boot lifecycle attempt (2026-11-19)
+
+Same kernel, same tools, no push, no flash. The only difference from run 21
+is a cold modem power-on: the phone must be powered off once so the SDX55M
+loses PON (the warm boots above cannot be recovered any other way).
+
+#### Step 1 — power off and back on (WRITE — needs go; affects the phone)
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh --fresh 'poweroff'
+```
+
+Then power the phone back on (replug USB once Linux is up if it does not
+re-enumerate — the known warm-reboot quirk).
+
+#### Step 2 — preflight and launch (read-only + `/usr/local/bin` only)
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh --fresh '
+  uname -r; cat /sys/kernel/debug/mhi/mhi0/states; cat /sys/bus/mhi/devices/mhi0/sfr
+'
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/nv-backup -d r8q --check \
+  ~/omamobile-kernel/reference-r8q/nv-backup-20261117-full
+```
+
+Expect: SBL (fresh cold boot), NV 15/15 `SAME`. Then start the set from
+§13.4 Step 4 but with the merged loader:
+
+```sh
+nohup python3 -u /usr/local/bin/run17_diag.py watch  > /tmp/run22-watch.log 2>&1 </dev/null &
+nohup rmtfs -r -P -v                            > /tmp/run22-rmtfs.log  2>&1 </dev/null &
+nohup tqftpserv -d                              > /tmp/run22-tqftp.log  2>&1 </dev/null &
+nohup python3 -u /usr/local/bin/r8q-sahara --wait 240 --idle 120 \
+                                                 > /tmp/run22-sahara.log 2>&1 </dev/null &
+```
+
+- **Expect / Pass:** the run-19 cold-boot signature: `Mission mode doorbell
+  offsets` + `MHI SFR configured` in dmesg, `/dev/wwan0sahara0` re-created and
+  re-opened by the loader at the transition, then at ~+20-25 s the live
+  `HELLO mode=2` from `apps.mbn`'s `remotefs_sahara` — accepted, dumped with
+  **non-empty** MPSS/APPS crash fields into `/tmp/sdx55-crash/`, `RESET`
+  sent, and the modem **staying in mission mode** past the +23 s wall for
+  the first time.
+- **Stop condition:** the instant (~250 ms) death on a *cold* boot (kills
+  the warm-cycle theory — capture dmesg + SFR and stop), any NV mismatch, or
+  an unexpected oops.
+- **Rollback:** `tools/r8q-flash-recovery --stable` if modem work must stop.
+
+**Run 22 results (2026-11-19, cold boot after poweroff, kernel
+`7.3.0-rc6-omamobile-push1-g238696e3884c-dirty`).**
+
+- The cold boot reproduced the run-19 signature exactly: the mission-mode
+  transition completed (`EE: MISSION MODE` ~69 s after boot, the loader's fd
+  EIO'd at the transition destroy and re-attached to the re-created port),
+  the AMSS window ran **+40 s**, and the SFR armed on the cold boot caught
+  the same crash reason: `ssr:AP:remotefs_sahara.c:850:…`. NV 15/15 `SAME`.
+- So with the `SBL|AMSS` mask, the host re-created and held the SAHARA port
+  open through the whole window — and the remotefs_sahara transmit **still
+  failed device-side**. The destroy pass in `mhi_pm_mission_mode_transition()`
+  runs `mhi_unprepare_from_transfer()`, which **resets the channel on the
+  device as well**; apps.mbn's AMSS expects the SBL-opened channel to have
+  survived the EE switch. Stock's msm-4.19 has no destroy pass at its
+  mission-mode transition at all (`mhi_create_devices()` only *adds* —
+  verified in `vendor-r8q/drivers/bus/mhi/core/mhi_pm.c:492-583`), which is
+  why stock's `mdm_helper` keeps one `/dev/mhi_SAHARA` fd across the whole
+  lifecycle.
+- The post-crash loop resumed and was serviced cleanly (crash → SBL
+  crashdload → dump → RESET), and the warm-cycle instant deaths continue on
+  warm boots only. Logs: `logs/r8q/run22-*.log` (laptop copy pending),
+  `/tmp/run22-*.log` on the phone.
+
+### Stage 5b — preserve channels that survive an EE transition (2026-11-19)
+
+- `drivers/bus/mhi/host/main.c` (`mhi_destroy_device`): with an execution
+  environment passed in `data`, destroy only devices whose channels are
+  **not valid in it** (the old logic destroyed everything that "started in
+  the old EE", which included any channel valid in both).
+- `drivers/bus/mhi/host/pm.c` (`mhi_pm_mission_mode_transition`): pass the
+  **new** EE to the destroy pass. A `SBL|AMSS` channel now carries its state
+  across the SBL → AMSS switch — no `device_del`, no
+  `mhi_unprepare_from_transfer`, no channel RESET — so the host fd stays
+  valid across the jump and apps.mbn's `remotefs_sahara` finds the channel
+  alive, as on stock. SBL-only channels are still destroyed (they do not
+  match the new EE), so tables without dual-mask channels behave exactly as
+  before.
+- Run 23 = the Run 22 runbook unchanged, on a build carrying this fix
+  (module-only again: `mhi.ko`). The expected pass: at ~+20-40 s the loader
+  receives the live `HELLO mode=2` **on the same fd it opened in SBL** —
+  no EIO, no reopen — and captures the first pre-reset MPSS/APPS crash
+  fields.
+
+**Run 23 results (2026-11-19 evening, warm reboot, Stage 5b live).**
+
+- The fix works exactly as designed: the mission transition completed
+  (`[39.715] Mission mode doorbell offsets`, `MHI SFR configured`) with **no
+  `wwan0sahara0 disconnected` line** — the destroy pass skipped the
+  surviving channel, the loader's SBL fd rode through untouched, and the
+  AMSS ports (`qcdm/mbim/qmi/at0`) attached alongside it.
+- The modem still died at **+32.9 s** with the same SFR string
+  (`ssr:AP:remotefs_sahara.c:850`), and the loader received **nothing**
+  during the window.
+
+**Run 24 results (5 Hz debugfs poller + raw qcdm read).**
+
+- Every mission-window sample across multiple crash-loop cycles:
+  `pending packets: 0`, event rings drained; the last nominal sample
+  (`441.27`) flips directly to `Linkdown or Error Fatal Detect` at
+  `441.48`. The raw DIAG port read returned 0 bytes (the DIAG stream needs
+  a client handshake before it flows).
+- Conclusion: **the `remotefs_sahara` transmit never reached any host
+  ring** — with the host channel provably untouched and alive. The `:850`
+  assert is the modem's own crash handler failing while the modem dies,
+  not a host-channel fault, and the live memory-debug session cannot be
+  answered: the crash is a bus-level death.
+
+### Strategic conclusions (2026-11-19 evening)
+
+1. **The +16-40 s death is a modem-internal NOC-level fault.** Every
+   crashdload `Summary.txt` since run 12 — including run 20's instant
+   handoff death and every loop cycle — records
+   `TZ reset reason : (6) : TZBSP_ERR_FATAL_NOC_ERROR` +
+   `SECURE_WDOG_EXPIRE` with a PS_HOLD warm reset, and the MPSS/APPS
+   crash fields wiped. A NOC error kills the bus, so the crash handler's
+   dump TX fails with it; the SBL-phase crashdload capture (which the
+   lifecycle loader now takes cleanly every cycle) is the postmortem.
+2. **MPSS PDR starvation is unlikely.** The harvested stock
+   `/vendor/firmware_mnt/image/` (stock's own `firmware_class.path`) has
+   `adspr/adspua/cdspr/slpir/slpius` PD maps and **no modem map at all** —
+   stock's kernel service-locator answers the modem's servreg queries
+   with nothing modem-specific, i.e. our QRTR-64 fake is stock-equivalent.
+   And the run-19/23 watches show MPSS querying `tms/pddump_disabled` once
+   at mission entry, getting its answer, then no retries before death.
+3. **The host side is now stock-shaped everywhere we can verify:** the
+   channel survives the EE switch (Stage 5b), the SFR is armed and
+   captures the reason string every crash, the lifecycle loader serves
+   SBL images, accepts and dumps memory-debug tables, and closes them
+   with the RESET the SBL client waits for.
+
+### Next steps (laptop-first, no phone risk)
+
+1. **Decode `DCC_SRAM.BIN`** from the captured dumps (two sets on the
+   laptop under `/tmp/opencode/run21-dumps/`): the DCC capture holds the
+   NOC error registers — the faulting master and address — which name the
+   actual cause. Needs the SDX55M DCC dump layout (vendor kernel / TZ
+   sources for the register map).
+2. If the DCC decode is inconclusive: **enable the DIAG stream**
+   (`/dev/wwan0qcdm0` with a diag-client handshake) during the window for
+   the modem's own logs, and **`qmicli -d qrtr://…`** probes at mission
+   entry to time MPSS's QMI liveness against the death.
+3. Then the userspace completion (rmtfs/tqftpserv are installed and
+   running; `pd-mapper` needs a map the stock image never ships for the
+   external modem — only worth revisiting if the modem's logs ask for
+   it).

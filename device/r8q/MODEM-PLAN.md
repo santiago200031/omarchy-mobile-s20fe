@@ -1623,22 +1623,42 @@ captures exact in-window diagnostics (`mhi0` debugfs + `qrtr-lookup` +
     `64` elements on `ER1` (`UL`) and `ER2` (`DL`), `SAHARA(2/3)` at `128` on
     `ER1`, `DIAG(4/5)` at `64` on `ER1`/`ER3`, and `DUN(32/33)` at `64` on `ER3`.
 
-**Run 12 image prepared and flashed (2026-11-19, `7.3.0-rc6-omamobile-push1-g7e390b575f95`, pending USB replug):**
+**Run 12 results (2026-11-19, `7.3.0-rc6-omamobile-push1-g7e390b575f95`):**
 
-- Kernel commit `7e390b575` (`wt-r8q`, `r8q-modem-nom3`) adds
-  `mhi_samsung_r8q_sdx55_events` (`ER0` `CTRL(32)`, `ER1..ER3` `SW_DATA(256)`)
-  and moves all data channels off `ER0` (`QMI(14/15)` -> `64` on `ER1`/`ER2`,
-  `SAHARA(2/3)` -> `128` on `ER1`, `DIAG(4/5)` -> `64` on `ER1`/`ER3`,
-  `DUN(32/33)` -> `64` on `ER3`); `device/r8q/kernel.config` adds
-  `CONFIG_DYNAMIC_DEBUG=y`.
-- Pushed `1820` modules (`modules-7.3.0-rc6-omamobile-push1-g7e390b575f95.tar.zst`)
-  over SSH and flashed `recovery-modem-nom3.img` (`137b5f431d97f723f2696fdce5edb4689df082388616dc39bd0ae054242347ab`)
-  to `/dev/sda24` with all 12 NV partitions verified `ro=1`.
-- `reboot-to recovery` hit the warm-reboot USB-C re-enumeration quirk (`NOTES.md:151`):
-  phone requires one USB-C replug before uploading `run10_diag.py` (now updated
-  with `QMI_SERVREG_LOC` responder for `tms/servreg` -> `mdm/modem/root_pd:165`
-  & `avs/audio` -> `msm/adsp/audio_pd:74`, plus `mode=0 -> mdmddr/apdp -> mode=2`
-  `MEMORY_DEBUG` crash-table capture) and running Run 12.
+- After USB-C replug, verified `uname -r` = `7.3.0-rc6-omamobile-push1-g7e390b575f95`,
+  15/15 NV backup match (`nv-backup-20261117-full`, all 12 NV partitions `ro=1`),
+  and `DYNAMIC_DEBUG_OK`.
+- `run12_diag.py watch` confirmed QRTR `Service 64` (`SERVREG_LOC`) responder works
+  for SM8250 DSPs (`(1, 16387)` `avs/audio`, `(5, 13)`, `(9, 14)`, `(10, 9)`).
+- `r8q-sahara` served all 14 images -> `EE: MISSION MODE` (`[494.570]`, `IPCR(20/21)`
+  + `IP_SW0(46/47)` + `IP_HW0(100/101)` auto-started). `qrtr-lookup` showed both
+  `Node 2` (`SDX55M` `apps.mbn`: `IPA control service 49`, `Core sound 20`,
+  `RFS 14 inst 2`) and `Node 3` (`qdsp6sw.mbn`), but `qmicli` timed out and
+  `rmtfs`/`tqftpserv`/`Service 64` saw zero requests from `Node 2`/`Node 3` before
+  `Link Down` fired at `[508.680]` (`+14.11 s`).
+- `run12_diag.py memdump` served `apdp.mbn` (`40`) on `HELLO mode=0`, advanced to
+  `HELLO mode=2` (`MEMORY_DEBUG`, `is64=False`, `0x8fdbb4e0`), and captured
+  `/tmp/sdx55-crash/Summary.txt` + `sbl1_{pre,post}_log.txt`:
+  - `MPSS` and `APPS` crash fields were empty; **TrustZone** recorded
+    **`TZ reset reason : (6) : TZBSP_ERR_FATAL_NOC_ERROR`** and
+    **`AOSS_CC_RESET_STATUS from SDI: (0x803) : SECURE_WDOG_EXPIRE ...`**.
+  - Cross-checking `apps.mbn`, `tz.mbn`, and stock `live.dts` showed stock has
+    no `IP_SW0(46/47)` and maps `IP_HW0(100/101)` to `ER7`/`ER8` (`512`
+    elements) paired with SM8250 IPA (`Service 49`); auto-starting
+    `IP_HW0(100/101)` via `mhi_net` on `ER4`/`ER5` drives `apps.mbn` into
+    `ipa_per_mhi_start` / `GSI` / `Fatal IPA error - SNOC error!`.
+  - Following `memdump` exit, a later MHI reset/recovery at `[621.55]` (`failed
+    to power up MHI controller -> PCI error detected, state = 2 -> device
+    recovery started`) locked up the display/USB (`[621.61] dpu_encoder_frame_done_timeout`),
+    requiring a manual power-cycle before Run 13.
+
+**Run 13 image prepared (`7.3.0-rc6-omamobile-push1-g1a9e0035a3ad`, ready to flash over SSH):**
+
+- Kernel commit `1a9e0035a` (`wt-r8q`, `r8q-modem-nom3`) drops `IP_SW0(46/47)`,
+  `IP_HW0(100/101)`, and `HW_DATA(4/5)` from `mhi_samsung_r8q_sdx55_config` so
+  `mhi_net` does not auto-start GSI/IPA hardware channels at Mission Mode.
+- `recovery-modem-nom3.img` sha256 `3815ed3702b246e24fe403e153bc134b673d301547b3f4a0d534ef985cd6ce57`,
+  `modules-7.3.0-rc6-omamobile-push1-g1a9e0035a3ad.tar.zst` (`1820` modules) built cleanly.
 
 #### Step 4 — Attended Run 9 modem bring-up + in-window capture (MEDIUM risk — modem RAM-only, NV `ro=1`)
 - **Approval required:** Ask human before starting `r8q-sahara` / modem bring-up.

@@ -925,6 +925,33 @@ rail. The stock `live.dts` shows the modem PHY supplies as L5A 0.88 V and L9A
 1.2 V and votes CX to max while pcie2 runs; the mainline overlay has the first
 two and no CX vote.
 
+### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
+
+The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q
+MHI entry (`r8q-modem-nom3`, commit `05ae9a461`), and the loader replies
+`HELLO_RESP mode=0` to the mode-2 MEMORY_DEBUG offer instead of accepting it.
+
+0. **Read-only preflight.** The endpoint from run 3 is failed; a reboot is
+   needed. `tools/nv-backup -d r8q --check <backup>` must be 15/15.
+1. **Modules (write):** install `out-r8q-nom3/modules-<release>.tar.zst`, then
+   `depmod -a <release>`.
+2. **Image (laptop):** pack `--overlay modem` from `out-r8q-nom3` to
+   `recovery-modem-nom3.img`; it must report `userdata`/`omamobile-root` and no
+   `omamobile.loop=`.
+3. **Flash (write):** write it to `sda24`; readback sha256 must match.
+4. **Reboot (needs go):** as soon as SSH answers, start the loader before the
+   modem powers: `r8q-sahara --wait 200 --probe 3 --idle 90`. The log should
+   show `declined memory-debug` at the end of the set.
+5. **Capture from mission-mode entry:** loader log; `dmesg` AER (no `CmpltTO`,
+   `RxErr` or `Link Down`); `lspci -vv -s 0002:01:00.0` `LnkSta`;
+   `cat /sys/bus/pci/devices/0002:01:00.0/power/runtime_status` (`active`, no
+   M3); MHI `EE: MISSION MODE`; `/dev/wwan*`.
+
+**Pass:** the mission window survives past 60 s with clean AER and
+`runtime_status=active`. **Stop:** any `CmpltTO`, `RxErr`, link-down or reset;
+capture the first second's AER/LnkSta/PM state and stop. Rollback: the stable
+native image (`7799b1e2…`).
+
 **Run 4 result (Gen2, 2026-11-18).** The DTB cap took effect
 (`qcom-pcie 1c10000.pcie: PCIe Gen.2 x2 link up`), but the AMSS jump still
 trips `RxErr` (Physical Layer) then `CmpltTO` (Transaction Layer), the link
@@ -1088,32 +1115,475 @@ the modem over QMI, so `alloc-ranges` from free System RAM
 (`0xc0000000`, per `/proc/iomem`) instead of a stock hole; stock's map
 has none free).
 
-### Run 4 — `.no_m3` + mode-2 decline (2026-11-18)
+### Run 8 — qcom,rmtfs-mem + rmtfs -r hold test (2026-11-18)
 
-The two fixes from the research: the kernel sets `.no_m3 = true` on the r8q
-MHI entry (`r8q-modem-nom3`, commit `05ae9a461`), and the loader replies
-`HELLO_RESP mode=0` to the mode-2 MEMORY_DEBUG offer instead of accepting it.
+Run 7's precise blocker: the userspace is installed and the modem asks for
+its file system service, but `rmtfs` has no shared-memory window to answer
+with. Run 8 boots the first kernel that has one: `CONFIG_QCOM_RMTFS_MEM`
+moves from `=m` to `=y` and `modem.dtso` reserves a dynamically allocated
+2 MiB `qcom,rmtfs-mem` region from free System RAM (commit `467d26e3`). A
+correction to run 7's record: the installed kernel was built `=m`, not "not
+set" — the prior `g05ae9a4610fe` tarball carried an inert `rmtfs_mem.ko`.
+With no region in the DT no device ever existed, so the observation stands
+and only the config reading was wrong.
 
-0. **Read-only preflight.** The endpoint from run 3 is failed; a reboot is
-   needed. `tools/nv-backup -d r8q --check <backup>` must be 15/15.
-1. **Modules (write):** install `out-r8q-nom3/modules-<release>.tar.zst`, then
-   `depmod -a <release>`.
-2. **Image (laptop):** pack `--overlay modem` from `out-r8q-nom3` to
-   `recovery-modem-nom3.img`; it must report `userdata`/`omamobile-root` and no
-   `omamobile.loop=`.
-3. **Flash (write):** write it to `sda24`; readback sha256 must match.
-4. **Reboot (needs go):** as soon as SSH answers, start the loader before the
-   modem powers: `r8q-sahara --wait 200 --probe 3 --idle 90`. The log should
-   show `declined memory-debug` at the end of the set.
-5. **Capture from mission-mode entry:** loader log; `dmesg` AER (no `CmpltTO`,
-   `RxErr` or `Link Down`); `lspci -vv -s 0002:01:00.0` `LnkSta`;
-   `cat /sys/bus/pci/devices/0002:01:00.0/power/runtime_status` (`active`, no
-   M3); MHI `EE: MISSION MODE`; `/dev/wwan*`.
+**The one honest caveat, so the result is read right.** The window is raw
+physical RAM and `rmtfs` hands that *physical* address to the modem over
+QMI. The modem then DMAs to it through `pcie2`, whose `iommu-map` routes the
+endpoint to `apps_smmu` SID `0x1d01` (sm8250.dtsi), and this build has
+`CONFIG_IOMMU_DEFAULT_DMA_STRICT=y`. That strict DMA domain maps only
+DMA-API allocations — the MHI rings work because the host programs IOVAs —
+and nothing in mainline maps the rmtfs window into it (`rmtfs_mem.c` does no
+DMA mapping, and no in-tree sm8250/sc8280xp board pairs `qcom,rmtfs-mem`
+with an IOMMU'd PCIe modem; the in-tree users are integrated-modem boards
+with `qcom,vmid`). Stock never had this gap because its MHI DMA domain is a
+fixed `0x20000000-0x3fffffff` pool (§9.1), a downstream mechanism. So the
+modem's first EFS access to the window is *expected* to raise an `arm-smmu`
+context fault naming `SID=0x1d01` at the region's `phys_addr`. That is a
+recorded outcome of this run, not a surprise to hide: the dmesg check in
+Step 8 exists to catch it, and the fix it points to (an identity/bypass
+window for the endpoint, the stock pool's equivalent) is a one-change
+follow-up, never a mid-run improvisation.
 
-**Pass:** the mission window survives past 60 s with clean AER and
-`runtime_status=active`. **Stop:** any `CmpltTO`, `RxErr`, link-down or reset;
-capture the first second's AER/LnkSta/PM state and stop. Rollback: the stable
-native image (`7799b1e2…`).
+**Artifacts (laptop-only, rebuilt with `DEVICE=r8q`, packed and verified 2026-11-18):**
+
+- `modules-7.3.0-rc6-omamobile-push1-g05ae9a4610fe.tar.zst` — sha256
+  `6f5434e68a72f15cc521b34f7cf46dacb3c5ad9040fc5d6a110d8f97f6ac7647`
+  (16,888,783 bytes). The kernel tree is unchanged (HEAD `05ae9a461`), so
+  the release string is the same as runs 4-7 and the tarball keeps the
+  same filename, without `rmtfs_mem.ko` (built in now via
+  `CONFIG_QCOM_RMTFS_MEM=y`, alongside `CONFIG_QCOM_PCI_MSI=y` and
+  `CONFIG_TOUCHSCREEN_STMFTS=y`).
+- `recovery-modem-rmtfs.img` — sha256
+  `a3c8b811a0eb02a1b260b29049fe63ce46c8d9e411dac4053fd524cfe2aa2185`
+  (82,694,144 bytes, AVB-signed), packed from `out-r8q-nom3` with
+  `tools/r8q-boot pack --overlay modem` and **without** `--dual-boot`:
+  `userdata` in the packed `/etc/omamobile-ufs-rw`, the `omamobile-root`
+  label gate, no `omamobile.loop=` on the cmdline.
+- **`uname -r` cannot prove this boot.** The release string is identical to
+  the image on `sda24` today, so NOTES §2's verify-with-uname rule is blind
+  here. Proof is the `sda24` readback sha256
+  (`a3c8b811a0eb02a1b260b29049fe63ce46c8d9e411dac4053fd524cfe2aa2185`) plus
+  `/dev/qcom_rmtfs_mem1` existing after the flash.
+
+Offline checks done 2026-11-18: `modem.dtso` compiles clean with the tree's
+`dtc -@`, `fdtoverlay` merges cleanly onto `sm8250-samsung-r8q.dtb`, and
+the packed image's embedded DTB contains `rmtfs-region` matching
+`sm8250.dtsi`'s reserved-memory cells (`#address-cells = <2>`,
+`#size-cells = <2>`; `alloc-ranges = <0x0 0xc0000000 0x0 0x40000000>`,
+`size = <0x0 0x200000>`, `no-map`, `qcom,client-id = <1>`).
+
+#### Step 0 — read-only preflight (no approval needed)
+
+The phone must be up in the Arch root; if it is not after run 7's watch,
+bring it there first.
+
+```sh
+cd ~/Work/omarchy-mobile-s20fe
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'r8q-preflight --json'
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/nv-backup -d r8q --check \
+  ~/omamobile-kernel/reference-r8q/nv-backup-20261117-full
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh \
+  'sha256sum /dev/sda24; systemctl is-enabled r8q-modem-autotest.service 2>&1 || true'
+grep -E 'CONFIG_QCOM_RMTFS_MEM=|CONFIG_IOMMU_DEFAULT_DMA_STRICT=' \
+  ~/omamobile-kernel/out-r8q-nom3/.config
+python3 -m py_compile tools/r8q-sahara
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'python3 - --dry-run' < tools/r8q-sahara
+```
+
+- **Expect / Pass:** guard `77 UFS partitions read-only`; `15/15 SAME`; the
+  current `sda24` sha printed for the record; the autotest reads `masked`
+  (its mission-mode gate hardcodes `mhi1`, the Wi-Fi, so it stays masked);
+  the finished build's `.config` shows `CONFIG_QCOM_RMTFS_MEM=y` and
+  `CONFIG_IOMMU_DEFAULT_DMA_STRICT=y`; `all r8q image sources present and
+  readable`.
+- **Stop condition:** any NV `DIFFERENT`, guard not ok, missing image
+  sources, or the autotest not masked.
+- **Rollback:** none. **Risk:** none (read-only).
+
+#### Step 1 — install the rebuilt modules (WRITE — needs go)
+
+`CONFIG_QCOM_RMTFS_MEM` moved from `=m` to `=y`, so the modules tree changes
+with the release string held fixed.
+
+```sh
+DEVICE=r8q KERNEL_DIR=~/omamobile-kernel/wt-r8q KERNEL_OUT=~/omamobile-kernel/out-r8q-nom3 \
+  OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./bin/omamobile modules-push
+```
+
+- **Expect / Pass:** installs
+  `/usr/lib/modules/7.3.0-rc6-omamobile-push1-g05ae9a4610fe` — the same
+  name as the installed tree, new content without `rmtfs_mem.ko` — and runs
+  `depmod`. The "phone runs ..." note will not appear (same release); that
+  is expected, and the manifest check is built for exactly this ("a rebuilt
+  module under the same release name is fine").
+- **Stop condition:** `modules-push` refuses (a module changed by hand
+  since the last push). Stop and ask; never set `OMAMOBILE_MODULES_REPLACE=1`
+  without a separate decision.
+- **Rollback:** the old tree is replaced wholesale and the previous tarball
+  is gone under its filename; the way back is the stable image's own release
+  tree (`g3667ab368ef9`, already installed on the root). **Risk:** low
+  (rootfs write).
+
+#### Step 2 — prepare `/var/lib/rmtfs` (WRITE — needs go; touches no partition)
+
+No package creates this directory or its symlinks (the packaged helper is a
+follow-up once the layout is proven), so it is prepared by hand, resolving
+each partition by `PARTNAME` in `/sys/class/block/*/uevent`. Never mount,
+write or resize these partitions: `rmtfs -r` only ever reads them, and every
+modem write stays in its RAM shadow.
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'set -e
+  mkdir -p /var/lib/rmtfs
+  for n in modemst1 modemst2 fsc fsg; do
+    u=$(grep -l "^PARTNAME=$n$" /sys/class/block/*/uevent | head -1)
+    [ -n "$u" ] || { echo "$n: PARTNAME not found"; exit 1; }
+    d=/dev/$(basename "$(dirname "$u")")
+    [ "$(cat /sys/class/block/${d#/dev/}/ro)" = 1 ] || { echo "$n: $d is not ro=1"; exit 1; }
+    ln -sfn "$d" /var/lib/rmtfs/"$n"
+    echo "$n -> $d (ro=1)"
+  done
+  ls -l /var/lib/rmtfs'
+```
+
+- **Expect / Pass:** four symlinks, each target `ro=1`. Upstream's storage
+  table maps `modem_fs1→modemst1`, `modem_fs2→modemst2`, `modem_fsc→fsc`,
+  `modem_fsg→fsg`; `mdm1m9kefs1/2/3` and `mdmddr` are **not** in the table,
+  so a request for them is logged and rejected ("request for unknown
+  partition '…', rejecting") — that log is the discovery step, not a
+  failure to hide.
+- **The `-o` prefix is unverified.** rmtfs v1.3's `-o`-over-`-P` precedence
+  could not be checked offline (the source is not cached on the laptop),
+  and run 7 never got past the rmtfs-mem open to exercise it. The foreground
+  `-v` run prints every path it opens: if it looks under
+  `/dev/disk/by-partlabel/` instead of `/var/lib/rmtfs`, record it and stop
+  — the unit or layout follows from that log.
+- **Stop condition:** a `PARTNAME` not found, or any target not `ro=1`.
+- **Rollback:** `rm -rf /var/lib/rmtfs` (it holds only symlinks).
+  **Risk:** low.
+
+#### Step 3 — pack and verify the image (DONE offline 2026-11-18; laptop only)
+
+```sh
+KERNEL_OUT=~/omamobile-kernel/out-r8q-nom3 tools/r8q-boot pack --overlay modem \
+  ~/omamobile-kernel/out-r8q-nom3/recovery-modem-rmtfs.img
+sha256sum ~/omamobile-kernel/out-r8q-nom3/recovery-modem-rmtfs.img
+tmpd=$(mktemp -d)
+~/omamobile-kernel/out-r8q-nom3/scripts/dtc/dtc -q -@ -I dts -O dtb \
+  -o "$tmpd/modem-run8.dtbo" device/r8q/overlays/modem.dtso
+~/omamobile-kernel/out-r8q-nom3/scripts/dtc/fdtoverlay \
+  -i ~/omamobile-kernel/out-r8q-nom3/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb \
+  -o "$tmpd/r8q-run8.dtb" "$tmpd/modem-run8.dtbo"
+~/omamobile-kernel/out-r8q-nom3/scripts/dtc/dtc -q -I dtb -O dts "$tmpd/r8q-run8.dtb" \
+  | grep -A9 'rmtfs-region'
+rm -rf "$tmpd"
+```
+
+- **Expect / Pass:** the pack stages the native root (`userdata`,
+  `omamobile-root`, no `omamobile.loop=`) and signs with the AVB footer at
+  82,694,144 bytes; the decompiled overlaid DTB shows the `rmtfs-region`
+  node with `compatible = "qcom,rmtfs-mem"`, `size = <0x0 0x200000>`,
+  `no-map`, `qcom,client-id = <1>`, `alloc-ranges = <0x0 0xc0000000 0x0 0x40000000>`.
+  Verified 2026-11-18 (`a3c8b811…`, embedded DTB and ramdisk checked).
+- **Stop condition:** pack or `fdtoverlay` errors; the node missing or its
+  values wrong (a wrong cells count silently lands the region anywhere —
+  the gs201 lesson, checked here against `sm8250.dtsi`'s 2/2 cells).
+- **Rollback:** none (nothing written to the phone). **Risk:** none.
+
+#### Step 4 — flash via Download Mode (WRITE — needs go)
+
+Download Mode, not the SSH flasher: the flash takes a full power-off, and
+only a cold PMIC cycle returns the modem from run 7's `EE: DISABLE` wedge
+(a warm reboot does not, and `soc_reset` does not either). Writes `sda24`
+only; `boot`/`sda23` (LineageOS) untouched.
+
+1. Power the phone fully off; enter Download Mode (hold Volume Up + Volume
+   Down, plug in USB; or `adb reboot download` if it is in LineageOS).
+2. `heimdall detect`, then
+   `heimdall flash --RECOVERY ~/omamobile-kernel/out-r8q-nom3/recovery-modem-rmtfs.img --no-reboot`.
+
+- **Expect / Pass:** `Device detected`; `100%` transfer; a clean session
+  end.
+- **Stop condition:** any Heimdall protocol or write error — do not retry
+  blind. A Heimdall flash once left a stale image behind (NOTES §2), so the
+  readback in Step 5 is mandatory.
+- **Rollback:** `tools/r8q-flash-recovery
+  ~/omamobile-kernel/out-r8q-uw/recovery-stable-native.img` (sha256
+  `7799b1e2…`, re-verified 2026-11-18 — check it again before flashing).
+  **Risk:** medium (recovery slot; single-slot device, the human ready to
+  recover).
+
+#### Step 5 — cold boot and first verification (needs go; affects the screen)
+
+Boot with Volume Up + Power (Gate A's combo); wait for the USB gadget at
+`172.16.42.1`.
+
+- **Expect / Pass:** SSH answers; `sha256sum /dev/sda24` equals the recorded
+  image sha; `/dev/qcom_rmtfs_mem1` exists; `cat
+  /sys/class/rmtfs/qcom_rmtfs_mem1/{phys_addr,size,client_id}` reads
+  `client_id 1`, size `0x200000`, and a `phys_addr` inside
+  `0xc0000000..0x100000000`; `r8q-preflight --json` guard ok; `/` mounted
+  `rw`. That is the proof the new image booted (`uname -r` cannot show it).
+- **Seen once before (NOTES §22):** the first boot after a Heimdall flash
+  stopped before the USB gadget; one forced restart (Power + Volume Down)
+  booted normally. Try that once before calling the image bad, and capture
+  the initramfs console if it repeats.
+- **Stop condition:** no enumeration after the restart, guard not ok, or no
+  `qcom_rmtfs_mem1` device.
+- **Rollback:** Step 4 rollback, then boot. **Risk:** medium.
+
+#### Step 6 — userspace up (attended; the read-only test order)
+
+Stream the log first, then start the daemons; `rmtfs` runs in the
+foreground with its log on the laptop.
+
+```sh
+mkdir -p logs/r8q
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'dmesg -w' \
+  > logs/r8q/run8-dmesg.log 2>&1 &
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'systemctl start tqftpserv pd-mapper'
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh \
+  'rmtfs -r -v -P -o /var/lib/rmtfs' 2>&1 | tee logs/r8q/run8-rmtfs.log
+```
+
+- **Expect / Pass:** `tqftpserv` up; `pd-mapper` may exit to its start
+  limit with `no pd maps available` (no modem remoteproc is bound — the
+  known caveat: record it and try QMI without it); `rmtfs` stays up, maps
+  `/dev/qcom_rmtfs_mem1` and waits for the modem's EFS service. Its log
+  shows the paths it opens (the Step 2 `-o` check) and, once the modem asks,
+  every requested partition path.
+- **Stop condition:** `rmtfs` exits at startup; any read-write open of a
+  partition in its log — stop at once; any oops or UFS error.
+- **Rollback:** stop the three services; nothing is persisted (the RAM
+  shadow). **Risk:** low.
+
+#### Step 7 — one clean serve (attended; the loader writes only to the modem port)
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh \
+  'python3 - --wait 200 --probe 3 --idle 90' < tools/r8q-sahara 2>&1 | tee logs/r8q/run8-sahara.log
+```
+
+- **Expect / Pass:** `HELLO`, the 14-image set over one open channel (`acdb`,
+  `qdsp6sw` 83 MB, `apps`, `apdp`, ...), `declined memory-debug` on the
+  mode-2 offer, then `EE: MISSION MODE` with the mission ports attached;
+  the loader exits when the channel drops (no reopen loop — the autotest
+  stays masked).
+- **Stop condition:** no HELLO within the wait (the modem may still be
+  wedged `DISABLE` if the power cycle did not happen — cold-boot again, do
+  not re-serve a wedged modem); a cross-platform image ID (28/30/31/37); a
+  `CmpltTO`/`RxErr`/link-down storm.
+- **Rollback:** none beyond stopping; the modem may fail to finish
+  booting. **Risk:** low.
+
+#### Step 8 — mission-mode checks (read-only)
+
+Resolve the modem's controller from the PCI path, never by name:
+`mhi0`/`mhi1` swap between boots (the post-run-5 finding; the autotest's
+hardcoded `mhi1` reads the Wi-Fi).
+
+```sh
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh '
+  m=$(ls -d /sys/devices/platform/soc@0/1c10000.pcie/pci0002:00/0002:01:00.0/mhi* | head -1)
+  echo "modem controller: $m"
+  cat /sys/kernel/debug/mhi/$(basename "$m")/states
+  ls /dev/wwan0*
+  qrtr-lookup
+  dmesg | grep -iE "arm-smmu|context fault"
+  dmesg | grep -iE "CmpltTO|RxErr|Link Down"'
+```
+
+- **Expect / Pass:** the PCI-resolved controller in mission mode; the
+  mission ports; run 7's QRTR services (node 3's *Modem embedded file
+  system service*, thermal and time; node 1's TFTP). The SMMU grep coming
+  back clean is the full pass. An `Unhandled context fault ...
+  iova=<the Step 5 phys_addr>` with `SID=0x1d01` is the recorded expected
+  failure mode — capture the whole two-line FSR report (fsr/iova/fsynr/
+  cbfrsynra and the SID) and let the run continue to the hold watch; the
+  modem will cycle, and that is the measurement.
+- **Stop condition:** none of its own; the hold watch decides.
+- **Rollback:** none. **Risk:** none (read-only).
+
+#### Step 9 — six-minute mission-mode hold watch (attended)
+
+Sample every ~30 s for 6 minutes (run 7's watch used 30-90 s samples over
+the same span): the debugfs `states` of
+the PCI-resolved controller, `ls /dev/wwan0*`, `qrtr-lookup`'s service list,
+the rmtfs log's growth — every requested partition path,
+`mdm1m9kefs*` included — and the dmesg tail for SMMU and link lines.
+
+- **Pass (full):** the modem holds mission mode for the full 6 minutes,
+  `rmtfs` answers every EFS request from the RAM shadow, no SMMU fault, no
+  link drop. The userspace wins; SIM/QMI (the
+  [MODEM-USERSPACE](MODEM-USERSPACE.md) order) is next.
+- **Pass (partial, recorded):** the modem still cycles. With the SMMU fault
+  at the window, the blocker is the strict DMA domain and the next change is
+  one per boot: an identity/bypass window for the endpoint (the §9.1 stock
+  pool's equivalent) in the overlay. With unknown-name rejections in the
+  rmtfs log, the storage table or the `-o` layout grows next. Either way,
+  the requested-path list is the take.
+- **Stop condition:** any read-write open of a partition, oops, UFS error
+  handler, the phone leaving the bus, or a watchdog reset — capture what
+  exists and stop. After any reset, re-run `tools/nv-backup -d r8q --check`
+  (15/15) before anything else.
+- **Rollback:** `tools/r8q-flash-recovery
+  ~/omamobile-kernel/out-r8q-uw/recovery-stable-native.img` — the daily
+  native image, sha256 `7799b1e2…` (verify before flashing; its release's
+  modules are already installed on the root).
+  `tools/r8q-flash-recovery --stable` restores the older SD-loop image
+  (`66fe127f…`, `--dual-boot`): that is the way back for a broken
+  `userdata` root, not this run's rollback. **Risk:** low throughout:
+  read-only services, RAM-shadow writes, no NV partition ever opened for
+  writing.
+
+Record the results in this section with the date, the filled-in sha256s
+and the release, quoting only the relevant log lines.
+
+**Run 8 results (2026-11-19, `7.3.0-rc6-omamobile-push1-g05ae9a4610fe`):**
+
+- `r8q-sahara` served all 14 Sahara images cleanly (`END_OF_IMAGE image=40 status=0`)
+  and `mhi0` transitioned to `EE: MISSION MODE` (`Mission mode doorbell offsets:
+  CHDBOFF=0x300 ERDBOFF=0x700` at `802.372s`; `wwan0qmi0` attached at `802.376s`).
+- `Node 3` advertised 12 early QMI services (`15, 17, 21 [EFS], 22 [Time], 23,
+  24, 34, 36, 49, 66, 227, 232`; no `WDS/DMS/NAS/UIM` yet), and zero
+  `arm-smmu` faults occurred, but `rmtfs -r -v -P -o /var/lib/rmtfs`
+  (`logs/r8q/run8-rmtfs.log`) received zero packets from `Node 3`.
+- At `818.832s` (+16.46 s after mission mode), `pcieport 0002:00:00.0: Recovering
+  Root Port due to Link Down` fired and the modem returned to SBL (`HELLO
+  mode=2`, declined memory-debug).
+- Deep research identified 4 offline kernel/DT/config causes addressed before
+  Run 9:
+  1. `drivers/bus/mhi/host/pm.c` (`mhi_pm_mission_mode_transition()`): called
+     `__mhi_device_get_sync()` before re-reading `CHDBOFF`/`ERDBOFF` and never
+     updated `mhi_cntrl->wake_db` from SBL's offset (`0x3f8`, which landed on
+     Channel 31 doorbell instead of `0x6f8`). Fixed by reading/bounds-checking
+     `CHDBOFF`/`ERDBOFF` and updating `wake_db` (clearing `wake_set` if moved)
+     plus ring doorbell pointers *before* `__mhi_device_get_sync()`.
+  2. `drivers/bus/mhi/host/pci_generic.c` (`mhi_samsung_r8q_sdx55_channels`):
+     matched stock `live.dts` (`MHI_EVENT_CONFIG_SW_DATA(2, 64)`) for `IPCR`
+     channels 20/21 (`64` elements on event ring `2` instead of `8` on ring `0`).
+  3. `device/r8q/kernel.config`: added `# CONFIG_QCOM_PD_MAPPER is not set` so
+     in-kernel `qcom_pd_mapper` no longer hijacks QRTR `Service 64` without a
+     `mdm/modem/root_pd` (`165`) domain.
+  4. `device/r8q/overlays/modem.dtso`: added stock `ap2mdm_errfatal2_default`
+     (`pm8150l_gpios` `gpio7`: `output-low; input-disable; bias-disable`) to
+     `pcie2` `pinctrl-0`.
+
+### Run 9 — Gated Runbook (`r8q-modem-nom3`, MHI `wake_db` + `IPCR` ring 2/64 + no `qcom_pd_mapper` + `ap2mdm_errfatal2`)
+
+**Goal:** Boot `7.3.0-rc6-omamobile-push1-g561090d2799a` with
+`recovery-modem-nom3.img` (`4e6d8cdfcbf9da6138b252c13613cfc11a9fb7e528c9b1e0d6257f6e39ff47ff`),
+verify `mhi0` stays in `EE: MISSION MODE` with live `rmtfs` / `tftp` traffic or
+captures exact in-window diagnostics (`mhi0` debugfs + `qrtr-lookup` +
+`dmesg`) if `apps_smmu` (`SID 0x1d01`) faults next.
+
+#### Step 0 — Read-only preflight on currently booted phone (LOW risk)
+- **Commands:**
+  ```sh
+  OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh --fresh '
+    uname -r
+    r8q-preflight --json
+  '
+  ```
+- **Expect / Pass:** SSH answers on `172.16.42.1`, NV checksums pass (`15/15`,
+  zero `ro=0` NV blocks).
+- **Stop condition:** Any NV checksum mismatch or unexpected `ro=0` block.
+- **Rollback:** N/A (read-only).
+
+#### Step 1 — Push Run 9 kernel modules over USB SSH (MEDIUM risk — WRITE)
+- **Approval required:** Ask human before running `modules-push`.
+- **Commands:**
+  ```sh
+  TAR=~/omamobile-kernel/out-r8q-nom3/modules-7.3.0-rc6-omamobile-push1-g561090d2799a.tar.zst
+  sha256sum "$TAR"
+  OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" OMAMOBILE_SSH_SHARE=1 \
+    ./bin/omamobile modules-push "$TAR"
+  ```
+- **Expect / Pass:** `sha256sum` matches
+  `89fcb4c717534d15c0fd183b367f834d3ce9572e7e09e3fae8468f28289e4e28`;
+  `/usr/lib/modules/7.3.0-rc6-omamobile-push1-g561090d2799a` is installed
+  without `qcom_pd_mapper.ko` or `rmtfs_mem.ko`. (New release dir, so
+  `OMAMOBILE_MODULES_REPLACE=1` is not needed.)
+- **Stop condition:** Non-zero exit or sha256 mismatch.
+- **Rollback:** `rm -rf /usr/lib/modules/7.3.0-rc6-omamobile-push1-g561090d2799a`
+  does not affect the currently booted kernel or daily `out-r8q-uw` modules.
+
+#### Step 2 — Flash `recovery-modem-nom3.img` & cold/warm boot (MEDIUM risk — WRITE)
+- **Approval required:** Ask human before flashing `sda24` and before rebooting.
+- **Path A (Over USB SSH when already booted into Omarchy Recovery on `userdata`):**
+  ```sh
+  IMG=~/omamobile-kernel/out-r8q-nom3/recovery-modem-nom3.img
+  sha256sum "$IMG"
+  OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/r8q-flash-recovery "$IMG"
+  OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh --fresh 'reboot-to recovery'
+  ```
+  *(Note: if `mhi0` was wedged in `EE: DISABLE` on that boot and warm `reboot-to recovery` does not power-cycle SDX55M `PON`, use Path B's full `poweroff`.)*
+- **Path B (Download Mode cold flash — clears `EE: DISABLE`):**
+  1. Power off cleanly so `userdata` (`sda36`) unmounts and SDX55M loses `PON`:
+     ```sh
+     OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh --fresh 'poweroff'
+     ```
+  2. Enter Download Mode (hold **Vol Up + Vol Down** while plugging USB), ensure **only one** `04e8:685d` device is present in `lsusb`, and run `heimdall flash` directly (do not run `heimdall detect` beforehand without `--resume`):
+     ```sh
+     IMG=~/omamobile-kernel/out-r8q-nom3/recovery-modem-nom3.img
+     sha256sum "$IMG"
+     heimdall flash --RECOVERY "$IMG" --no-reboot
+     ```
+  3. Exit Download Mode (**Vol Down + Power** ~7 s) then boot Recovery (**Vol Up + Power** with USB plugged).
+- **Expect / Pass:** `sha256sum` matches
+  `4e6d8cdfcbf9da6138b252c13613cfc11a9fb7e528c9b1e0d6257f6e39ff47ff`;
+  write and readback succeed (`sda24 ro=1`).
+- **Stop condition:** Non-zero write exit or readback sha256 mismatch.
+- **Rollback:** Flash known-good daily native image:
+  `tools/r8q-flash-recovery ~/omamobile-kernel/out-r8q-uw/recovery-stable-native.img`
+  (`7799b1e2…`).
+
+#### Step 3 — Verify Run 9 kernel & runtime environment (LOW risk)
+- **Commands:**
+  ```sh
+  OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh --fresh '
+    uname -r
+    lsmod | grep -E "pd_mapper|rmtfs|mhi|qrtr" || true
+    ls -la /dev/qcom_rmtfs_mem* /var/lib/rmtfs/
+    dmesg | grep -iE "rmtfs|mhi|pcie|ap2mdm" | tail -n 30
+    r8q-preflight --json
+  '
+  ```
+- **Expect / Pass:**
+  - `uname -r` prints `7.3.0-rc6-omamobile-push1-g561090d2799a`
+  - `qcom_pd_mapper` and `rmtfs_mem` are **not** loaded
+  - `/dev/qcom_rmtfs_mem1` exists, `/var/lib/rmtfs/modem_fs1..` symlinks intact
+  - NV checksums match, all NV partitions `ro=1`
+  - `mhi0` is in `SBL` (`wwan0sahara0` present)
+- **Stop condition:** Wrong kernel release, missing `/dev/qcom_rmtfs_mem1`,
+  `mhi0` already in `EE: DISABLE`, or any NV check failure.
+- **Rollback:** `tools/r8q-flash-recovery ~/omamobile-kernel/out-r8q-uw/recovery-stable-native.img`.
+
+#### Step 4 — Attended Run 9 modem bring-up + in-window capture (MEDIUM risk — modem RAM-only, NV `ro=1`)
+- **Approval required:** Ask human before starting `r8q-sahara` / modem bring-up.
+- **Commands:**
+  1. Start laptop-side `dmesg -w`, `tqftpserv`, and line-buffered
+     `rmtfs -r -v -P -o /var/lib/rmtfs` logging into `logs/r8q/run9-*.log`.
+  2. Verify `/sys/kernel/debug/mhi/mhi0/{states,channels,events}` exists.
+  3. Trigger `r8q-sahara` and immediately poll/snapshot `mhi0` debugfs,
+     `qrtr-lookup`, and `qmicli -d /dev/wwan0qmi0 --dms-get-manufacturer` within
+     the `0..20 s` window after `EE: MISSION MODE`:
+     ```sh
+     # On phone (scripted): start r8q-sahara -> on MISSION MODE dump states/channels/events,
+     # qrtr-lookup, qmicli --dms-get-manufacturer, and capture dmesg for arm-smmu / Link Down.
+     ```
+- **Expect / Pass:**
+  - `rmtfs -r -v -P -o /var/lib/rmtfs` logs real `rmtfs` requests from `Node 3`
+  - `qmicli` returns `QUALCOMM INCORPORATED` (or `WDS/DMS/NAS/UIM` appear in
+    `qrtr-lookup`)
+  - No `pcieport 0002:00:00.0: Recovering Root Port due to Link Down`
+  - **Next diagnostic if `apps_smmu` faults:** `dmesg` shows `arm-smmu`
+    unhandled context fault (`SID 0x1d01`) — expected next step per Run 8 /
+    SMMU plan (`MODEM-PLAN.md` lines 1130–1146), not an NV risk.
+- **Stop condition:** `Link Down` repeats, unexpected kernel oops/panic, or
+  `PCIE` fails to recover.
+- **Rollback:** Power off phone, then (if needed) flash `out-r8q-uw/recovery-stable-native.img` in Download Mode.
 
 **Resolution (2026-11-18).** The root now lives on `userdata` (`sda36`, ext4
 label `omamobile-root`, 105 GiB), installed with

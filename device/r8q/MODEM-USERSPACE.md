@@ -2,14 +2,20 @@
 
 # Modem userspace for the r8q (SDX55M over MHI/QRTR)
 
-- **Status (2026-11-18):** researched, not packaged, not run. The modem reaches
-  MHI mission mode and briefly exposes `wwan0qmi0`/`wwan0mbim0`/`wwan0at0`, but
-  the PCIe link still fails after AMSS ([MODEM-PLAN](MODEM-PLAN.md) §12), so
-  this stack waits for a stable link. Nothing here writes the modem's NV
-  partitions.
+- **Status (2026-11-18):** the four packages (`qrtr`, `rmtfs`, `pd-mapper`,
+  `tqftpserv`) are packaged, tested and installed — unenabled — on the phone.
+  Run 7 ([MODEM-PLAN](MODEM-PLAN.md) §12) showed the stack working for the
+  first time: a cold boot with `tqftpserv` up and one clean serve reached
+  mission mode, and `qrtr-lookup` listed the modem's QRTR services, node 3
+  advertising the *Modem embedded file system service* that `rmtfs` answers.
+  The modem still drops back to SBL within a minute because `rmtfs` has no
+  shared-memory window, so run 8 ([MODEM-PLAN](MODEM-PLAN.md) §12) is the
+  `qcom,rmtfs-mem` + `rmtfs -r -v -P -o /var/lib/rmtfs` test with a
+  6-minute hold. Nothing here writes the modem's NV partitions.
 - **Why:** the kernel side is ready (`qcom_mhi_qrtr` on `mhi1_IPCR`,
-  `mhi_wwan_ctrl` ports, ModemManager 1.24.2 installed); only the userspace
-  daemons that answer the modem's QRTR/QMI requests are missing.
+  `mhi_wwan_ctrl` ports, ModemManager 1.24.2 installed); the userspace
+  daemons are now packaged and installed, and run 8 tests whether `rmtfs`
+  can answer the modem's QRTR/QMI requests with a shared-memory window.
 
 ## Components
 

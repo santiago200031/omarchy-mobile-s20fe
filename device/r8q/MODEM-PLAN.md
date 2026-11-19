@@ -2100,6 +2100,42 @@ nohup python3 -u /usr/local/bin/r8q-sahara --wait 240 --idle 120 \
    SBL images, accepts and dumps memory-debug tables, and closes them
    with the RESET the SBL client waits for.
 
+### Format research (2026-11-19, public sources)
+
+- **DCC SRAM:** the descriptor walk is fully public — Qualcomm's own
+  GPL parser [`quic/dcc-parser`](https://github.com/quic/dcc-parser)
+  (`dcc_parser.py --v2`) plus the `dcc_v2.c` driver define it: `0xC000…`
+  words are link descriptors (offset/length capture pairs), `0x80000000`
+  a read-modify-write (skip mask+value), address descriptors encode
+  `(word & 0x0FFFFFFF) << 4` with bit 28 = write, bit 29 = APB; captured
+  data follows the descriptors in the same order; empty SRAM is
+  `0xDEDEDEDE` and `0xC0000000|len==0` ends a list. Our capture's
+  `0x2070000a`/`0x11468fb0` decode as address descriptors for
+  `0x070000A0` and `0x1468FB00` (OCIMEM+0xfb00). The `"dcc"` magic +
+  `0xffffffff` wrapper is not publicly documented; treat as a section
+  boundary and validate by descriptor-implied word counts.
+- **NOC error (`TZBSP_ERR_FATAL_NOC_ERROR`):** NOC decode/timeout errors
+  **FIQ to TrustZone** (Qualcomm RB5 SRM, "Erroneous transaction on
+  bus"): the decoded fields — XPU ID, faulting address, BID/PID/MID/VMID
+  — are printed in the **TZ log**, not the AOP log. The decode tooling
+  (`print_tz_log.py`, `NoC_error_decode_log.py`) ships only in the
+  OEM-only TZ.XF drop. The register *idiom* is public in our own vendor
+  tree (`gladiator_erp.c`: errlog0=opcode/error-code/len,
+  errlog1=master/route ID, errlog3/4=faulting address low/high, codes
+  SLV/DEC/UNS/DISC/SEC/HIDE/TMO). For the modem-side TZ diag blob (the
+  encrypted `TZ diag log` in Summary.txt) the dictionary is not
+  available; the priority is to avoid needing it (a live capture or a
+  stable mission mode).
+- **AOP log:** buffer location/format is firmware-build-specific
+  (Qualcomm's `hansei.py` resolves it from the `aop.mbn` ELF symbols;
+  requires the AOP source drop). A first pass is a DATARAM ASCII scan
+  (done — config/const data only, no runtime log in the captured
+  32 KiB window).
+- **SBL logs:** the rendered `B/D/S - <µs> - <message>` grammar is
+  Qualcomm-documented; the records carry literal strings (no ID table),
+  and the pre/post files are the IMEM buffer and the DDR-relocated one
+  (SBL relocates its log after DDR init). Both decoded as text here.
+
 ### Next steps (laptop-first, no phone risk)
 
 1. **Decode `DCC_SRAM.BIN`** from the captured dumps (two sets on the
@@ -2115,3 +2151,82 @@ nohup python3 -u /usr/local/bin/r8q-sahara --wait 240 --idle 120 \
    running; `pd-mapper` needs a map the stock image never ships for the
    external modem — only worth revisiting if the modem's logs ask for
    it).
+
+### Stage 5c — event-ring polling (2026-11-19, from the klein precedent)
+
+- The klein patches (`~/omamobile-kernel/klein-patches/`, Caullen
+  Sasnett's Black Shark 3 mainline work for the **same SDX55M modem**)
+  document: *"MSI workaround: manually check each event ring and
+  schedule its processing tasklet if events are pending. Use this … when
+  MSI delivery is unreliable."* — a 50 ms poll worker on its SDX55M
+  profile. Its other two patches (mission-mode doorbell re-read, SBL
+  handling) were already in this tree.
+- Re-reading run 24's data with that lens: `pending packets: 0` is a
+  chardev-level counter. The channels debugfs snapshot showed
+  **SAHARA(3) with `wp` 0x5a0 ahead of `rp` during a mission window** —
+  the `remotefs_sahara` transmits DID land in the channel ring; the host
+  never processed the events because the MSI never fired. The `:850`
+  assert is the modem timing out on a handshake whose data sits
+  unconsumed in our own ring — not a failed transmit at all.
+- Commit `69e130a27` ports the klein workaround: `mhi_poll_event_rings()`
+  in the MHI core plus a 50 ms `poll_events` worker in `mhi-pci-generic`,
+  enabled on the r8q's SDX55M profile, with a ~5 s `MHISTATUS/BHI_EE`
+  status log, and polling resumed across PCI error recovery.
+
+#### Run 25 runbook — polling + the live dump attempt
+
+Same launch as Run 22/23 on a build carrying `69e130a27` (new release
+name — the push stages for the next boot, so one reboot is required;
+the warm RESET-lineage boots complete transitions and run +33 s
+windows, a warm reboot suffices, poweroff is the fallback):
+
+1. `bin/omamobile modules-push` (new release, stages for next boot).
+2. `reboot-to recovery` (human at the phone; replug USB if needed).
+3. Verify `uname -r` is the new release and dmesg shows
+   `Event ring polling enabled`.
+4. Start the set: `run17_diag.py watch`, `rmtfs -r -P -v`,
+   `tqftpserv`, and `r8q-sahara --wait 240 --idle 120`.
+   - **Expect / Pass:** at ~+33 s the loader receives the **live**
+     `HELLO mode=2` **on the same fd it opened in SBL** — polled events
+     deliver it within 50 ms — dumps the table with **non-empty**
+     MPSS/APPS crash fields into `/tmp/sdx55-crash/`, sends `RESET`, and
+     apps.mbn completes its SSR handling: **mission mode holds** for the
+     first time.
+   - **Stop condition:** `Link Down` with no mode=2 offer received (the
+     MSI theory dies — capture the poll status lines and SFR), any NV
+     mismatch, or an unexpected oops.
+   - **Rollback:** the poll is additive; disable by `.poll_events = false`
+     or `tools/r8q-flash-recovery --stable`.
+
+**Run 25 results (2026-11-19 night, kernel `g69e130a27a94`, event-ring
+polling live — "Event ring polling enabled" at boot, the loader's fd
+riding the EE switch, polling resumed across every AER recovery).**
+
+- The crash still fired at **+32.4 s** (`gpio1` high at `133.7`, SFR
+  written, reset at `134.6`), and the loader received **nothing**
+  during the window — with every event ring polled at 50 ms. The
+  `142.99` dump was the post-crash SBL crashdload (stale Summary, empty
+  fields, the same TZ NOC signature), not the live session.
+- The MSI-delivery theory is dead: the remotefs_sahara session fails
+  before anything reaches the host ring — consistent with apps.mbn's
+  own RE string `tloc_socket_ipcr_modem.c: could not resolve remote
+  host`: the crash handler fails at its transport **resolve/open**
+  step, not on the wire.
+- The window has no visible starving client: exactly one QRTR query
+  (`tms/pddump_disabled`) at mission entry, then silence; `rmtfs` and
+  `tqftpserv` see nothing all window. The +32 s deadline is internal
+  to apps.mbn.
+- **The live-session strategy is retired.** Stock collects modem dumps
+  live because its esoc driver *holds* the modem in the error state
+  via the ap2mdm handshake (past the ~870 ms SDI watchdog); without
+  that driver the crash handler cannot finish inside the window, and
+  the NOC-level fault kills the bus regardless. The SBL-phase
+  crashdload capture — which this tooling now takes cleanly every cycle
+  — is the postmortem, and its constant result is
+  `TZBSP_ERR_FATAL_NOC_ERROR` + `SECURE_WDOG_EXPIRE`.
+- **Next (the modem's own voice):** enable the DIAG stream
+  (`/dev/wwan0qcdm0`, a diag-client handshake) during the window to
+  read apps.mbn/MPSS logs directly — the one source that can name what
+  fails at +32 s; then the DCC walk with the public
+  `quic/dcc-parser` semantics per the format research above. NV
+  15/15 `SAME` before and after.

@@ -1652,13 +1652,33 @@ captures exact in-window diagnostics (`mhi0` debugfs + `qrtr-lookup` +
     recovery started`) locked up the display/USB (`[621.61] dpu_encoder_frame_done_timeout`),
     requiring a manual power-cycle before Run 13.
 
-**Run 13 image prepared (`7.3.0-rc6-omamobile-push1-g1a9e0035a3ad`, ready to flash over SSH):**
+**Run 13 results (2026-11-19, `7.3.0-rc6-omamobile-push1-g1a9e0035a3ad`):**
 
-- Kernel commit `1a9e0035a` (`wt-r8q`, `r8q-modem-nom3`) drops `IP_SW0(46/47)`,
-  `IP_HW0(100/101)`, and `HW_DATA(4/5)` from `mhi_samsung_r8q_sdx55_config` so
-  `mhi_net` does not auto-start GSI/IPA hardware channels at Mission Mode.
-- `recovery-modem-nom3.img` sha256 `3815ed3702b246e24fe403e153bc134b673d301547b3f4a0d534ef985cd6ce57`,
-  `modules-7.3.0-rc6-omamobile-push1-g1a9e0035a3ad.tar.zst` (`1820` modules) built cleanly.
+- Booted `7.3.0-rc6-omamobile-push1-g1a9e0035a3ad` cleanly (`IP_SW0`/`IP_HW0`
+  removed; `15/15` NV backup match, all 12 NV partitions `ro=1`).
+- `r8q-sahara --idle 5` entered `EE: MISSION MODE` (`[2461.813]`) without the
+  `failed to announce new service (from 2:-2)` error, and `Node 3` `(3, 27)`
+  queried QRTR `Service 64` for `'tms/pddump_disabled'` (`[2461.818]`).
+- Even without `qmicli`, SDX55M still exited Mission Mode at `+13.18 s`
+  (`[2474.996]`, Boot #1) and re-booted via `r8q-sahara` into Boot #2
+  (`[2478.782]`) where `pcieport 0002:00:00.0` logged AER `RxErr | Rollover |
+  Timeout | CmpltTO` at `+16.24 s` (`[2495.026]`) -> `Link Down`.
+- `lspci -vv -s 0002:01:00.0` in Mission Mode proved `LnkCtl: ASPM L0s L1
+  Enabled` (and `/sys/bus/pci/devices/0002:01:00.0/link/{l0s_aspm,l1_aspm,l1_1_*,l1_2_*}`
+  all `1`, forced by `qcom_pcie_enable_aspm()` in `pcie-qcom.c`) despite stock
+  `live.dts` declaring `qcom,no-l0s-supported`.
+- Second `memdump` confirmed `TZ reset reason : (6) : TZBSP_ERR_FATAL_NOC_ERROR`.
+
+**Run 14 flashed (`7.3.0-rc6-omamobile-push1-g5a9100572bde`, awaiting replug):**
+
+- Kernel commit `5a9100572` (`wt-r8q`, `r8q-modem-nom3`) adds `no_aspm = true`
+  to `mhi_samsung_r8q_sdx55_info` and calls `pci_disable_link_state(pdev,
+  PCIE_LINK_STATE_ALL)` before `pci_save_state(pdev)` in `mhi_pci_probe()`.
+- Pushed `1820` modules (`modules-7.3.0-rc6-omamobile-push1-g5a9100572bde.tar.zst`)
+  over SSH, flashed `recovery-modem-nom3.img` (sha256
+  `257583d1f8a45f50ef0844a0504c5865baf5e8064e7141b109286c1f205eb868`) to
+  `/dev/sda24` with all 12 NV partitions verified `ro=1`, and ran
+  `reboot-to recovery`.
 
 #### Step 4 — Attended Run 9 modem bring-up + in-window capture (MEDIUM risk — modem RAM-only, NV `ro=1`)
 - **Approval required:** Ask human before starting `r8q-sahara` / modem bring-up.

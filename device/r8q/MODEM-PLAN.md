@@ -1560,6 +1560,86 @@ captures exact in-window diagnostics (`mhi0` debugfs + `qrtr-lookup` +
   `mhi0` already in `EE: DISABLE`, or any NV check failure.
 - **Rollback:** `tools/r8q-flash-recovery ~/omamobile-kernel/out-r8q-uw/recovery-stable-native.img`.
 
+**Run 9 results (2026-11-19, `7.3.0-rc6-omamobile-push1-g561090d2799a`):**
+
+- Pushed `1820` modules via `bin/omamobile modules-push` (`89fcb4c7...`) and
+  flashed `recovery-modem-nom3.img` (`4e6d8cdf...`) to `sda24` over USB SSH via
+  `tools/r8q-flash-recovery`, then booted straight into it via `reboot-to recovery`
+  (zero Download Mode needed).
+- Step 3 passed: `uname -r` = `7.3.0-rc6-omamobile-push1-g561090d2799a`,
+  `qcom_pd_mapper` and `rmtfs_mem` absent, `/dev/qcom_rmtfs_mem1` and
+  `/var/lib/rmtfs/*` intact, all 12 NV partitions `ro=1`, `gpio56` (`out high`),
+  `gpio57` (`out low`), `pm8150l gpio7` (`out low`), `mhi0` in `SBL`.
+- Step 4 (`logs/r8q/run9-{dmesg,rmtfs,capture}.log`):
+  - `r8q-sahara` served all 14 images (`END_OF_IMAGE status=0`), reaching
+    `EE: MISSION MODE` (`[   92.270249] mhi mhi0: Mission mode doorbell offsets:
+    CHDBOFF=0x300 ERDBOFF=0x700`, `wwan0qmi0` attached `[   92.283188]`).
+  - `T+0s`, `T+2s`, `T+5s` debugfs captures confirmed `wake: false`,
+    `IPCR(20)` TX advancing (`wp: 0xfffcd030 -> 0xfffcd040 -> 0xfffcd050`),
+    and `IPCR(21)` (`er=2, len=0x400`) receiving `18` packets at `T+0s`
+    (`wp: 0xfffcc120`, registering the 12 `Node 3` early QMI services), then
+    `0` further packets from `Node 3` at `T+2s` and `T+5s`.
+  - `rmtfs -r -v -P -o /var/lib/rmtfs` logged `registering services` and QRTR
+    control messages (`from: 1:-2`, `bye from 3`), with **zero** `rmtfs` QMI
+    requests from `Node 3`, and `qmicli -d /dev/wwan0qmi0 --dms-get-manufacturer`
+    timed out.
+  - At `[  106.080270]` (**+13.81 s** after mission mode), `pcieport
+    0002:00:00.0: Recovering Root Port due to Link Down` fired with zero
+    `arm-smmu` faults. (Second `reboot-to recovery` at `11:49:17` hit the
+    warm-reboot USB re-enumeration quirk.)
+- **Next (Run 10 diagnostic script ready in scratch `run10_diag.py`):**
+  1. Monitor `gpio1` (`mdm2ap_errfatal`) and `gpio3` (`mdm2ap_status`) during the
+     `0..15 s` window + bind QRTR `Service 64` listener to catch whether
+     `Node 3` queries `SERVREG_LOC`.
+  2. When SDX55M resets with Sahara `HELLO mode=2`, read the read-only
+     `MEMORY_DEBUG` table and small `sfr`/`err`/`dmesg` regions to capture
+     SDX55M's exact panic reason.
+
+**Run 10–11 results (2026-11-19, `7.3.0-rc6-omamobile-push1-g561090d2799a`):**
+
+- `run10_diag.py watch` (`logs/r8q/run10-{dmesg,rmtfs,watch,capture}.log`)
+  captured live GPIO state transitions across the full Mission Mode window
+  without `qmicli`:
+  - `gpio56` (`AP2MDM_STATUS`) = `out:high`, `gpio57` (`AP2MDM_ERRFATAL`) =
+    `out:low`, `pm8150l gpio7` (`AP2MDM_ERRFATAL2`) = `out:low`, `gpio85`
+    (`PERST#`) = `out:high`.
+  - At `1586.401`, `gpio3` (`mdm2ap_status`) transitioned `in:high`.
+  - SDX55M remained in Mission Mode for **32.2 s** (`2.3x` longer without
+    `qmicli`), then at `1618.624` `gpio1` (**`mdm2ap_errfatal`**) asserted
+    **`in:high`** for ~0.9 s while `mdm2ap_status` was still `high`, then both
+    dropped and `Link Down` fired at `[1619.506844]`. This proves the Mission
+    Mode exit is an internal SDX55M software **`ERR_FATAL`** rather than a
+    random PCIe electrical drop.
+- `run10_diag.py memdump` observed `HELLO mode=0` (not `mode=2`) after `Link
+  Down`, matching Run 8b (`logs/r8q/run8b-sahara.log:2-16`) where SBL asks for
+  `mdmddr.mbn` (`34`) / `apdp.mbn` (`40`) before offering `HELLO mode=2`
+  (`MEMORY_DEBUG`); closing `/dev/wwan0sahara0` on `mode != 2` tore down MHI to
+  `EE: DISABLE`.
+- Offline comparison against stock `live.dts` and `qdsp6sw.mbn` showed:
+  - `qdsp6sw.mbn` uses `QMI RMTFS` (`Service 14`), `SERVREG_LOC` (`Service 64`),
+    and `RFS TFTP` (`Service 4096`).
+  - Stock `live.dts` dedicates `ER0` strictly to control events (`32` elements),
+    puts `SW_DATA` (`256` elements, `intmod=0`) on `ER1..ER3`, `QMI0(14/15)` at
+    `64` elements on `ER1` (`UL`) and `ER2` (`DL`), `SAHARA(2/3)` at `128` on
+    `ER1`, `DIAG(4/5)` at `64` on `ER1`/`ER3`, and `DUN(32/33)` at `64` on `ER3`.
+
+**Run 12 image prepared and flashed (2026-11-19, `7.3.0-rc6-omamobile-push1-g7e390b575f95`, pending USB replug):**
+
+- Kernel commit `7e390b575` (`wt-r8q`, `r8q-modem-nom3`) adds
+  `mhi_samsung_r8q_sdx55_events` (`ER0` `CTRL(32)`, `ER1..ER3` `SW_DATA(256)`)
+  and moves all data channels off `ER0` (`QMI(14/15)` -> `64` on `ER1`/`ER2`,
+  `SAHARA(2/3)` -> `128` on `ER1`, `DIAG(4/5)` -> `64` on `ER1`/`ER3`,
+  `DUN(32/33)` -> `64` on `ER3`); `device/r8q/kernel.config` adds
+  `CONFIG_DYNAMIC_DEBUG=y`.
+- Pushed `1820` modules (`modules-7.3.0-rc6-omamobile-push1-g7e390b575f95.tar.zst`)
+  over SSH and flashed `recovery-modem-nom3.img` (`137b5f431d97f723f2696fdce5edb4689df082388616dc39bd0ae054242347ab`)
+  to `/dev/sda24` with all 12 NV partitions verified `ro=1`.
+- `reboot-to recovery` hit the warm-reboot USB-C re-enumeration quirk (`NOTES.md:151`):
+  phone requires one USB-C replug before uploading `run10_diag.py` (now updated
+  with `QMI_SERVREG_LOC` responder for `tms/servreg` -> `mdm/modem/root_pd:165`
+  & `avs/audio` -> `msm/adsp/audio_pd:74`, plus `mode=0 -> mdmddr/apdp -> mode=2`
+  `MEMORY_DEBUG` crash-table capture) and running Run 12.
+
 #### Step 4 — Attended Run 9 modem bring-up + in-window capture (MEDIUM risk — modem RAM-only, NV `ro=1`)
 - **Approval required:** Ask human before starting `r8q-sahara` / modem bring-up.
 - **Commands:**

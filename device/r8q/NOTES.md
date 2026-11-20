@@ -1415,3 +1415,14 @@ Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
 | Model | Q8_0 base (1.85G) + `harness-hub/LFM3-1.7B-pi` harbor-pi F16 LoRA (63M), via `/usr/local/bin/llama-server-lora` (`LLAMA_BIN`) + `conf.d/20-pi-tuned.conf`; serve cmdline verified with `--lora` |
 | Speed / RAM | 10.5 tok/s out at 32k ctx (Q4_K_M was 10.6–11.0 — Q8 costs ~nothing); 3740/5546 MB used, 1805 available |
 | Verified | `PI-LFM3-OK` through the mise shim as the session user — pi in Foot defaults to the on-device pi-tuned LFM3 |
+
+## 43. Stable record: the native image passes — main moves (2026-11-20)
+
+| Item | Value |
+| --- | --- |
+| Image | `out-r8q/recovery-native.img` sha256 `68fa6540444b0b0bcc66dcdb5df8684ae87dc17ce9c8e0d3637dfcf9ffcfc97d` |
+| Kernel | `7.3.0-rc6-omamobile-push1-g1fa07e423998` (r8q-gpu-recovery; no overlay, PCIe2/PHY disabled) |
+| PASS | `tools/r8q-test-image`: UFS 4 disks, gadget up, banner match |
+| Daily state on it | root `/dev/sda36` (§40); UI on screen (§41); pi-tuned model serving (§42); Wi-Fi/audio/cameras as before the migration |
+| Open, not blocking daily use | GPU compute wedge — the adreno SMMU's CX vote (§39); fix in flight on `r8q-gpu-smmu-vote`, own pass + re-pin when it lands |
+| main | merged through `tools/r8q-merge-main --pass-sha 68fa6540444b0b0bcc66dcdb5df8684ae87dc17ce9c8e0d3637dfcf9ffcfc97d`; work continues on a new topic branch |

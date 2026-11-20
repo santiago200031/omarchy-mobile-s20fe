@@ -1479,3 +1479,12 @@ Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
 | Remaining | The `-p 512 -n 128` config still stalls at the first compute fence (`almost_ready_fence`, device lost) — a workload-size-dependent trigger to bisect; the recovery now handles it without the death spiral |
 
 **Correction to §48 (same day):** "the desktop survived it" was true at the *process* level only — the display pipeline did **not** restore: after the fault recovery `DSI-1 dpms: Off`, `enabled: disabled`, `crtc=(null)` in the DRM atomic state, and a `hyprctl reload` does **not** re-bind it (Hyprland ran headless). The remaining recovery gap is DPU-side: after a successful CX collapse + GPU restore, the KMS pipeline needs a session restart or a reboot to come back. The next kernel/display leg: make `recover_worker` restore the display (or teach the compositor to re-enable the connector).
+
+## 49. Native 120 Hz achieved and load-tested (2026-11-20)
+
+| Item | Fact |
+| --- | --- |
+| The flip | `monitors.lua` DSI-1 `1080x2400@60` → `@120`; the panel advertises both (`availableModes: 1080x2400@120.00Hz 1080x2400@60.00Hz`); applied at the sddm/Hyprland session start — `hyprctl monitors`: **`1080x2400@120.00000`** |
+| Display health at 120 | **Zero** DSI/TE/underrun errors in dmesg — the failed-05 era symptom (pacing stress before Adreno tuning) did not recur on the fault-tolerant GPU stack |
+| Under load | `llama-bench -ngl 99 -p 64 -n 16` **at 120 Hz**: pp64 **30.17 ± 0.13** (identical to the 60 Hz runs), **zero hangchecks** — compute and compositing share the Adreno cleanly at the doubled refresh |
+| Why it works now | failed-05's own rule held: @60 + `misc.vrr = 0` until the Adreno side is stable — the stability arrived (the unpin + quiesced recovery, §47–48), and the mode flip took without any of the early-era symptoms |

@@ -11,7 +11,7 @@
 | AI | `omamobile-ai` serves the **pi-tuned LFM3-1.7B** — Q8_0 base + harbor-pi LoRA, 10.5 tok/s out (§42); pi = the session user's mise install |
 | RAM | zram 2.7 G + MGLRU (ttl 1 s) + 4 G swapfile = **6.8 G tiered swap** (NOTES §46) |
 | Battery | **verified live**: 99 %, charging, 4.35 V, 27.5 °C, `health Good` (NOTES §44) — the old FG-defer claim was a bring-up artifact |
-| Display | `1080x2400@60` deliberate (failed-05); **@120 queued behind GPU stabilization** |
+| Display | **`1080x2400@120` achieved** (NOTES §49): zero DSI/TE errors, compute under load clean at the doubled refresh |
 | GPU | **Vulkan compute demonstrated** (NOTES §48): pp64 **30.23 t/s**, tg16 **1.37 t/s**, clean exit; a fault-induced recovery ran once and **the desktop survived it** (the first effective recovery on this board). Serving stays on the CPU (34.5 pp / 13.5 tg — faster than the 650 for this model); the `-p 512` config's stall is the remaining bisect |
 | Kernel | `r8q-gpu-fault-quiesce` (`gae195e6deaac`) **running, benched**: quiesced fault path + the unpin (device-r8q 0.1.28) — the §45 "dynamic race" was the steady state of `power/control="on"` pins on the gpu/gmu (NOTES §47) |
 | Modem | Sahara walk clean after the power cycle; the AMSS-jump link fault (`RxErr` on the root port) is the open blocker (§38) |

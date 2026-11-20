@@ -6,8 +6,8 @@
 **Live Kernel:** `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (`camera-uw-wip` — display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q`, SLPI sensors, VolUp, pseudo-NMI, HI-847 tele, and S5K3L6 ultrawide verified on hardware; restored 2026-11-17 after the SDX55M Stage 3A experiment and pinned in `stable-image.conf`)
 **Kernel Branch:** `camera-uw-wip` (`3667ab368` on `omamobile-r8q-signed`; booted & verified on `sda24` with `--overlay camera-uw`)
 **Device Package:** `omamobile-device-r8q` `0.1.25` in the repo (adds the `omamobile-ai` drop-in, `zram-generator` and the parked `modem.dtso`); `0.1.24` on the phone, with the same AI listener set by hand in `/etc/omamobile-ai.conf.d/20-usb.conf`. `omamobile-ai` `0.1.0-1` + `libcamera 0.7.2-4.25` installed & verified
-**Boot Method:** Dual-boot via Samsung `recovery` (`sda24`) + microSD rootfs (`/omarchy-r8q.img`)
-**Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS untouched
+**Boot Method:** Samsung `recovery` (`sda24`); a plain power-on boots it (no key combo; [NOTES §24](NOTES.md) — there is no dual-boot fallback)
+**Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS contents untouched (but not reachable by a plain boot)
 
 ---
 

@@ -44,7 +44,7 @@ All artifacts have been compiled, AVB-signed, and verified offline:
    heimdall flash --RECOVERY /home/amd-omarchy/omamobile-kernel/out-r8q/recovery-omamobile.img --no-reboot
    ```
 4. Reboot into Omarchy Recovery:
-   Hold `Volume Up` + `Power` buttons until Samsung logo appears, then release `Power` while continuing to hold `Volume Up`.
+   Power the phone **off and back on** — a plain power-on boots `sda24` (our recovery image; observed by the owner across cold boots, [NOTES §24](NOTES.md)). The `Volume Up` + `Power` combo is not needed.
 5. Connect via USB SSH from the laptop:
    ```bash
    ssh root@172.16.42.1
@@ -71,7 +71,7 @@ All artifacts have been compiled, AVB-signed, and verified offline:
 - Any UFS partition has `ro == 0`.
 
 ### Rollback Instructions
-- Normal reboot without buttons boots LineageOS on `sda23` (primary OS completely unaffected).
+- **There is no automatic fallback to LineageOS.** A plain power-on boots `sda24` (our image) — the "normal reboot returns to Android" assumption was wrong ([NOTES §24](NOTES.md)). LineageOS's partitions (`sda23`/`sda29`) remain untouched on disk, but reaching Android requires re-flashing `sda24` with the stock recovery image below.
 - If recovery partition needs restoration, flash stock recovery:
   ```bash
   heimdall flash --RECOVERY ~/android/backups/r8q-nv/recovery.img --no-reboot
@@ -141,7 +141,7 @@ All artifacts have been compiled, AVB-signed, and verified offline:
   ```bash
   echo "blacklist msm" > /usr/lib/modprobe.d/50-r8q-gpu-blacklist.conf
   ```
-- If display is dark and SSH unresponsive, force reboot: hold Power + Volume Down for 10 s to return to LineageOS or Download Mode.
+- If display is dark and SSH unresponsive, force reboot: hold Power + Volume Down for 10 s — the phone restarts **into our recovery boot** (`sda24` is the power-on default, [NOTES §24](NOTES.md)). For Download Mode: power off, then hold Volume Up + Volume Down and plug in the USB cable.
 
 ---
 

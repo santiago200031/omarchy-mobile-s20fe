@@ -594,3 +594,42 @@ yet or the shared 3.3 V rail sagged under the AMSS load (the same rail that
 browns the SD). The loader's `unexpected cmd 9` after the `mode=2` HELLO is
 the last SBL command and is harmless. Full record: [MODEM-PLAN](MODEM-PLAN.md)
 §12 run 3.
+
+## 24. There is no dual-boot fallback: a plain power-on boots our recovery image (2026-11-20)
+
+The owner corrected the boot model after repeated observation (latest
+2026-11-20, several power cycles in one session): **powering the phone
+off and back on, with no key combo, boots `sda24` — our recovery
+image, our kernel.** The S20 FE in this configuration has no working
+"fall back to LineageOS" behavior, and never had one in this install:
+every documented claim that "a normal reboot without buttons boots
+LineageOS on `sda23`" was wrong. LineageOS still sits untouched on
+`sda23`/`sda29` (contents never written by this work), but it is not
+the power-on default and cannot be reached by an ordinary boot; a
+forced restart (Power + Volume Down) lands in our kernel as well.
+The mechanism by which the bootloader prefers `recovery` on this
+phone (boot-recovery flag state, bootloader condition, or AVB state)
+is **not diagnosed**; the observation is the owner's, repeated
+across cold boots on 2026-11-20.
+
+What this changes in practice:
+
+- After any flash to `sda24`, "reboot the phone" is enough: power off,
+  power on, and the new image runs. `Volume Up + Power` is not a
+  required step (it selects recovery on a stock Samsung and probably
+  still works, but the default power-on already boots `sda24`).
+- The safety story of the install is **not** "Android is the fallback
+  OS"; it is: `sda24` is the phone's single boot slot, it is always
+  re-flashable through Download Mode (Volume Up + Volume Down + USB
+  cable from power-off, hardware-level, survives anything we can
+  write), and the NV/calibration partitions stay read-only
+  (`tools/nv-backup --check` continues to verify 14/15 `SAME` +
+  `param` as expected).
+- Documents and runbooks that said otherwise were corrected on
+  2026-11-20: `RUNBOOK-DISPLAY-GPU.md` (boot and force-restart
+  steps), `RUNBOOK-USERDATA-ROOT.md` (the Android contingency),
+  `MODEM-PLAN.md` (the flash runbook boot steps),
+  `board/success/01-dual-boot-ufs-ro-guard.md`, `FILE-DASHBOARD.md`,
+  `board/README.md` and this file. The "LineageOS untouched"
+  **partition** claims stay true and stay; only the boot-default
+  claims changed.

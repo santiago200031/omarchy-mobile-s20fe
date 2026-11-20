@@ -589,8 +589,9 @@ matches the record above before flashing.
   LUN flag cannot be cleared there (no `/dev/sda` node, sysfs `ro` is
   read-only) and the tool aborts before writing anything. Flash from
   Download Mode instead, per `RUNBOOK-DISPLAY-GPU.md` Gate A:
-  `heimdall flash --RECOVERY <image> --no-reboot`, boot with
-  Volume Up + Power, then verify by reading `sda24` back (`dd` sha) and
+  `heimdall flash --RECOVERY <image> --no-reboot`, then power the phone
+  off and back on (a plain power-on boots `sda24`, [NOTES §24](NOTES.md);
+  the Volume Up + Power combo is not needed), and verify by reading `sda24` back (`dd` sha) and
   `uname -r` — a Heimdall flash once left a stale image behind
   (NOTES §2). Writes `sda24` only; `sda23`/LineageOS untouched.
 
@@ -1327,8 +1328,9 @@ only; `boot`/`sda23` (LineageOS) untouched.
 
 #### Step 5 — cold boot and first verification (needs go; affects the screen)
 
-Boot with Volume Up + Power (Gate A's combo); wait for the USB gadget at
-`172.16.42.1`.
+Power the phone off and back on — a plain power-on boots `sda24`
+([NOTES §24](NOTES.md); the Volume Up + Power combo is not needed); wait
+for the USB gadget at `172.16.42.1`.
 
 - **Expect / Pass:** SSH answers; `sha256sum /dev/sda24` equals the recorded
   image sha; `/dev/qcom_rmtfs_mem1` exists; `cat

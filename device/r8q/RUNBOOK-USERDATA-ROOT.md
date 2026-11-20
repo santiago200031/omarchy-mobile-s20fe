@@ -34,7 +34,7 @@ tools/r8q-flash-recovery ~/omamobile-kernel/out-r8q-uw/recovery-userdata-setup.i
 tools/phone-ssh 'sync; reboot'
 ```
 
-If the phone comes up in Android instead of the initramfs, hold **Volume Up + Power** (the documented recovery key) and ask the owner. The initramfs attempts `boot_arch`, refuses the encrypted `userdata` (label check), and stays in its rescue shell on tty1 with SSH at `172.16.42.1`.
+If the phone ever comes up in Android instead of the initramfs, **stop and ask the owner before pressing anything**: since a plain power-on boots `sda24` ([NOTES §24](NOTES.md)), an Android boot would mean `sda24` changed under us, not that the wrong key was pressed. The initramfs attempts `boot_arch`, refuses the encrypted `userdata` (label check), and stays in its rescue shell on tty1 with SSH at `172.16.42.1`.
 
 **Expect:** `tools/phone-ssh --fresh 'cat /proc/sys/kernel/hostname'` answers `omamobile`, and the init log on tty1 says `arch: userdata is not an ext4 root` (or `not labelled`). Announce the screen: it is a text console, no desktop.
 **Pass:** SSH answers, and `cat /sys/class/block/sda/sda36/ro` is `0`.

@@ -53,7 +53,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | 02 | [RPMh TCS Reclaim & Liveness Net](board/success/02-rpmh-rsc-and-liveness-net.md) | `rpmh-rsc.c` TCS timeout reclaim; XPU page guard; per-CPU liveness watchdog | No RPMh/RCU freezes; `HardwareCorrupted: 23520 kB` |
 | 03 | [Display: simpledrm → MSM & S6E3FC3](board/success/03-display-mdss-s6e3fc3.md) | Zero white flash; `modprobe msm = 0`; `DSI-1 1080x2400@60`; backlight | `/dev/dri/card1`, `/dev/dri/renderD128` |
 | 04 | [Adreno 650, Freedreno & Hyprland Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) | GPU at 305 MHz; Hyprland + quickshell + squeekboard + Xwayland; touch + keys | `3d00000.gpu` pinned; `stmfts-r8q.ko` live |
-| 05 | [USB Gadget, Power/Battery & ZRAM](board/success/05-usb-power-battery-zram.md) | USB NCM `172.16.42.1`; battery telemetry `99%`; zram + swapfile + MGLRU | `max77705`/`max17042` as modules |
+| 05 | [USB Gadget, Power/Battery & ZRAM](board/success/05-usb-power-battery-zram.md) | USB NCM `172.16.42.1` — **gadget missing on the new image (investigating, see [USB-GADGET-PLAN.md](USB-GADGET-PLAN.md) + NOTES §25)**; battery telemetry `99%`; zram + swapfile + MGLRU | `max77705`/`max17042` as modules |
 | 06 | [Wi-Fi, Bluetooth, Clock Sync & Boot GUI](board/success/06-wifi-bluetooth-and-clock.md) | `wlp1s0` UP; `hci0` Powered (BR/EDR+LE); RTC sync; `sddm` auto-start | `ath11k` + `qca6390` firmware ok |
 | 07 | [Stability Soak, Pseudo-NMI & On-Device AI](board/success/07-stability-soak-nmi-and-ai.md) | `1800 s` soak `failures=0`; `NMI watchdog: Enabled`; `omamobile-ai` + `LFM3-1.7B` on `:8080`; `omamobile-llama` packaged | 15.3 generation tok/s / 35.2 pp512 tok/s (2026-11-18), old 10.6-11.0 generation |
 
@@ -306,4 +306,4 @@ P1 (Native DT ✅) → P2 (Audio/DSP ✅) → Sensors/VolUp/DPMS/Pseudo-NMI/S5K3
 - Remoteprocs (`slpi`, `cdsp`, `adsp` running) & Audio (`PRIMARY_TDM_RX_0` → dual `cs35l41` + `r8q` `spk-prot` fw + PipeWire)
 - SLPI Sensors (`hexagonrpc 0.5.0-2` + `iio-sensor-proxy`: accelerometer, ambient light, magnetometer, compass)
 - Rear Cameras (`hi847` telephoto + `s5k3l6xx` ultrawide in `libcamera 0.7.2-4.25`: `cam -l` lists both, raw CSI-2 + JPEG capture verified)
-- USB gadget (`172.16.42.1`), Battery telemetry (`max77705`/`max17042`), `zram0` (`2.7G zstd`), Liveness watchdog, Dual-boot UFS RO guard (`ro=1`)
+- USB gadget (`172.16.42.1`) — **on the new image the gadget is missing (investigating — see [USB-GADGET-PLAN.md](USB-GADGET-PLAN.md), NOTES §25)**; stable escape: flash the baseline image (66fe127f…); Battery telemetry (`max77705`/`max17042`), `zram0` (`2.7G zstd`), Liveness watchdog, Dual-boot UFS RO guard (`ro=1`)

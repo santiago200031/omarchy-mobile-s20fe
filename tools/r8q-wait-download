@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# r8q-wait-download [timeout-secs]: wait for the phone in Samsung Download
+# Mode, then flash the M3-cycle-free image to sda24 (with heimdall retries —
+# the protocol init fails transiently on this phone). Returns 0 when the
+# flash ran.
+timeout=${1:-180}
+end=$((SECONDS + timeout))
+detect() {
+  lsusb | grep -q "04e8:685d" || heimdall detect >/dev/null 2>&1
+}
+while (( SECONDS < end )); do
+  if detect; then
+    echo "download mode detected at t=${SECONDS}s"
+    for i in 1 2 3 4 5 6; do
+      echo "attempt $i: heimdall flash --RECOVERY recovery-omamobile.img"
+      heimdall flash --RECOVERY "$HOME/omamobile-kernel/out-r8q/recovery-omamobile.img" 2>&1 | tail -2
+      if heimdall detect >/dev/null 2>&1; then
+        echo "flash ok at attempt $i"
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "flash failed after 6 attempts" >&2
+    exit 1
+  fi
+  sleep 2
+done
+echo "no download-mode device within ${timeout}s" >&2
+exit 1

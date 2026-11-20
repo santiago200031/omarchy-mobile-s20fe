@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# r8q-gadget-wait [timeout-secs]: wait for the phone's USB gadget (lsusb).
+# Exits 0 with the lsusb line when found; exit 1 on timeout.
+timeout=${1:-60}
+end=$((SECONDS + timeout))
+while (( SECONDS < end )); do
+  if tools/r8q-gadget-status >/dev/null 2>&1; then
+    echo "gadget up: $(tools/r8q-gadget-status)"
+    exit 0
+  fi
+  sleep 2
+done
+echo "gadget not up within ${timeout}s" >&2
+exit 1

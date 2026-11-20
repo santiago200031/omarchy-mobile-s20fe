@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# r8q-gadget-status: is the phone's USB gadget visible on the laptop?
+#
+# The r8q gadget (initramfs/init, gadget g1: "NCM + ACM") enumerates as
+# USB VID 0x1d6b (Linux Foundation) / PID 0x0104 ("Multifunction composite
+# gadget"), product "Omarchy Mobile". The 1d6b match matters: a Samsung
+# phone in DOWNLOAD MODE shows 04e8:685d — so an "Omarchy Mobile" or
+# 1d6b:0104 device in lsusb means the gadget is up.
+lsusb | grep -qiE "1d6b:0104|Omarchy Mobile" || { echo "gadget not enumerated"; exit 1; }
+lsusb | grep -iE "1d6b:0104|Omarchy Mobile"

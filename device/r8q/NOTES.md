@@ -633,3 +633,45 @@ What this changes in practice:
   `board/README.md` and this file. The "LineageOS untouched"
   **partition** claims stay true and stay; only the boot-default
   claims changed.
+
+## 25. USB gadget goes missing on the new image — investigation (2026-11-20)
+
+The phone's gadget (dwc3, NCM+ACM) goes missing on the new image
+(g634…, branch `r8q-modem-nom3` @ 0fd2c260d); the stable image
+(`omamobile-r8q-signed` @ 3667ab368, `out-r8q-uw/recovery-cam-uw.img`,
+66fe127f…) brings it up. Details + diagnostic plan + tooling:
+[USB-GADGET-PLAN.md](USB-GADGET-PLAN.md). Phone state (user reads the
+logs): "no usb host, crashing in 20s so abl falls back to slot a" —
+the phone is down (gadget missing, SSH times out; laptop: nothing on the
+USB bus).
+
+What the tree delta shows (stable → reverted, same mainline base):
+
+- DTS +60: the modem PCIe MSI bank (`pcie2_msi`, `&pcie2 { msi-parent }`)
+  — PCIe2 stays disabled; enabled by the modem overlay.
+- MHI host: `boot.c` +36, `init.c` +88, `main.c` +57, `pci_generic.c` +197,
+  `pm.c` +139, `common.h` +7 — the modem driver (event-ring polling,
+  no_m2, wake_db, doorbell, keep-devices, SFR, M3 cycle [removed]).
+- **No drivers/usb or drivers/phy changes** — the gadget drivers are
+  identical; the out-tree DTB diff is phandle-only (benign); the modules
+  trees are identical; the Image hashes differ.
+
+Ranked gadget-delta candidates (investigation: general subagent running —
+see [USB-GADGET-PLAN.md](USB-GADGET-PLAN.md) §B): (1) the native-vs-SD-root
+image difference; (2) the modem DTS/MHI changes interacting with the
+gadget (unlikely — different drivers); (3) the phone crashing early on
+the new image (the modem?), hiding the gadget registration — testable by
+bisecting the modem commits (pack/flash per half); (4) the phone-side
+diagnostics (USB-GADGET-PLAN.md §E).
+
+Experiment record: the flow's "reverted image" experiment — "flash ok at
+attempt 1" + "gadget not up within 180s" — **inconclusive** (the phone
+stayed in download mode — the heimdall flash could not complete:
+"Protocol initialisation failed!" ×8 — the USB path was flaky; the phone
+is now on the reverted image — "great, that worked" after a manual
+heimdall flash succeeded).
+
+Stable escape available: flash `out-r8q-uw/recovery-cam-uw.img`
+(66fe127f…) to sda24 via heimdall in Download Mode (USB-GADGET-PLAN.md §E4).
+The user said the phone is "left there" — the revert work proceeds
+unattended (docs, branches).

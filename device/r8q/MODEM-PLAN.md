@@ -2343,3 +2343,27 @@ riding the EE switch, polling resumed across every AER recovery).**
   fails at +32 s; then the DCC walk with the public
   `quic/dcc-parser` semantics per the format research above. NV
   15/15 `SAME` before and after.
+
+## 14. USB Gadget Investigation & Tooling (gadget missing on the new image, 2026-11-20)
+
+The USB gadget (dwc3 NCM+ACM) goes missing on the new image; the stable
+baseline brings it up. Full plan (architecture, phone-side diagnostics,
+automation scripts, decision tree, stable escape):
+[USB-GADGET-PLAN.md](USB-GADGET-PLAN.md). Findings: the gadget-breaking
+delta is **not** the MHI patch (the M3-cycle-free revert — flashed
+successfully via heimdall on 2026-11-20 — the phone is on it — the gadget
+is still missing); the tree delta stable→reverted is the modem work
+(the PCIe MSI bank DTS additions + the MHI host changes) with **no
+drivers/usb or drivers/phy changes** — the gadget drivers are identical
+between the trees. The user reads the phone's logs: "no usb host,
+crashing in 20s" — the phone is down (gadget missing; SSH to 172.16.42.1
+times out; the laptop sees no USB device). Status + the gadget-delta
+candidates (including the native-vs-SD-root difference and the
+"phone crashes early on the new image" bisect): [NOTES §25](NOTES.md).
+The gadget subagent investigation is running (see
+[USB-GADGET-PLAN.md](USB-GADGET-PLAN.md) §B / the subagent session
+e0940af77ffezlQM11AA7czoav).
+
+When SSH is up again (the gadget brings it), the gadget status is:
+`ls /sys/class/udc` → `a600000.usb`; `lsusb` shows the gadget (the Omarchy
+gadget, VID 1d6b); `cat /sys/class/udc/*/state` — the mainline strings.

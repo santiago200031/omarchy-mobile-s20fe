@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# r8q-wait-gadget [timeout-secs]: wait for the phone's USB gadget
+# (r8q-gadget-wait), then probe SSH. Prints what the laptop saw.
+timeout=${1:-60}
+tools/r8q-gadget-wait "$timeout" || exit 1
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" tools/phone-ssh --fresh 'uname -r' 2>&1 | head -2

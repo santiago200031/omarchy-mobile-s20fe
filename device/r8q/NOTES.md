@@ -1359,3 +1359,45 @@ modules pushed, and `tools/r8q-ai-bench` ran the repro on it. Result:
 - The bench's verdict tooling worked end-to-end: the link-drop retry, the
   Vulkan check, the wedge-signature parse (PASS/WEDGE verdicts), the log
   capture (logs/r8q/ai-bench-*.log).
+
+## 40. MIGRATED: the loop root is now the native UFS root (sda36) — the failing SD is out of the boot path (2026-11-20)
+
+The user's call: no spare card, so migrate (the SD's decay is hardware-level
+block-read failures on distinct files, growing — not fsck-repairable). Target:
+the healthy native root `sda36` (ext4, LABEL `omamobile-root`, Run 7's
+install), which the dual-boot images had kept read-only at boot.
+
+- **Pre-flight diff** (mount ro,noload + sha): the native root was already
+  current on everything big — the LFM3 GGUF byte-identical (sha 3793e1e6…),
+  `omamobile-ai` + `llama-server` binaries identical, node v26.13.1, sshd
+  enabled, the Wi-Fi NM profiles present, and the whole
+  /usr/lib/firmware tree name-identical (ath11k/QCA6390 included — the S20
+  FE's Wi-Fi is QCA6390, not the gs201's WCN6855). Real deltas: only
+  /root/.pi (48K), the llama.cpp build-vk bench binaries (55M, copied,
+  llama-bench sha-verified), the ssh host keys + authorized_keys, and the
+  current kernel's modules (the native tree was 4 kernel-eras old).
+- **The write pattern** (the project's own, from r8q-flash-recovery):
+  `blockdev --setrw` on the disk + sda36, mount rw, copy, sha-verify, clean
+  unmount, `blockdev --setro` back (ro=1 read back). The SD root's `umount`
+  binary is dead — an unmount via ctypes `umount(2)` works.
+- **Modules**: streamed from the laptop's
+  `modules-…-g1fa07e423998.tar.zst` straight into the mounted native root —
+  no SD reads (extraction via python3 tarfile; the SD root's GNU tar is
+  dead), `depmod -b` against the native tree, msm.ko sha verified
+  (c4e6f39f… matches the laptop staging).
+- **The boot**: `tools/r8q-boot pack` WITHOUT --dual-boot → the initramfs
+  allowlists userdata (sda36) rw and mounts by LABEL `omamobile-root`
+  (refuses any other label). `tools/r8q-test-image` flashed it to sda24
+  (staged, checksummed, read back) — boot PASS: **root source /dev/sda36**,
+  0 mmcblk and 0 loop mounts, **renderD128 up at boot** (the pre-installed
+  modules), Wi-Fi connected, omamobile-ai active serving LFM3-1.7B.
+- **pi restored on the new root** (`tools/r8q-pi`): RAM install + the
+  carried configs + the chain test → `PI-LFM3-OK`.
+
+Tooling consequence: **future test images pack WITHOUT --dual-boot** (the
+native-root flow is now the phone's boot path); --dual-boot remains the
+documented SD fallback. The old-era modules dirs on the native root are
+harmless leftovers. The SD card stays in the slot, unused by Linux. The
+Vulkan GPU repro stays held until the SMMU-vote branch (in flight) lands —
+the wedge is proven (§39); re-running it on this kernel adds nothing.
+Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.

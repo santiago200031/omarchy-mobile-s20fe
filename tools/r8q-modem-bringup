@@ -75,7 +75,7 @@ ph 'mkdir -p /tmp/sdx55m'
 cd "$FW_SRC"
 for f in *; do ph "cat > /tmp/sdx55m/$f" < "$f" || die "push failed: $f"; done
 cd - >/dev/null
-ph 'mkdir -p /lib/firmware/qcom/sdx55m; mount --bind /tmp/sdx55m /lib/firmware/qcom/sdx55m 2>/dev/null || true; ls /tmp/sdx55m | wc -l' | tail -1 | xargs -I{} ok "{} firmware files bind-mounted"
+ph 'mkdir -p /lib/firmware/qcom/sdx55m; mount --bind /tmp/sdx55m /lib/firmware/qcom/sdx55m 2>/dev/null || true; ls /tmp/sdx55m | wc -l' | tail -1 | sed 's/^/  ✔ /'
 
 say "Pushing the Sahara loader + the dump walker"
 ph 'cat > /tmp/r8q-sahara.py' < "$ROOT/tools/r8q-sahara"

@@ -1291,3 +1291,42 @@ the loader + walker) — scripted as tools/r8q-modem-bringup so the cycle
 costs one command. The dump artifacts stay on the phone (RAM) —
 /tmp/sdx55-crash/ — never committed (raw regions; crash-reasons.txt is
 redacted).
+
+## 38. The clean walk works — and the remaining blocker is the AMSS-jump link fault, caught live (2026-11-20)
+
+The full power cycle (the precondition, per Run 22) + the one-command RAM
+stack (`tools/r8q-modem-bringup` — fixed its xargs bug) changed the walk
+completely:
+
+- The fresh modem walked DEEP: 13+ distinct images served over ONE open
+  channel (the port's one-channel fix holds: a single "listening" line for
+  the whole session — IDs 6/8/16/17/20/23/25/29/33/34 (mdmddr!)/36/40/41/42),
+  ~2500 transfers, the mode-2 offers accepted and captured by the walker
+  with NO TZ crash lines in the fresh Summary (the pre-cycle NOC-error
+  crash loop is gone — the carried state was indeed it).
+- The loop shape: the SBL walks the set → **the AMSS jump trips the PCIe
+  link** → the modem resets → the walk restarts (the apdp-dominated
+  re-request phase is the aftermath, exactly Run 4's record: "the loader's
+  loop repeats (apdp → mode-2 → multi_image_qti → channel EIO)").
+- **The fault, live and counted: the root port 0002:00:00.0 reports
+  `RxErr 329`** (physical-layer receive errors; the endpoint itself 0) —
+  the MODEM-PLAN §925-934 open issue at the AMSS jump: "the AMSS jump then
+  trips CmpltTO/RxErr and the link dies. Gen2 and Gen1 failed the same
+  way, so the speed cap is not the cause. Stock's CX vote is the remaining
+  software difference" (the overlay already asks for the top CX corner and
+  caps Gen1). The candidates per the plan: the CX/perf-state vote path, the
+  dummy vddpe-3v3/vdda (the shared 3.3 V rail), or the modem's own
+  PS_HOLD self-reset — now all instrumentable live: the AER counters
+  (/sys/bus/pci/devices/0002:00:00.0/aer_dev_correctable) + the walker's
+  dump on every mode-2.
+- The walk's end state: the phone's USB stopped answering mid-session
+  (the gadget enumerates, SSH times out at the banner) — the link-fault
+  aftermath wedged the system; the phone needs a look (the screen) and
+  likely a reboot before the next cycle.
+
+**Where this leaves the cellular objective:** every host-side dependency
+is now solved and proven on this boot chain (the config, the doorbell
+value-only, the modules-from-RAM, the one-channel loader, the dump
+walker). What stands between SBL and mission mode is the AMSS-jump link
+fault itself — the MODEM-PLAN's known open issue, no longer confounded
+by anything host-side.

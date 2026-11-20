@@ -853,3 +853,42 @@ Two subagents running (2026-11-20):
    the 3667ab368→f7f3096b1 code delta vs UFS enumeration with PCIe2
    disabled — the doorbell irqchip probe vs the GIC mem_region conflict,
    and the fw_devlink sync_state stall mechanism.
+
+## 30. ROOT CAUSE of every failed boot since 2026-11-18: the builds ran without DEVICE=r8q (2026-11-20, image forensics)
+
+The image-forensics subagent (session ses_e07167bf2ffexB76NkFpcPAFVP)
+extracted and diffed the working stable image (66fe127f…) vs the failing
+no-modem image (23e7f68c…) component by component. **The UFS/clock/power
+DTB nodes are byte-identical; the cmdline differs only by
+`omamobile.loop=`; the ramdisk guard files are the expected pack-flag
+deltas; the kernel UFS source is identical. The difference is the kernel
+CONFIG:**
+
+- Failing kernel (`g0fd2c260d21d-dirty`, out-r8q, all my builds since
+  2026-11-18: 463ff67a…, c51bd505…, b55a3440…, d87d5999…, 23e7f68c…):
+  `CONFIG_SCSI_UFS_QCOM=m`, `CONFIG_PHY_QCOM_QMP_UFS=m`,
+  `# CONFIG_QCOM_PCI_MSI is not set`, USB PHYs `=m` — **defconfig +
+  omamobile.config WITHOUT the device/r8q/kernel.config fragment**.
+- Working kernel (`g3667ab368ef9`, out-r8q-uw): `CONFIG_SCSI_UFS_QCOM=y`,
+  `CONFIG_PHY_QCOM_QMP_UFS=y`, `CONFIG_QCOM_PCI_MSI=y`, USB PHYs `=y`.
+- The r8q initramfs carries no /lib/modules and loads no modules → **no
+  driver ever bound ufshc@1d84000/phy@1d87000 → 0 disks** ("no userdata
+  partition, ufs did not enumerate"); the USB PHYs as modules → dwc3
+  "failed to initialize core" → no gadget. One config bug explains every
+  symptom on every image I packed.
+- WHY: `bin/omamobile kernel` was invoked without `DEVICE=r8q`;
+  `omamobile.conf` defaults `DEVICE=cheetah`, and no
+  `device/cheetah/kernel.config` exists, so the device fragment was
+  silently skipped. The failure is invisible at pack time (hence the new
+  pack assertion below).
+- **Consequences for the record:** the PCIe2/GDSC/doorbell hypotheses in
+  §26/§28/§29 were chasing this config bug — on my images the doorbell
+  driver was never even compiled. The mainline PCIe2 endpoint-MSI fix
+  (f7f3096b1) has NOT had a fair test yet; the modem work must be
+  retested on a correctly-built image. The earlier out-r8q-modem3
+  (b60fde52, Nov 17) images predate my builds and may have been
+  correctly configured — their PCIe2-fault evidence stands separately.
+- **Fix:** rebuild with `DEVICE=r8q KERNEL_DIR=… KERNEL_OUT=… bin/omamobile
+  kernel` (running now), verify `out-r8q/.config` has
+  `CONFIG_SCSI_UFS_QCOM=y` + `CONFIG_PHY_QCOM_QMP_UFS=y` +
+  `CONFIG_QCOM_PCI_MSI=y`, then pack `--dual-boot` and re-test.

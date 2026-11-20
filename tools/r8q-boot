@@ -95,6 +95,14 @@ cmd_pack() {
   local tarball="alpine-minirootfs-$ver-aarch64.tar.gz"
 
   [[ -f $kernel ]] || die "Kernel not found at $kernel (run bin/omamobile kernel first)"
+  # The initramfs ships no modules, so UFS must be built into the Image. A
+  # build without the r8q config fragment (e.g. bin/omamobile kernel run
+  # without DEVICE=r8q) silently produces CONFIG_SCSI_UFS_QCOM=m and the
+  # phone then boots to "0 disks" (NOTES.md 30). Fail at pack time instead.
+  grep -aq "ufshcd-qcom" "$kernel" ||
+    die "Image lacks the built-in ufshcd-qcom driver (CONFIG_SCSI_UFS_QCOM != y): rebuild with DEVICE=r8q (NOTES.md 30)"
+  grep -aq "qcom,sm8250-qmp-ufs-phy" "$kernel" ||
+    die "Image lacks the built-in SM8250 UFS PHY driver (CONFIG_PHY_QCOM_QMP_UFS != y): rebuild with DEVICE=r8q (NOTES.md 30)"
   [[ -f $dtb ]] || die "DTB not found at $dtb (run bin/omamobile kernel first)"
   [[ -f $MKBOOTIMG ]] || die "mkbootimg tool not found at $MKBOOTIMG"
 

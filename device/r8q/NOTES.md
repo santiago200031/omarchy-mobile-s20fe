@@ -1426,3 +1426,11 @@ Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
 | Daily state on it | root `/dev/sda36` (§40); UI on screen (§41); pi-tuned model serving (§42); Wi-Fi/audio/cameras as before the migration |
 | Open, not blocking daily use | GPU compute wedge — the adreno SMMU's CX vote (§39); fix in flight on `r8q-gpu-smmu-vote`, own pass + re-pin when it lands |
 | main | merged through `tools/r8q-merge-main --pass-sha 68fa6540444b0b0bcc66dcdb5df8684ae87dc17ce9c8e0d3637dfcf9ffcfc97d`; work continues on a new topic branch |
+
+## 44. Objective audit on the native root (2026-11-20, kernel ga60f7256c741)
+
+| Item | Verified state |
+| --- | --- |
+| Battery telemetry | **Working.** `max170xx_battery`: `capacity 99`, `status Charging`, 4.35 V, +133 mA, 27.5 °C, `health Good`; charger `max77705-charger` `online 1 USB`. The old "FG deferred, can't get irq" was an early-boot artifact of the bring-up era: the current boot has **zero** defer lines — `omamobile-r8q-battery.service` (`r8q-battery-modprobe`, multi-user.target) orders the module load. Minor gaps: `design_capacity` and `time_to_*` empty (FG config), `cycle_count` mis-scaled |
+| Display refresh | `1080x2400@60` is the **deliberate** state (board failed-05: `@120` stressed DSI CMD/TE pacing before Adreno tuning; the permanent rule pins @60 + `misc.vrr = 0`). **@120 is queued behind GPU stabilization** — the running bench verdict decides when it is safe to retry |
+| Fallback docs | Verified accurate by grep: PORT-PLAN:16 + NOTES §24 carry the owner-observed model (sda24 is the power-on default, no automatic LineageOS fallback, Download Mode is the recovery path). No stale "reboots boot LineageOS" wording remains in repo docs |

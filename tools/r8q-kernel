@@ -1,0 +1,64 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# tools/r8q-kernel: build the r8q kernel the way the port needs it — DEVICE
+# set, config verified, built-in drivers asserted — so a silent wrong-config
+# build (NOTES.md 30: every failed boot on 2026-11-18..20 was a DEVICE-less
+# build with CONFIG_SCSI_UFS_QCOM=m and no modules in the initramfs) dies
+# here instead of on the phone.
+#
+#   tools/r8q-kernel [--verify] [extra bin/omamobile kernel args]
+#
+# --verify runs only the post-build assertions against the existing build.
+# KERNEL_DIR defaults to ~/omamobile-kernel/wt-r8q, KERNEL_OUT to
+# ~/omamobile-kernel/out-r8q; both pass through to bin/omamobile kernel.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+ok() { printf '\e[1;32m  ✔\e[0m %s\n' "$*"; }
+die() { printf '\e[1;31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+
+KERNEL_DIR="${KERNEL_DIR:-$HOME/omamobile-kernel/wt-r8q}"
+KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
+VERIFY_ONLY=0
+[[ ${1:-} == --verify ]] && { VERIFY_ONLY=1; shift; }
+
+# The initramfs ships no modules: everything boot-critical must be built in.
+REQUIRED_CONFIG=(
+  CONFIG_SCSI_UFS_QCOM=y
+  CONFIG_PHY_QCOM_QMP_UFS=y
+  CONFIG_USB_DWC3=y
+  CONFIG_USB_DWC3_QCOM=y
+  CONFIG_PHY_QCOM_QMP_USB=y
+  CONFIG_PHY_QCOM_USB_SNPS_FEMTO_V2=y
+  CONFIG_QCOM_PCI_MSI=y
+)
+REQUIRED_IMAGE_STRINGS=(ufshcd-qcom "qcom,sm8250-qmp-ufs-phy")
+
+verify_build() {
+  local cfg="$KERNEL_OUT/.config" img="$KERNEL_OUT/arch/arm64/boot/Image" line
+  [[ -f $cfg ]] || die "no .config at $cfg (run the build first)"
+  [[ -f $img ]] || die "no Image at $img (run the build first)"
+  for line in "${REQUIRED_CONFIG[@]}"; do
+    grep -q "^$line\$" "$cfg" || die "$line missing from $cfg — the device config fragment was not applied. Rebuild with: DEVICE=r8q $0"
+  done
+  ok "config: ${#REQUIRED_CONFIG[@]} required lines present"
+  for line in "${REQUIRED_IMAGE_STRINGS[@]}"; do
+    grep -aq "$line" "$img" || die "Image lacks '$line' — the driver is not built in. Rebuild with: DEVICE=r8q $0"
+  done
+  ok "image: built-in drivers present (UFS host, UFS PHY)"
+  ok "kernel: $(strings "$img" | grep -m1 -o 'omamobile-push1-g[0-9a-f]*')"
+}
+
+if ((VERIFY_ONLY)); then
+  say "Verifying the existing build in $KERNEL_OUT"
+  verify_build
+  exit 0
+fi
+
+say "Building the r8q kernel (DEVICE=r8q, $KERNEL_DIR -> $KERNEL_OUT)"
+DEVICE=r8q KERNEL_DIR="$KERNEL_DIR" KERNEL_OUT="$KERNEL_OUT" \
+  "$ROOT/bin/omamobile" kernel "$@"
+say "Verifying the build"
+verify_build
+say "Build verified. Pack with: tools/r8q-boot pack --dual-boot [--overlay NAME]"

@@ -19,19 +19,24 @@ partitions (`boot` sda23, `super`, and the bootloader) are never
 written, so the phone always has its way back.
 
 **Does:** power-on → S-Boot → the recovery kernel (mainline 7.3-rc6
-`7.3.0-rc6-omamobile-push1-g<sha>`) → the initramfs → the Arch root on
-userdata. A normal reboot without our recovery selected boots
-LineageOS. Writes to the phone: `sda24` only, via `tools/r8q-test-image`
-(SSH) or heimdall (Download Mode: power off, Volume Down + Power).
+`7.3.0-rc6-omamobile-push1-g<sha>`) → the initramfs → the **native Arch
+root on userdata (`sda36`, ext4, LABEL `omamobile-root`)** — the default
+since the 2026-11-20 migration off the failing microSD (NOTES §40). The
+`--dual-boot` variant (the `/omarchy-r8q.img` loop image on `mmcblk0p1`)
+is the SD fallback. Writes to the phone: `sda24` only, via
+`tools/r8q-test-image` (SSH) or heimdall (Download Mode: power off,
+Volume Down + Power); the native-root initramfs allowlists exactly
+`userdata` (sda36) as writable and mounts by LABEL — it refuses any
+partition that is not `omamobile-root`.
 
 **Parts:** Android boot image v2 + AVB hash footer (`tools/r8q-boot
-pack --dual-boot`); the cmdline (`console=tty0 console=ttyGS0 …
-omamobile.loop=/omarchy-r8q.img` with `--dual-boot`); `bin/omamobile
-kernel` builds, `tools/r8q-kernel` gates the build.
+pack`, native default; `pack --dual-boot` for the SD loop flow);
+`bin/omamobile kernel` builds, `tools/r8q-kernel` gates the build.
 
-**Gotchas:** every image must be packed `--dual-boot` for the loop-root
-flow; a kernel built without `DEVICE=r8q` silently loses UFS and
-power-does nothing (NOTES §30 — now caught at build and pack time).
+**Gotchas:** pack the image **without** `--dual-boot` for the native-root
+flow (the phone's boot path since the migration); a kernel built without
+`DEVICE=r8q` silently loses UFS and power-does nothing (NOTES §30 — now
+caught at build and pack time).
 
 ## 2. Initramfs (Alpine) and the storage guard
 

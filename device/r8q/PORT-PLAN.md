@@ -2,7 +2,16 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`, SM-G780G) Port Plan
 
-- **Status (2026-11-17):** Stable kernel `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (`camera-uw-wip`), image `~/omamobile-kernel/out-r8q-uw/recovery-cam-uw.img` sha256 `66fe127f…d8503`, packed with `tools/r8q-boot pack --dual-boot --overlay camera-uw` and pinned in [`stable-image.conf`](stable-image.conf). It boots `recovery` (`sda24`) with `/omarchy-r8q.img` on microSD (`mmcblk0p1`); **all `77/77` `/dev/sda*` UFS partitions remain `ro=1`** with LineageOS untouched on `sda23`/`sda29`/`sda36`; `PCIe2` and its PHY are `disabled`. `tools/r8q-stable-check` verifies both the image hash and the phone, and `tools/r8q-flash-recovery --stable` is the way back. Kernel worktree `~/omamobile-kernel/wt-r8q` (build with `DEVICE=r8q`).
+- **Status (2026-11-20):** the phone runs the native UFS root; work happens on the device. Details: [NOTES §40–§42](NOTES.md).
+
+| Subsystem | State |
+| --- | --- |
+| Boot | `sda24` (recovery) → **native root `sda36`** (LABEL `omamobile-root`); the failing microSD is out of the path — read-only source of last resort |
+| Session | sddm autologin → Hyprland + quickshell; confirmed on screen (§41) |
+| AI | `omamobile-ai` serves the **pi-tuned LFM3-1.7B** — Q8_0 base + harbor-pi LoRA, 10.5 tok/s out (§42); pi = the session user's mise install |
+| Kernel | `r8q-gpu-recovery` (`g1fa07e423998`) under test; the GPU wedge is root-caused to the adreno SMMU's CX vote (§39), fix in flight on `r8q-gpu-smmu-vote` |
+| Modem | Sahara walk clean after the power cycle; the AMSS-jump link fault (`RxErr` on the root port) is the open blocker (§38) |
+| Way back | `stable-image.conf` pins the SD-loop-era image (`g3667ab368ef9`): `tools/r8q-flash-recovery --stable`; re-pin a native image once the GPU lands |
 - **Milestone:** **The desktop, touchscreen, Wi-Fi (`wlp1s0`), QCA6390 Bluetooth (`hci0`), audio (`cs35l41` `r8q`), SLPI sensors, Volume Up, pseudo-NMI, the HI-847 telephoto and the S5K3L6 ultrawide are live on SM-G780G**, and the `omamobile-ai` supervisor serves `LFM3-1.7B` on `:8080` at 15.47 prompt / 10.6-11.0 generation tok/s ([AI-BENCHMARKS.md](AI-BENCHMARKS.md)). The SDX55M modem **boots to AMSS on mainline** (2026-11-18, [MODEM-PLAN.md](MODEM-PLAN.md) §10): the `qcom,pci-msi` doorbell with GIC-hwirq message data, ported MHI SBL/AMSS support (SBL power-up, context zeroing, mission-mode doorbell re-read), AP2MDM_STATUS driven high, and the full 14-image SAHARA set served over one open MHI channel. The modem enters mission mode itself and exposes `mhi0_QMI/MBIM/IPCR/IP_HW0/IP_SW0` and `/dev/wwan0{qmi,mbim,qcdm,at}0`. Next for daily use: SIM/QMI through userspace on the Arch root, and a kernel release with the three commits signed off. Main/front cameras remain the open bring-up ([CAMERA-PLAN.md](CAMERA-PLAN.md)).
 - **Boot model correction (2026-11-20, owner-observed):** `sda24` is this phone's **power-on default** — a plain power-on boots our kernel; there is **no automatic fallback to LineageOS** (`sda23` contents remain untouched but unreachable by an ordinary boot). `Volume Up + Power` is not needed to boot our image; Download Mode (Volume Up + Volume Down + cable from power-off) is the always-available recovery path. Details: [NOTES §24](NOTES.md).
 

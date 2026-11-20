@@ -1401,3 +1401,17 @@ harmless leftovers. The SD card stays in the slot, unused by Linux. The
 Vulkan GPU repro stays held until the SMMU-vote branch (in flight) lands —
 the wedge is proven (§39); re-running it on this kernel adds nothing.
 Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
+
+## 42. Session + pi carried over; the model is now pi-tuned (2026-11-20)
+
+(Records from here on stay short and tabular — owner's ask.)
+
+| Item | Fact |
+| --- | --- |
+| UI gap on the native root | Not the image: `tools/r8q-boot` pins `systemd.unit=multi-user.target` by design. The native root (Run 7's install) simply lacked the sddm enablement and the whole `~alarm` home — the SD loop root had both |
+| Fix | `systemctl --root` diff on the read-only-mounted SD named `sddm.service` alone; copied `/etc/sddm.conf.d/` + `~alarm` (`.config` 179M + `.local` 228M, `monitors.lua` sha-verified); `enable --now sddm` → Hyprland + quickshell up, confirmed on screen |
+| sddm quirk | `Session=omarchy.desktop` exists on neither root — sddm falls back to the default session; identical behavior on the SD root |
+| pi | The owner's mise install (`~/.local/share/mise/shims/pi`, 1.5.2) is THE pi — no npm/global churn (owner's preference). Config `~/.pi/agent/{models,settings}.json` → the `omamobile` provider; `tools/r8q-pi` rewritten mise-based (config ensure + a `runuser` test) |
+| Model | Q8_0 base (1.85G) + `harness-hub/LFM3-1.7B-pi` harbor-pi F16 LoRA (63M), via `/usr/local/bin/llama-server-lora` (`LLAMA_BIN`) + `conf.d/20-pi-tuned.conf`; serve cmdline verified with `--lora` |
+| Speed / RAM | 10.5 tok/s out at 32k ctx (Q4_K_M was 10.6–11.0 — Q8 costs ~nothing); 3740/5546 MB used, 1805 available |
+| Verified | `PI-LFM3-OK` through the mise shim as the session user — pi in Foot defaults to the on-device pi-tuned LFM3 |

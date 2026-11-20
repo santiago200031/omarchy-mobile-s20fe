@@ -1,28 +1,22 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# tools/r8q-pi: install or restore the Pi coding agent (earendil-works/pi) on
-# the phone, configured entirely for the on-device LFM3-1.7B served by the
-# omamobile-ai supervisor (OpenAI-compatible http://127.0.0.1:8080/v1).
+# tools/r8q-pi — set the session user's pi to the on-device LFM3 and test it.
 #
-#   tools/r8q-pi          install if missing, verify the config, test the model
-#   tools/r8q-pi test     (re)run the model test only
+#   tools/r8q-pi          ensure the agent config, then test
+#   tools/r8q-pi test     test only
 #
-# The configs persist in ~/.pi/agent/ (models.json + settings.json) and are
-# (re)created when absent. The pi install lives in RAM (/tmp/pi): the
-# SD-backed root is failing (NOTES.md 36) so npm's global tree is not a safe
-# home — run this once after each reboot. The first query lazily starts
-# llama-server (~30-60 s on CPU); later queries answer directly.
+# pi itself is the session user's mise install (~alarm/.local/share/mise/shims/pi);
+# only the agent config is ours: ~/.pi/agent/{models,settings}.json point pi at
+# the omamobile-ai supervisor (127.0.0.1:8080, OpenAI-compatible, no key needed —
+# the dummy satisfies pi's check). The supervisor's conf.d/20-pi-tuned.conf serves
+# the pi-tuned model: Q8_0 base + harness-hub harbor-pi LoRA (LLAMA_BIN wrapper).
+# The first query lazily loads the model (~1 min); later ones answer directly.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
-ok() { printf '\e[1;32m  ✔\e[0m %s\n' "$*"; }
+ok()  { printf '\e[1;32m  ✔\e[0m %s\n' "$*"; }
 die() { printf '\e[1;31merror:\e[0m %s\n' "$*" >&2; exit 1; }
-
-P="$ROOT/tools/phone-ssh"
-SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
-[[ -f "$SSH_KEY" ]] && export OMAMOBILE_SSH_KEY="$SSH_KEY"
-ph() { timeout 300 "$P" --fresh "$@"; }
 
 MODELS_JSON='{
   "$schema": "https://pi.dev/schemas/models.schema.json",
@@ -32,17 +26,12 @@ MODELS_JSON='{
       "baseUrl": "http://127.0.0.1:8080/v1",
       "api": "openai-completions",
       "apiKey": "local-no-auth",
-      "models": [
-        {
-          "id": "LFM3-1.7B",
-          "name": "LFM3-1.7B (on-device)",
-          "reasoning": false,
-          "input": ["text"],
-          "contextWindow": 32768,
-          "maxTokens": 4096,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-        }
-      ]
+      "models": [{
+        "id": "LFM3-1.7B", "name": "LFM3-1.7B pi-tuned (on-device)",
+        "reasoning": false, "input": ["text"],
+        "contextWindow": 32768, "maxTokens": 4096,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+      }]
     }
   }
 }'
@@ -54,36 +43,30 @@ SETTINGS_JSON='{
   "defaultThinkingLevel": "off"
 }'
 
+P="$ROOT/tools/phone-ssh"
+[[ -f "${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}" ]] && export OMAMOBILE_SSH_KEY
+ph() { timeout 420 "$P" --fresh "$@"; }
+
 if [[ ${1:-} != test ]]; then
   say "Waiting for the phone"
   for _ in $(seq 1 30); do ph true >/dev/null 2>&1 && break; sleep 4; done
   ph true >/dev/null 2>&1 || die "the phone did not answer"
 
-  if ! ph 'ls /tmp/pi/node_modules/.bin/pi' >/dev/null 2>&1; then
-    say "pi not installed (RAM) — bootstrapping npm and installing"
-    ph 'mkdir -p /tmp/npmboot && cd /tmp/npmboot' >/dev/null
-    ver=$(ph 'cd /tmp/npmboot && curl -sL https://registry.npmjs.org/npm/latest -o npm-meta.json && node -e "const m=JSON.parse(require(\"fs\").readFileSync(\"npm-meta.json\"));console.log(m.dist.tarball)"')
-    [[ -n $ver ]] || die "could not resolve the npm tarball URL (internet up?)"
-    say "npm tarball: ${ver##*/}"
-    ph "cd /tmp/npmboot && curl -sL -o npm.tgz $ver && tar xzf npm.tgz" >/dev/null
-    say "Installing pi (RAM, /tmp/pi)"
-    ph 'cd /tmp/npmboot && node package/bin/npm-cli.js --prefix /tmp/pi install --ignore-scripts @earendil-works/pi-coding-agent 2>&1 | tail -1'
-    ph 'ls /tmp/pi/node_modules/.bin/pi' >/dev/null 2>&1 || die "pi did not install"
-  fi
-  ok "pi installed: $(ph '/tmp/pi/node_modules/.bin/pi --version 2>/dev/null | head -1')"
-
-  say "Ensuring the config (LFM3 everywhere)"
-  if ! ph 'grep -q omamobile ~/.pi/agent/models.json' >/dev/null 2>&1; then
-    ph "mkdir -p ~/.pi/agent && cat > ~/.pi/agent/models.json" <<<"$MODELS_JSON" >/dev/null
-    ph "cat > ~/.pi/agent/settings.json" <<<"$SETTINGS_JSON" >/dev/null
-    ok "configs written (~/.pi/agent/)"
+  if ! ph 'grep -q omamobile /home/alarm/.pi/agent/models.json' >/dev/null 2>&1; then
+    say "Writing the agent config (LFM3 everywhere)"
+    ph "mkdir -p /home/alarm/.pi/agent && cat > /home/alarm/.pi/agent/models.json" <<<"$MODELS_JSON" >/dev/null
+    ph "cat > /home/alarm/.pi/agent/settings.json" <<<"$SETTINGS_JSON" >/dev/null
+    ph 'chown -R alarm:alarm /home/alarm/.pi' >/dev/null
+    ok "config written (~alarm/.pi/agent/)"
   else
-    ok "configs present (~/.pi/agent/)"
+    ok "config present (~alarm/.pi/agent/)"
   fi
+  ph 'runuser -u alarm -- bash -lc "command -v pi" >/dev/null' 2>/dev/null \
+    || die "the session user has no pi (mise install missing: ~/.local/share/mise/shims/pi)"
 fi
 
-say "Testing the model chain (pi -> omamobile -> LFM3-1.7B; the first query lazily loads the model)"
-out=$(ph 'timeout 380 /tmp/pi/node_modules/.bin/pi -p "Reply with exactly this and nothing else: PI-LFM3-OK" 2>&1 | tail -3')
+say "Testing: pi (mise) -> omamobile -> pi-tuned LFM3-1.7B"
+out=$(ph 'runuser -u alarm -- bash -lc "timeout 380 pi -p \"Reply with exactly this and nothing else: PI-LFM3-OK\"" 2>&1 | tail -3')
 printf '%s\n' "$out"
-grep -q "PI-LFM3-OK" <<<"$out" && ok "PASS: pi answers from the on-device LFM3" \
-  || die "the model test failed — check: systemctl status omamobile-ai, and curl http://127.0.0.1:8080/v1/models"
+grep -q PI-LFM3-OK <<<"$out" && ok "PASS: pi answers from the on-device pi-tuned LFM3" \
+  || die "test failed — check: systemctl status omamobile-ai, curl http://127.0.0.1:8080/v1/models"

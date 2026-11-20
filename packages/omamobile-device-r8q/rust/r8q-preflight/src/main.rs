@@ -127,6 +127,19 @@ fn check_ufs_ro_guard(sys: &Path) -> CheckResult {
             detail: format!("cannot read {}", block_dir.display()),
         };
     };
+    // The running root's partition is rw by design on the native root
+    // (r8q-boot packs the initramfs without --dual-boot: it allowlists
+    // userdata/sda36 and mounts it as the root). Exclude that one
+    // partition; every other UFS partition must stay read-only.
+    let root_part = fs::read_to_string("/proc/mounts")
+        .ok()
+        .and_then(|m| {
+            m.lines()
+                .find(|l| l.split(' ').nth(1) == Some("/"))
+                .and_then(|l| l.split(' ').next().map(str::to_string))
+                .map(|d| d.rsplit('/').next().unwrap_or("").to_string())
+        })
+        .unwrap_or_default();
     let mut writable = Vec::new();
     let mut checked = 0usize;
     for entry in entries.flatten() {
@@ -148,7 +161,7 @@ fn check_ufs_ro_guard(sys: &Path) -> CheckResult {
             let ro_path = sub.path().join("ro");
             if let Ok(ro_val) = fs::read_to_string(&ro_path) {
                 checked += 1;
-                if ro_val.trim() != "1" {
+                if ro_val.trim() != "1" && sn != root_part {
                     writable.push(sn.into_owned());
                 }
             }

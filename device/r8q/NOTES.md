@@ -1505,7 +1505,7 @@ session + lock, touch, buttons, Wi-Fi (link up), Bluetooth (powered), battery
 
 **Stable record moved to the current state:** the PASS image is
 `recovery-fault-quiesce.img` sha256
-`adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a`
+`adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a6`
 (kernel `gae195e6deaac`): boot PASS (sda24 readback verified), the daily state
 verified on it (§44–§49), the smoke above. `stable-image.conf` re-pins to it;
 the previous pin (the SMMU-vote kernel) stays in history.

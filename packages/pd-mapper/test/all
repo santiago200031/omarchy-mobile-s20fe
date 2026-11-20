@@ -1,0 +1,37 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Offline checks for the pd-mapper package.
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")/.."
+fails=0
+fail() { echo "FAIL: $*" >&2; fails=$((fails + 1)); }
+pass() { echo "ok: $*"; }
+
+(
+  # shellcheck disable=SC1091
+  source ./PKGBUILD
+  [[ $pkgname == pd-mapper ]] || exit 1
+  [[ $pkgver == "$(tr -d ' \n' < version)" ]] || exit 2
+  [[ ${#source[@]} == "${#sha256sums[@]}" ]] || exit 3
+  for i in "${!sha256sums[@]}"; do
+    [[ ${sha256sums[$i]} =~ ^([0-9a-f]{64}|SKIP)$ ]] || exit 4
+    if [[ ${sha256sums[$i]} != SKIP && $i -gt 0 ]]; then
+      [[ ${sha256sums[$i]} == "$(sha256sum "${source[$i]}" | cut -d' ' -f1)" ]] || exit 5
+    fi
+  done
+  [[ ${source[0]} == *"linux-msm/pd-mapper/archive/refs/tags/v$pkgver.tar.gz" ]] || exit 6
+) && pass "PKGBUILD pins the upstream tag tarball and vendored checksums" \
+  || fail "PKGBUILD pin check failed (exit $?)"
+
+grep -qE '^ExecStart=/usr/bin/pd-mapper' pd-mapper.service \
+  && pass "unit starts /usr/bin/pd-mapper" \
+  || fail "pd-mapper.service ExecStart is wrong"
+
+# The userspace daemon is the one to run: the in-kernel qcom_pd_mapper is
+# not in the kernel config, and this package must not depend on a
+# remoteproc being bound (the r8q's modem is an external MHI endpoint).
+grep -q 'remoteproc' pd-mapper.service \
+  && fail "unit references remoteproc" \
+  || pass "unit has no remoteproc dependency"
+
+test "$fails" -eq 0

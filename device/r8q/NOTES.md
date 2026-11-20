@@ -594,3 +594,835 @@ yet or the shared 3.3 V rail sagged under the AMSS load (the same rail that
 browns the SD). The loader's `unexpected cmd 9` after the `mode=2` HELLO is
 the last SBL command and is harmless. Full record: [MODEM-PLAN](MODEM-PLAN.md)
 §12 run 3.
+
+## 24. There is no dual-boot fallback: a plain power-on boots our recovery image (2026-11-20)
+
+The owner corrected the boot model after repeated observation (latest
+2026-11-20, several power cycles in one session): **powering the phone
+off and back on, with no key combo, boots `sda24` — our recovery
+image, our kernel.** The S20 FE in this configuration has no working
+"fall back to LineageOS" behavior, and never had one in this install:
+every documented claim that "a normal reboot without buttons boots
+LineageOS on `sda23`" was wrong. LineageOS still sits untouched on
+`sda23`/`sda29` (contents never written by this work), but it is not
+the power-on default and cannot be reached by an ordinary boot; a
+forced restart (Power + Volume Down) lands in our kernel as well.
+The mechanism by which the bootloader prefers `recovery` on this
+phone (boot-recovery flag state, bootloader condition, or AVB state)
+is **not diagnosed**; the observation is the owner's, repeated
+across cold boots on 2026-11-20.
+
+What this changes in practice:
+
+- After any flash to `sda24`, "reboot the phone" is enough: power off,
+  power on, and the new image runs. `Volume Up + Power` is not a
+  required step (it selects recovery on a stock Samsung and probably
+  still works, but the default power-on already boots `sda24`).
+- The safety story of the install is **not** "Android is the fallback
+  OS"; it is: `sda24` is the phone's single boot slot, it is always
+  re-flashable through Download Mode (Volume Up + Volume Down + USB
+  cable from power-off, hardware-level, survives anything we can
+  write), and the NV/calibration partitions stay read-only
+  (`tools/nv-backup --check` continues to verify 14/15 `SAME` +
+  `param` as expected).
+- Documents and runbooks that said otherwise were corrected on
+  2026-11-20: `RUNBOOK-DISPLAY-GPU.md` (boot and force-restart
+  steps), `RUNBOOK-USERDATA-ROOT.md` (the Android contingency),
+  `MODEM-PLAN.md` (the flash runbook boot steps),
+  `board/success/01-dual-boot-ufs-ro-guard.md`, `FILE-DASHBOARD.md`,
+  `board/README.md` and this file. The "LineageOS untouched"
+  **partition** claims stay true and stay; only the boot-default
+  claims changed.
+
+## 25. USB gadget goes missing on the new image — investigation (2026-11-20)
+
+The phone's gadget (dwc3, NCM+ACM) goes missing on the new image
+(g634…, branch `r8q-modem-nom3` @ 0fd2c260d); the stable image
+(`omamobile-r8q-signed` @ 3667ab368, `out-r8q-uw/recovery-cam-uw.img`,
+66fe127f…) brings it up. Details + diagnostic plan + tooling:
+[USB-GADGET-PLAN.md](USB-GADGET-PLAN.md). Phone state (user reads the
+logs): "no usb host, crashing in 20s so abl falls back to slot a" —
+the phone is down (gadget missing, SSH times out; laptop: nothing on the
+USB bus).
+
+What the tree delta shows (stable → reverted, same mainline base):
+
+- DTS +60: the modem PCIe MSI bank (`pcie2_msi`, `&pcie2 { msi-parent }`)
+  — PCIe2 stays disabled; enabled by the modem overlay.
+- MHI host: `boot.c` +36, `init.c` +88, `main.c` +57, `pci_generic.c` +197,
+  `pm.c` +139, `common.h` +7 — the modem driver (event-ring polling,
+  no_m2, wake_db, doorbell, keep-devices, SFR, M3 cycle [removed]).
+- **No drivers/usb or drivers/phy changes** — the gadget drivers are
+  identical; the out-tree DTB diff is phandle-only (benign); the modules
+  trees are identical; the Image hashes differ.
+
+Ranked gadget-delta candidates (investigation: general subagent running —
+see [USB-GADGET-PLAN.md](USB-GADGET-PLAN.md) §B): (1) the native-vs-SD-root
+image difference; (2) the modem DTS/MHI changes interacting with the
+gadget (unlikely — different drivers); (3) the phone crashing early on
+the new image (the modem?), hiding the gadget registration — testable by
+bisecting the modem commits (pack/flash per half); (4) the phone-side
+diagnostics (USB-GADGET-PLAN.md §E).
+
+Experiment record: the flow's "reverted image" experiment — "flash ok at
+attempt 1" + "gadget not up within 180s" — **inconclusive** (the phone
+stayed in download mode — the heimdall flash could not complete:
+"Protocol initialisation failed!" ×8 — the USB path was flaky; the phone
+is now on the reverted image — "great, that worked" after a manual
+heimdall flash succeeded).
+
+Stable escape available: flash `out-r8q-uw/recovery-cam-uw.img`
+(66fe127f…) to sda24 via heimdall in Download Mode (USB-GADGET-PLAN.md §E4).
+The user said the phone is "left there" — the revert work proceeds
+unattended (docs, branches).
+
+## 26. PCIe2 endpoint MSI fault — the gadget/cellular blocker, with mainline fix (2026-11-20)
+
+**Root cause (verified-ranked, subagent analysis + mainline commit):** the
+external SDX55M modem on PCIe2 sits behind `apps_smmu`, and its endpoint MSI
+writes target the RC `cfg0` address, which is **not mapped in the endpoint's
+IOMMU domain** — the writes fault, so the modem's MHI event rings never raise
+an interrupt. (Mainline commit message of the fix, verbatim: "the writes
+fault, so the MHI event rings never raise an interrupt and the modem never
+leaves the primary bootloader after BHI loads sbl1.") On the user's tree the
+modem does reach SBL (the loader serves it — the PCIe2 writes only break in
+AMSS), and the new image's gadget goes missing — the PCIe2 fault takes the
+SoC dwc3 up with it.
+
+**The fix is mainline and is applied to the tree:** `5be4efd5e` ("pci: dwc:
+prepare PCIe2 MSI in the endpoint IOMMU domain", mainline tip of the PCIe2
+work; mainline = `3667ab368` + `7896cfb4b` (`net: wwan: WWAN_PORT_SAHARA`) +
+`4d5ae30a8` (`bus: mhi: pci_generic: load sbl1 on r8q`) + `5be4efd5e`). The
+fix: `dw_pcie_irq_domain_alloc()` calls `iommu_dma_prepare_msi(desc,
+pp->msi_data)` and `dw_pci_setup_msi_msg()` uses the allocated IOVA
+(`msi_msg_set_addr`) for the PCIe2 host (`cfg0_base == 0x64100000`); PCIe0
+(the QCA6390 WLAN) is unchanged. Applied (staged) to `wt-r8q`
+(`drivers/pci/controller/dwc/pcie-designware-host.c`, +37/-2, 5 fix markers),
+kernel branch `r8q-modem-nom3` at `0fd2c260d` (the M3-cycle patch still
+reverted there), image packed: `out-r8q/recovery-omamobile.img`, sha256
+`c51bd505…`.
+
+**The second mainline-ahead commit is secondary** (`7896cfb4b` +
+`4d5ae30a8`: WWAN_PORT_SAHARA + r8q SBL loading via BHI — the port serves
+SBL with the loader tool, so these are less load-bearing here; test them
+after the PCIe2 fix if needed).
+
+**Test plan (the user's next step):**
+1. Power the phone off; from off, hold **Volume Up + Power** (release Power,
+   keep Vol Up) → boots `sda24` (the PCIe2-fix image).
+2. Tell me when it's up; I check:
+   - `lsusb` → expect the gadget (`1d6b:0104` "Omarchy Mobile"),
+   - `ls /sys/class/udc` via SSH → expect `a600000.usb`,
+   - if the gadget is up → **Run 30**: loader + DIAG client + MMIO probe —
+     the PCIe2 fix should arm UL consumption and the +32.4 s death disappears.
+3. If not: the PCIe2-bisect plan (the subagent): builds from the stable
+   base adding the PCIe2 commits one at a time (commit list on the subagent
+   report, §B) — "two-crash rule": if some build crashes the phone, bisect
+   there.
+
+**State:** the phone is in its current state (reverted image, gadget missing,
+USB/SSH unreachable). The PCIe2-fix image is packed and staged in the tree.
+The other blocker of the objective — the GPU/Vulkan + NPU (GMU cx gdsc
+wedge, secure-boot wall) — is unchanged (separate investigation,
+NPU-PLAN.md P1 §4; the ADR/GPN is offline).
+
+## 27. Adreno 650 CX-gdsc wedge — the Vulkan compute blocker, mainline fix
+
+**The wedge** (`board/failed/08`, well recorded — llama-bench -ngl 99 at
+305 MHz → `device lost on Vulkan0` + `msm_dpu: hangcheck detected gpu
+lockup rb 0!` + `a6xx_recover: cx gdsc didn't collapse`; `vkcube`
+segfaults; render path — vkcube/Hyprland — is fine): a compute submit
+trips the Adreno 6xx lockup; hangcheck → `a6xx_recover()`; the CX gdsc
+can't collapse (a6xx_gmu.c's `cxpd_notifier_cb` on `GENPD_NOTIFY_OFF`
+completes `pd_gate` — mainline polls nothing else), `recover_worker`
+loops, session dies, reboot required.
+
+**Root cause (subagent analysis, saved at
+`BOARD-REPORT-GPU-WEDGE.md`): mainline gap, QUIC kernelthread v4.0
+0/7 "Improve GPU Recovery": "Currently, cx doesn't collapse due to a
+devlink between gpu and its smmu. So the struct gpu device needs to
+be runtime suspended to ensure that the iommu driver removes its vote
+on cx gdsc."** Adreno 650 IS mainline on SM8250 (a6xx_gpu.c,
+a6xx_gmu.c, `gpu@3d00000`/`gmu@3d6a000`; mainline sm8250.dtsi disables
+adreno+gmu, the port enables them). The mainline `a6xx_recover()`
+already does `pm_runtime_put_sync(&gpu->pdev->dev)` then
+`wait_for_completion_timeout(&gmu->pd_gate, ...)` — the wedge: the
+put_sync doesn't complete the suspend, so the iommu keeps its cx vote.
+
+**The fix (branch `r8q-gmu-recover-fix`):** in `a6xx_recover()`
+(wt-r8q/drivers/gpu/drm/msm/adreno/a6xx_gpu.c:1626, mainline
+a6xx_gpu.c:1626) add, before the wait:
+```c
+	pm_runtime_suspend(&gpu->pdev->dev);
+```
+(commit `29cfed48c`). Also on the branch: `f7f3096b1`, the PCIe2
+endpoint-MSI mainline fix (see NOTES §26) — both fixes tested on the
+phone when it's up. Packed image: `out-r8q/recovery-omamobile.img`,
+sha256 `463ff67a…`.
+
+**Test plan (the phone):**
+1. Boot the phone: after the PCIe2 test's boot — from the OMARCHY
+   desktop — the GPU is already up (the render path works at 587 MHz).
+   - PCIe2 fix verification: `lsusb` → gadget; `ls /sys/class/udc` →
+     `a600000.usb` (Run 30).
+   - GPU wedge fix verification (needs the user to run the wedge
+     repro, per the `08` rules): repro: `llama-bench -m
+     LFM3-1.7B-Q4_K_M.gguf -ngl 99 -p 512 -n 128` → capture wedges.
+     Expect: before fix — wedges (reboot required); after fix —
+     `a6xx_recover: cx gdsc didn't collapse` gone, recovery completes.
+     Full VLANG path: `vkcube` + Hyprland compositing (should be
+     unchanged). Then the LLM on GPU: `omamobile-ai serve` +
+     `GPU_LAYERS=99` LLM queries.
+2. Note the render-path rule from board/failed/08: `GPU_LAYERS=0` is
+   the default; treat compute-wedge as reboot-required; don't confuse
+   the wedges (the wedge takes Hyprland down with it).
+
+## 28. UFS: mainline SM8250 UFS broken — "0 disks" on the PCIe2-fault image, 2026-11-20 (subagent)
+
+**What "0 disks" means** — `initramfs/init:436`: `ls -d /sys/block/sd* | wc -l` → 0 = the UFS produced no SCSI disks; `boot_arch` looks for `PARTNAME=userdata` on `/sys/block/sda` and finds nothing → the init stays in the rescue shell. The phone is on the PCIe2-fault image (`463ff67a…`, mainline tip); the user reads the boot console: `omamobile: === ufs-probe: 0 disks, 0 partitions ===`, "Interconnect & Clock sync_state blocked ... due to 1d84000.ufs" (the UFS HC + the aggre1/gem_noc + gcc-sm8250 clocks), and the DT dependency cycle between `/soc@0/phy@1d87000` (UFS PHY) and `/soc@0/ufshc@1d84000` (UFS HC). The phone "crashes in 20 s, ABL falls back to slot a" — the PCIe2 fault's reset loop takes the phone down during early boot.
+
+**Mainline status (the port's mainline tree — branch `omamobile` @ 2db2bc35b, Linux 7.3-rc6):** mainline sm8250 = mainline @2db2bc35b, **different from the stable branch** `omamobile-r8q-signed` @ 3667ab368 — the stable boots fine with UFS, so the breakage is on the mainline tip side, not the stable side.
+
+**The mainline UFS stack (all mainline, nothing port-changed):**
+- HC: `qcom,sm8250-ufshc` → `drivers/ufs/host/ufs-qcom.c` (`ufs_qcom_power_up_sequence` 488, `ufs_qcom_icc_init` 1554 / `ufs_qcom_icc_set_bw` 916 — the flow votes BW via the ICC set, so if that sync never completes, the UFS HC is left unsynced → 0 disks).
+- PHY: `qcom,sm8250-ufshc-phy` → `drivers/phy/qualcomm/phy-qcom-qmp-ufs.c` (`qmp_ufs_probe` 2333, `qmp_ufs_power_on` 2061, `qmp_ufs_phy_init` 2155, `qmp_ufs_phy_calibrate` 2086 — `reset_control_assert(qmp->ufs_reset)` (the shared GCC_UFS_PHY_BCR via the PHY's reset = the HC's `phys[0]`), `qmp_ufs_phy_calibrate` → `reset_control_deassert` → poll `PCS_READY`).
+- Mainline DTS (`sm8250.dtsi`): `ufs_mem_hc` 2516 (`power-domains = <&gcc UFS_PHY_GDSC>`, `resets = <&gcc GCC_UFS_PHY_BCR>`, `phys = <&ufs_mem_phy>`, icc `aggre1_noc→mc_virt` "ufs-ddr" + `gem_noc→config_noc` "cpu-ufs", clock-controllers `gcc-sm8250` @0x1500000 etc.), `ufs_mem_phy` 2588 (`resets = <&ufs_mem_hc 0>` — the cycle).
+- The cycle (B): main.) — this is expected on mainline sm8250 and is not by itself a breakage — it means the mainline flow has no probe-order constraint between the HC and the PHY, so the HC (`1d84000.ufs`) can be the device left waiting in sync_state — the user reads this as "the gcc sm8250 sync state pending due to <id>.phy" — actually the phone's line paraphrases the UFS HC (the message is on the blocked device; the PCIe2's own line is the PCIe2 GDSC one).
+- The mainline ICC flow (C): the phone's "sync_state blocked: Multiple interconnect providers and clock controllers are held in sync_state() pending due to 1d84000.ufs..." — the mainline `drivers/interconnect/core.c:1218 icc_sync_state()` is what pends; if that set never completes during the boot, the UFS HC is left without its icc/clk state synced — consistent with a blocked probe/link state.
+
+**The PCIe2 connection**: the PCIe2 breakage (endpoint missing from the bus — "gcc sm8250 sync state pending due to <id>.phy", the modem never leaves PBL) is a separate mainline gap on mainline sm8250 — mainline PCIe2 is `status = "disabled"` and the PCIe2-MSI fix (5be4efd5e) is mainline (applied to the port, f7f3096b1) but insufficient on this device. The PCIe2 investigation subagent (session `ses_e07ac9606ffe6fyzD8HVOq81ke`) is finding the PCIe2 root cause + bisect plan.
+
+**Ranked hypotheses (the UFS mainline-tip breakage)**:
+1. The mainline sm8250 tip's UFS flow is stuck: the UFS HC is the blocked device — its icc/clk set (`1d84000.ufs`) never completes sync_state → 0 disks, no UFS error in dmesg (a blocked probe). Plausible mechanism: the PCIe2 fault's reset loop wedging the power-domain/clock sync machinery the UFS flow uses.
+2. The PHY (1d87000) never gets to `PCS_READY` — SerDes stuck — then `ufshcd_hba_enable` should print an error; the absence of any UFS error argues against a hard failure, so lower rank.
+3. A mainline regression between mainline 3667ab368 (the stable — UFS fine) and the mainline tip 2db2bc35b (the UFS breakage) in the 7.3-rc window — `ufs-qcom.c` and sm8250.dtsi's last mainline commits are both the 7.3-rc6 merge; a mainline sm8250 UFS change there is the likely root.
+4. The cycle/defer-loop (a `devm_probe_defer` loop that never resolves) — lower rank (mainline expects the cycle).
+5. r8q-specific — low.
+
+**UFS bisect plan ("two-crash rule")** — builds, each: flash/boot, wait ~35 s, read `=== ufs-probe: N disks ===` (or `ls /dev/sda*` over SSH):
+1. Stable image `out-r8q-uw/recovery-cam-uw.img` (66fe127f…) — baseline: UFS fine, PCIe2 fine.
+2. Current mainline image (463ff67f…) — PCIe2 fault + `0 disks`.
+3. Port tree `wt-r8q` (@ f7f3096b1) — PCIe2 should be fixed (doorbell); the UFS is the question.
+4. Bisect mainline `3667ab368..2db2bc35b` on mainline — find the UFS regression commit; build at each step (`bin/omamobile kernel` into an explicit `KERNEL_OUT`).
+5. Two-crash rule: if a built image crashes the phone or the bus stops answering, stop and restart from a known-good build; the last-good/first-bad pair is the regression window.
+6. Expected: the mainline commit that broke mainline sm8250 UFS is identified; then decide a port commit ("add mainline sm8250 UFS fix") for PORT-PLAN.
+
+**Phone-side diagnostics** (once the phone is reachable — the initramfs rescue shell reads dmesg): `dmesg | grep -iE 'ufs|scsi|sd[a-z]|1d84000|1d87000'`; `ls /sys/class/scsi_host/`; `ls /sys/bus/platform/devices/ | grep -i ufs; cat /sys/bus/platform/devices/1d84000.ufs/power/runtime_status`; `ls /proc/device-tree/soc@0/ufshc@1d84000/ /proc/device-tree/soc@0/phy@1d87000/`; `cat /sys/kernel/debug/clk/clk_summary | grep -i ufs`.
+
+**UFS phone state (the user reads it now)**: stuck in the initramfs console (`=== ufs-probe: 0 disks ===`, `omamobile: no /sys/block/sd*`); SSH times out (the SoC USB gadget is down — `a600000.usb: deferred probe pending: dwc3: failed to initialize core` — also a broken path); the PCIe2 endpoint missing from the laptop bus ("gcc sm8250 sync state pending due to <id>.phy").
+
+## 29. Bisect: the no-modem image ALSO fails — UFS 0 disks with PCIe2 disabled (2026-11-20)
+
+Flashed the bisect image `out-r8q/recovery-nomodem.img` (sha256 23e7f68c…, the
+current tree f7f3096b1 packed with NO overlays — PCIe2/pcie2_phy stay
+`disabled` in the base DT). Result: **it fails the same way** — the user reads
+the console: "no userdata partition, ufs did not enumerate" + the fw_devlink
+"Fixed dependency cycle(s) with /soc@0/phy@1d87000 and /soc@0/ufshc@1d84000"
+line. No gadget on the laptop bus, SSH times out (checks over several
+minutes). **So the fault is NOT the modem overlay's PCIe2 enable** — the
+modem-overlay images and the no-overlay image fail identically; the working
+stable (66fe127f…) is the only image that boots.
+
+Established facts:
+- The stable image was packed `--dual-boot --overlay camera-uw`
+  (NOTES.md:188; a prior modem-era image NOTES.md:466 was packed
+  `--dual-boot --overlay modem`). My packs (463ff67a…, c51bd505…, b55a3440…,
+  d87d5999…, 23e7f68c…) were all packed WITHOUT `--dual-boot`.
+- BUT the `--dual-boot` delta is post-enumeration only (tools/r8q-boot):
+  it empties the storage-guard RW allowlist (all UFS read-only) and adds
+  `omamobile.loop=/omarchy-r8q.img` to the cmdline; without it the guard
+  allows RW on userdata + mounts the root by label "omamobile-root". None
+  of that can stop the UFS from *enumerating* (0 disks) — so the pack flag
+  is likely NOT the root cause, but it IS a real difference to record.
+- The doorbell node `pcie2_msi` (msi-controller@17a10040, 32 SPIs 832-863,
+  no status property = okay) is in the BASE DT of every failing image and
+  `CONFIG_QCOM_PCI_MSI=y` — it probes unconditionally, even with PCIe2
+  disabled. Its reg (0x17a10040, 4 bytes) sits inside the GIC-600
+  distributor/intc region at 0x17a00000 (the SETSPI alias page) — a
+  `devm_ioremap_resource` there may conflict with the GIC driver's own
+  mem_region request → possible forever-deferred probe → fw_devlink holds
+  supplier sync_state ("gcc sm8250 sync state pending due to <id>.phy") →
+  downstream probes stall (UFS 0 disks, dwc3 "failed to initialize core").
+  Prime suspect for the whole cascade.
+
+Two subagents running (2026-11-20):
+1. Image forensics (session ses_e07167bf2ffexB76NkFpcPAFVP): extract both
+   images (stable 66fe127f… vs failing 23e7f68c…) and diff cmdline, DTB,
+   ramdisk /init, kernel version — the full delta table.
+2. Kernel-delta boot-time analysis (session ses_e0716209effeZC1oIaYVKHiMYm):
+   the 3667ab368→f7f3096b1 code delta vs UFS enumeration with PCIe2
+   disabled — the doorbell irqchip probe vs the GIC mem_region conflict,
+   and the fw_devlink sync_state stall mechanism.
+
+## 30. ROOT CAUSE of every failed boot since 2026-11-18: the builds ran without DEVICE=r8q (2026-11-20, image forensics)
+
+The image-forensics subagent (session ses_e07167bf2ffexB76NkFpcPAFVP)
+extracted and diffed the working stable image (66fe127f…) vs the failing
+no-modem image (23e7f68c…) component by component. **The UFS/clock/power
+DTB nodes are byte-identical; the cmdline differs only by
+`omamobile.loop=`; the ramdisk guard files are the expected pack-flag
+deltas; the kernel UFS source is identical. The difference is the kernel
+CONFIG:**
+
+- Failing kernel (`g0fd2c260d21d-dirty`, out-r8q, all my builds since
+  2026-11-18: 463ff67a…, c51bd505…, b55a3440…, d87d5999…, 23e7f68c…):
+  `CONFIG_SCSI_UFS_QCOM=m`, `CONFIG_PHY_QCOM_QMP_UFS=m`,
+  `# CONFIG_QCOM_PCI_MSI is not set`, USB PHYs `=m` — **defconfig +
+  omamobile.config WITHOUT the device/r8q/kernel.config fragment**.
+- Working kernel (`g3667ab368ef9`, out-r8q-uw): `CONFIG_SCSI_UFS_QCOM=y`,
+  `CONFIG_PHY_QCOM_QMP_UFS=y`, `CONFIG_QCOM_PCI_MSI=y`, USB PHYs `=y`.
+- The r8q initramfs carries no /lib/modules and loads no modules → **no
+  driver ever bound ufshc@1d84000/phy@1d87000 → 0 disks** ("no userdata
+  partition, ufs did not enumerate"); the USB PHYs as modules → dwc3
+  "failed to initialize core" → no gadget. One config bug explains every
+  symptom on every image I packed.
+- WHY: `bin/omamobile kernel` was invoked without `DEVICE=r8q`;
+  `omamobile.conf` defaults `DEVICE=cheetah`, and no
+  `device/cheetah/kernel.config` exists, so the device fragment was
+  silently skipped. The failure is invisible at pack time (hence the new
+  pack assertion below).
+- **Consequences for the record:** the PCIe2/GDSC/doorbell hypotheses in
+  §26/§28/§29 were chasing this config bug — on my images the doorbell
+  driver was never even compiled. The mainline PCIe2 endpoint-MSI fix
+  (f7f3096b1) has NOT had a fair test yet; the modem work must be
+  retested on a correctly-built image. The earlier out-r8q-modem3
+  (b60fde52, Nov 17) images predate my builds and may have been
+  correctly configured — their PCIe2-fault evidence stands separately.
+- **Fix:** rebuild with `DEVICE=r8q KERNEL_DIR=… KERNEL_OUT=… bin/omamobile
+  kernel` (running now), verify `out-r8q/.config` has
+  `CONFIG_SCSI_UFS_QCOM=y` + `CONFIG_PHY_QCOM_QMP_UFS=y` +
+  `CONFIG_QCOM_PCI_MSI=y`, then pack `--dual-boot` and re-test.
+
+## 31. Corrections from the kernel-delta analysis (2026-11-20, subagent ses_e0716209effeZC1oIaYVKHiMYm)
+
+The tree-A(3667ab368)→tree-B(f7f3096b1) kernel-delta analysis exonerates
+the entire source delta for the failing boots and corrects two earlier
+hypotheses:
+
+- **§29's doorbell-vs-GIC mem_region "prime suspect" is disproven.** The
+  sm8250.dtsi `intc` node claims GICD 0x17a00000–0x17a0FFFF and GICR
+  0x17a60000+; the doorbell's `reg = 0x17a10040..0x17a10043` lies OUTSIDE
+  both windows (the GIC-600 SETSPI alias page, deliberately unclaimed by
+  the mainline DT) — no `devm_request_mem_region` collision is possible,
+  and even an overlap would be a one-shot -EBUSY, not a defer loop. The
+  probe is warm-proven-good: runs 16–18 (kernel g238696e3884c, same DT with
+  the doorbell node) logged `doorbell 0x0000000017a10040 reads 0x0, 32
+  SPIs from 832` plus 62 ufshcd/sd lines and MHI mission mode. The probe
+  writes nothing, defers never, and no SPI is allocated until a PCIe
+  endpoint requests an MSI.
+- **§28's "mainline regression 3667ab368..2db2bc35b" hypothesis does not
+  apply to this lineage**: merge-base(3667ab368, f7f3096b1) is exactly
+  3667ab368 — the wt-r8q branch has no mainline window; 2db2bc35b is a
+  different branch.
+- The whole delta is boot-inert with PCIe2 disabled: MHI/wwan/qrtr run
+  only from an MHI PCI device; the pcie-designware-host.c changes are
+  gated on cfg0 0x64100000 (pcie2 only; pcie0 stays byte-identical); the
+  a6xx recover change runs only on GPU recovery. And decisively:
+  `git diff 69e130a27 0fd2c260d` is EMPTY — the first failing image
+  (c51bd505) ran content-identical kernel code to the last proven-good
+  kernel (Run 25, g69e130a27a94, full system up). The kernel code never
+  broke; the build config did (§30).
+- Remaining cold-vs-warm nuance for the retest: every good tree-B boot in
+  the logs was WARM (push/reboot-to/stage loops); every failing boot was a
+  COLD power cycle after a heimdall flash — but all the cold failures were
+  the DEVICE-less builds (§30), so the config explains them. The retest
+  order: first a cold boot of the correct-config tree-B with NO modem
+  overlay (tests UFS + gadget + doorbell-cold + gives a working daily
+  image), THEN the `--dual-boot --overlay modem` image for the endpoint-MSI
+  fix's first fair test. If the modem image cold-fails with the doorbell
+  probe visible, the fallback is the subagent's discriminator: kexec the
+  same kernel warm from the running system (warm-good + cold-bad isolates
+  the doorbell), and the fix is `status = "disabled"` on the doorbell node
+  in the base DT + enabling it in the modem overlay.
+
+## 32. The doorbell root cause: stock NEVER reads the MSI page — and the GPU stack is back (2026-11-20)
+
+**The LineageOS recovery.img reverse-engineering (session
+ses_e0642a82affel8u3T2Q4x80IVY, kernel 4.19.325-cip136-st20-perf)
+found the design difference that killed our boots.** Stock's doorbell
+DT node declares `reg = <0x17a10040 0x0>` — ZERO SIZE, an
+address-as-data — so no driver can ever map or read it. The vendor
+kernel's of_msi/pld_get_msi_address path reads `reg.start` as a VALUE,
+hands it to the PCIe endpoint as the MSI target, and maps it into the
+ENDPOINT's IOMMU domain; the endpoint's DMA write of the SPI number
+raises the interrupt. The AP never executes a load from 0x17a10040 in
+stock — the only stock-legal AP-side touch is a WRITE to GICD_SETSPI_NSR
+at 0x17a00040. Our driver (drivers/irqchip/irq-qcom-pci-msi.c) is the
+only configuration in which a CPU load from the GIC-600 SETSPI alias
+page executes during kernel start (devm_ioremap_resource + probe-time
+readl_relaxed + ioremap(0x17a00000, SZ_64K)) — and that is the
+configuration that power-offs the phone on cold/ssh-reboot boots.
+
+**The ablation confirms it end to end.** With the doorbell
+`status = "disabled"` in the base DT (kernel commit c8be07674, the
+modem overlay enables it with pcie2) the correct-config tree boots:
+`tools/r8q-test-image` PASSED (kernel gc8be07674331, UFS 4 disks, gadget
+a600000.usb; log logs/r8q/test-20261120-171712-dmesg.log), after the
+forensics-proven config fix (NOTES 30) and with both fix commits in.
+
+**The GPU stack is back on the new tree.** The msm module for
+gc8be07674331 was built (`bin/omamobile modules` with DEVICE=r8q),
+pushed with tools/r8q-push, extracted into /usr/lib/modules on the
+phone + depmod, and — after a REBOOT (NOTES 346: loading msm by hand
+fails; the module must load at boot) — **renderD128 + card1 came up:
+"adreno 3d00000.gpu" probed, qcom/a650_sqe.fw loaded, and vulkaninfo
+reports "Turnip Adreno (TM) 650", API 1.3.354.** The installed
+omamobile-llama is deliberately CPU-only (its PKGBUILD: "the
+Adreno/Vulkan compute path wedges the GPU on this board —
+board/failed/08"), so a Vulkan build was configured from the same
+on-phone source tree (build-vk/, GGML_VULKAN=ON; the vulkan-headers +
+shaderc packages are installed) to run the wedge repro against the
+29cfed48c fix.
+
+**The doorbell driver fix (the modem path, next):** per the RE —
+(1) drop the probe-time readl + devm_ioremap_resource: keep
+`res->start` as the address value for `iommu_dma_prepare_msi()` (stock's
+"map msi address" mechanism); (2) change our DT to stock's zero-size
+`reg = <0x0 0x17a10040 0x0 0x0>`; (3) drop or make write-only the
+probe-time ioremap/debugfs path (the stock-legal AP-side debug is a
+WRITE to GICD_SETSPI_NSR 0x17a00040). The cold-boot analysis subagent
+is sanity-checking the fix shape against the GIC-600 alias-page
+behavior (session ses_e06315ea9ffeAPOrA3ULb56tbF).
+
+## 33. Cold-boot power-off closed: the SETSPI-alias read is the mechanism (2026-11-20, cold-boot analysis subagent)
+
+The RE verdict (§32) plus the ablation is a complete causal story, and the
+Arm documentation says exactly why the probe was lethal. This folds the
+follow-up analysis in; the GIC-600/TRM part answers the two questions the
+parent session left open (the cold-vs-warm failure chain, and whether the
+probe's other actions contribute).
+
+**What the page is (citable sources).** The GIC-600 register map (Arm
+CoreLink GIC-600 TRM r1p6, Table 4-1 "Register map pages") puts page 1 —
+the 64 KiB at GICD+0x10000 — as **GICA, the "GICD message-based
+interrupts alias"**. The GICA register summary (TRM Table 4-20) lists the
+entire page's register file as four **write-only** registers:
+`GICA_SETSPI_NSR` (+0x40), `GICA_CLRSPI_NSR` (+0x48) and the two secure
+twins (+0x50/+0x58); everything else is reserved. GICv3 (IHI0069) defines
+the same register in the distributor as WO with the written value the SPI
+INTID in bits [12:0] — "accesses to this register are WO". So `0x17a10040`
+is `GICA_SETSPI_NSR` of the interrupt controller whose GICD main page is
+0x17a00000, and the page's only defined use is a message **write**. Two
+independent implementations already use it that way and never do what our
+probe did: mainline's `irq-gic-v3-mbi.c` treats the alias address as a
+pure value — `iommu_dma_prepare_msi(desc, mbi_phys_base +
+GICD_SETSPI_NSR)` in alloc, `msi_msg_set_addr(…)` in compose, no ioremap,
+no read — with `arm,gic-v3.yaml` documenting `mbi-alias` as "an alias of
+the GICD region containing only the {SET,CLR}SPI registers"; and stock
+(`vendor-r8q/drivers/pci/controller/pci-msm-msi.c`) reads `reg` as a raw
+value (`be32_to_cpup(of_get_address())`), maps it into the endpoint's
+IOMMU domain with `dma_map_resource()`, and composes `msg->data` = the
+GIC parent hwirq — the stock DT (`kona-pcie.dtsi`) declaring all three
+RC nodes at the same `reg = <0x17a10040 0x0>`, zero size, an
+address-as-data. [MODEM-PLAN](MODEM-PLAN.md) §9.6 item 2 ("a single read
+at probe … proves it; do that read first") was **backwards: the read is
+the one thing the AP must never do on that page.**
+
+**The failure chain (the follow-up's question 1).** By elimination the
+probe's only bus transaction is the `readl_relaxed` at kernel start
+(runs 16-18: `[0.194] … doorbell 0x0000000017a10040 reads 0x0`):
+`devm_ioremap_resource` is request+page-tables, the `ioremap(0x17a00000,
+SZ_64K)` is page-tables only, `devm_request_mem_region` is kernel
+bookkeeping (and no other node claims 0x17a10000-0x17a1ffff: GICD is
+0x17a00000-0x17a0ffff, GICR 0x17a60000+, so §29's mem_region-conflict
+theory was already dead), and the irq domain is software. A CPU **load**
+from a write-only message alias is outside the page's contract: the
+architecture defines only write semantics there, so the read's outcome is
+implementation state, not a datum. The GIC-600's designed response to
+out-of-decode accesses is an **error record** (the GICD summary's
+"SYN_ACE_BAD access" note) — and on this phone a fatal fabric/error event
+at kernel start lands in the secure side's fatal path, whose vocabulary
+our own crash dumps already printed: `TZBSP_ERR_FATAL_NOC_ERROR` →
+`SECURE_WDOG_EXPIRE` → `PS_HOLD` (MODEM-PLAN §13.2). Externally that is
+the observed signature: the phone goes dark and **off** during kernel
+start, no reset loop, and no pstore — a power cut takes DDR with it, which
+is why no crash log ever existed and the case needed RE + ablation. On
+warm push/reboot-to boots the same read landed in a state where the alias
+answered benignly (RAZ, 0x0, boot continued); on cold power-on and plain
+ssh-reboot boots it did not. That differential follows the **boot path,
+not the address**: this platform carries always-on state through warm
+resets that a cold power-on re-initializes — the same asymmetry the modem
+work measured directly on this phone (SDX55M PON survives warm reboots,
+only a power-off clears it; MODEM-PLAN §13 Run 22's premise). Which exact
+state (the secure side's error-reporting/firewall configuration, or the
+fabric's default read handling for the page) is **unobservable now and
+labelled open below** — the fix removes the only access that could
+resolve it.
+
+**The counter-example that bounds the claim.** Run 22 (2026-11-19,
+`poweroff` → power-on, kernel `g238696e3884c-dirty`, doorbell node in the
+DT) probed the doorbell on a cold boot and **passed**. So the read is not
+deterministically fatal per "cold boot" — its fate is state-dependent.
+The ablation differential (the correctly-configured f7f3096b1 lineage:
+node enabled → cold boots power off at kernel start; node disabled →
+cold pass, kernel `gc8be07674331`) still pins the cause on the probe, and
+the RE's elimination (stock never executes this load) explains why the
+probe is the only configuration that ever could fail this way.
+
+**Question 2 — independent contributions: none.** The
+`ioremap(0x17a00000, SZ_64K)` and the `devm_request_mem_region` cannot
+contribute to the cold-boot power-off: both are transaction-free (page
+tables / resource tree), the doorbell reg overlaps neither GIC window,
+and the mainline gic-v3 driver does not request its regions, so there is
+nothing for them to collide with. They are hygiene problems, not killers:
+the fix should still drop them along with the read (see below).
+
+**Question 3 — fix verdict: endorsed, with three refinements.** The RE's
+shape is exactly mainline's MBI pattern and stock's pattern on the same
+hardware, and the mechanism above adds no objection — it removes the only
+bus transaction the probe made:
+
+1. **Value-only doorbell:** parse the address as a value
+   (`of_get_address()`/`of_translate_address()`, or keep
+   `platform_get_resource` and use `->start` only), feed it to
+   `iommu_dma_prepare_msi()`/`msi_msg_set_addr()` exactly as
+   `irq-gic-v3-mbi.c` feeds `mbi_phys_base`. No `devm_ioremap_resource`,
+   no `readl`, at probe or anywhere.
+2. **Zero-size reg like stock:** `reg = <0x0 0x17a10040 0x0 0x0>`, and
+   the binding yaml must document that `reg` is an address-as-data (zero
+   size), so nobody "fixes" the size back and makes the page mappable
+   again. The `interrupts` bank (GIC_SPI 832-863) is untouched and
+   claimed by nothing else in our DT (checked: the doorbell node is the
+   only user).
+3. **Debugfs:** the knobs are already write-only (mode 0200) and inert
+   until used, but with the mapping gone, **drop the `fire` knob**
+   (its whole question — which data value raises which SPI — is settled:
+   GIC parent hwirq, proven live) and **keep the `setspi` knob**: a write
+   of an INTID to GICD_SETSPI_NSR at 0x17a00040 is the architecturally
+   defined AP-side use and was proven live on this phone (`SETSPI
+   864`/`872` incremented the right counts). Keep its GICD ioremap lazy
+   or narrowed to the one register; it touches nothing at kernel start
+   either way.
+4. **Keep the ablation** (`c8be07674`, doorbell off in the base DT, the
+   modem overlay enabling it with pcie2) even after the driver fix: the
+   doorbell is meaningless without pcie2, and a future cold-boot
+   regression on the daily image is then provably not the doorbell.
+5. **`f7f3096b1` becomes dead code:** with the doorbell domain owning
+   pcie2's MSI, the dwc iMSI-RX alloc path (which that commit patches,
+   pcie2-gated) never runs for pcie2 — drop or rework it in the same
+   series so the tree carries one MSI story. (Its Stage-3A twin,
+   `5be4efd5e`, is the documented wrong-half change.)
+
+**Remaining cold-boot risk on the modem path: none at kernel start.**
+With the fix the probe makes no bus transaction; the doorbell address is
+first consumed when pcie2's endpoint allocates vectors, as a pure
+argument to `iommu_dma_prepare_msi()` — a page-table edit plus ordinary
+SMMU driver traffic. The only writer of the alias page is then the
+endpoint's DMA write, stock's exact mechanism, proven on this phone both
+as stock and by our own rescue-shell retest (image `bcb62616…`,
+unassisted BHI/event MSI counts). The first cold boot of the fixed driver
+with the `--dual-boot --overlay modem` image remains the closing
+experiment — attended, runbook §10's stop conditions — because of the
+state co-factor, not because any access remains.
+
+**WTSR/SMPL: closed as a cause.** The PMIC never powered the phone off
+by its own decision: the ablation differential (same kernel, same PMIC,
+same battery, same flash path — only the doorbell node's `status`
+differs) leaves no room for a PMIC-initiated shutdown, watchdog or
+sudden-power-loss event. The dark/off state was the SoC's fatal-error
+response, plus the human's recovery power-hold where one was used. The
+Samsung-PMIC WTSR/SMPL angle (a real mechanism on the Exynos phones,
+docs/review/lessons/kernel-2.md) is retired for r8q; keep only the free
+postmortem habit: if another dead boot ever happens, read the PON
+off-reason on the next boot before anything else.
+
+**What remains open.** (1) The exact state that made the read fatal on
+cold power-on and plain ssh-reboot boots but benign on warm push/reboot
+boots and on Run 22's cold boot — unobservable now that the access is
+gone; it closes only if a fixed-driver cold boot ever fails (then the
+warm-kexec discriminator of §31 applies, against a non-doorbell cause).
+(2) The first attended cold boot of the fixed driver + modem overlay
+(the pass that ends the story). (3) The binding yaml + driver commits
+above, human-signed. Nothing else — in particular nothing on the PMIC,
+and nothing further on the GIC-600 alias itself.
+
+## 34. GPU cx-gdsc fix 29cfed48c FALSIFIED by the repro — the full QUIC series is needed (2026-11-20)
+
+The first fair test of the cx-gdsc recover fix, on the ablated correct-config
+image (kernel gc8be07674331, msm module from the same tree, renderD128 +
+Turnip Vulkan 1.3.354 answering, llama-bench built with GGML_VULKAN=ON from
+the on-phone source tree — logs/r8q/ai-bench-20261120-175150.log):
+
+- The bench ENGAGED the GPU ("ggml_vulkan: Found 1 Vulkan devices: 0 =
+  Turnip Adreno (TM) 650") — the historic wedge died at exactly this point,
+  so reaching compute is already past it.
+- The compute wedged anyway, and the fix did NOT hold the recovery (dmesg):
+  `[1397.8] msm_dpu: hangcheck detected gpu lockup rb 0!` →
+  `[1398.5] adreno 3d00000.gpu: gpu fault ring 0 fence 547 status 00800005`
+  → `[1398.9] a6xx_recover: cx gdsc didn't collapse` →
+  `[1399.9] a6xx_recover: cx gdsc didn't collapse` (recover_worker looping).
+- **Differences from the historic wedge (board/failed/08):** the phone
+  SURVIVED — SSH answered, renderD128 stayed registered; the wedge is
+  GPU-local (the display path is in recover with it). The bench itself was
+  killed by its 300 s timeout (no table). The board rule stands: treat the
+  wedge as needing a reboot before further GPU work.
+- **Conclusion:** the single QUIC 0/7 line ("the gpu device needs to be
+  runtime suspended so the iommu removes its vote") is NOT sufficient —
+  `pm_runtime_suspend(&gpu->pdev->dev)` ran inside the recover and the CX
+  gdsc still didn't collapse. The full 7-patch "Improve GPU Recovery"
+  series (kernelthread v4) holds the actual combination (SMMU/runtime-PM
+  reordering across the series). Next: obtain the series, port the
+  relevant patches, and re-run `tools/r8q-ai-bench`.
+- The LLM stays CPU-only meanwhile (34.5 pp / 13.5 tg t/s on this kernel).
+
+## 35. MISSION MODE: the +32.4 s death is gone — the modem holds M0 stable (2026-11-20)
+
+The modem image (recovery-modem-fixed.img ec3e461c…, kernel
+g6085e03490e8-dirty: the value-only doorbell 9c1214a01 + the ablation
+c8be07674 + the GPU fix + the f7f3096b1 revert) booted with its modules
+installed (tools/r8q-modules, first real run) and reached, for the
+first time past the 29-run +32.4 s wall:
+
+- `[0.192] qcom-pci-msi: doorbell 0x…17a10040 (address-as-data), 32
+  SPIs from 832` — the fixed driver, no read, clean probe.
+- `[6.60] qcom-pcie 1c10000.pcie: PCIe Gen.1 x2 link up` — the modem
+  link; the SDX55M endpoint at 0002:01:00.0.
+- `[7.90] mhi mhi0: Power on setup success` → `[8.01] Device already in
+  SBL, queuing transition` → `[8.11] Mission mode doorbell offsets`.
+- MSI vectors DELIVER: /proc/interrupts `DW-PCI-MSI-0000:01:00.0`
+  vectors 1+2 at 4 and 23 counts — the MHI event rings raise, the exact
+  thing the endpoint-MSI fault starved for 29 runs.
+- `/sys/kernel/debug/mhi/mhi0/states`: **`PM state: M0 Device: Active
+  MHI state: M0 EE: MISSION MODE wake: false`** at 2+ minutes uptime,
+  zero MHI errors, pending packets 0. The IPCR channels (20/21) are up.
+- The same boot carries the full module stack: ath11k (Wi-Fi, pcie0
+  Gen.2 x1 link up), msm (GPU), cs35l41 (audio amps), qcom_camss/hi847
+  (cameras), bluetooth/btbcm, the panel module.
+
+The chain that got here: the config fix (§30, DEVICE=r8q — without it
+nothing enumerates) → the ablation (§32 — the doorbell node off unless
+the overlay enables it) → the value-only doorbell (§33 — no CPU read of
+the GICA write-only page) → the modules push (PHY_QCOM_QMP_PCIE=m was
+the silent deferred supplier holding BOTH RCs) → the link up → MHI
+mission mode.
+
+Open items: (1) this image still boots INTERMITTENTLY — some power
+attempts power off during kernel start before a good boot lands (the
+state co-factor of §31/§33, unresolved); the ablated no-modem image
+boots reliably and stays the daily baseline; (2) the cellular stack's
+next rungs per MODEM-PLAN: QRTR service lookups, rmtfs for the modem's
+partitions, then registration/SIM; (3) the GPU wedge remains (§34).
+Full boot log: logs/r8q/modem-fixed-20261120-full-dmesg.log (the
+pre-modules boot, both RCs deferred on the missing PHY module).
+
+## 36. Corrections + a new hardware blocker: mhi0 is the WI-FI's controller, and the SD card is failing (2026-11-20)
+
+**§35's "modem in mission mode" was WRONG — corrected.** mhi0 is the
+Wi-Fi's own MHI controller (ath11k registers its own; the QCA6390 reaches
+mission mode via ath11k's glue — the "mission mode doorbells", the IPCR
+channels and the QRTR services I read were the Wi-Fi chip's, with the
+"Snapdragon Sensor Core" and friends being its neighbors). The MODEM's
+controller is **mhi1**, and it only exists once mhi_pci_generic binds
+0002:01:00.0 — which never happened at boot on these images: the udev
+autoload failed (the modules.alias/depmod database on the corrupting SD
+is unreadable), so the modem sat unclaimed until `modprobe
+mhi_pci_generic` by hand — after which mhi1 powered up, the r8q config
+selected ("MHI PCI device found: qcom-sdx55m"), the modem reached SBL,
+and the SAHARA serving began (the first image, mdmddr from the healthy
+UFS partition /dev/sdd2, transferred clean: HELLO → chunks →
+END_OF_IMAGE → DONE_RESP).
+
+**The SD card is failing.** 132 storage-error lines in dmesg; files
+corrupted so far: /usr/lib/.../mhi_pci_generic-installed copies,
+wwan.ko (ls itself I/O-errors), modules.dep, the whole drivers/gnss/
+directory, /usr/bin/nohup, /usr/bin/tar, and /lib/firmware/qcom/sdx55m
+files (the Sahara loader's apdp.mbn read failed mid-protocol — the
+abort that wedged the SBL). The loop root (/omarchy-r8q.img) lives on
+this SD. Workarounds in play, all from RAM (/tmp, tmpfs):
+- the modules load by hand: insmod /tmp/gnss.ko, wwan.ko,
+  mhi_wwan_ctrl.ko (the "unknown symbol" was only the missing gnss.ko
+  dependency — the running kernel matches its modules);
+- the full sdx55m firmware set (17 files, 88 MB) pushed to /tmp/sdx55m
+  and bind-mounted over /lib/firmware/qcom/sdx55m;
+- the loader runs via systemd-run (nohup is corrupt).
+**The daily-phone decision this forces:** the SD must be replaced or the
+loop root migrated to the UFS (the native-root partition sda36, ext4,
+label omamobile-root, is healthy) — a human decision for the next
+session.
+
+**The modem's current state (the live chain):** mhi1 in SBL; the Sahara
+loader (tools/r8q-sahara, running as a systemd unit, images from RAM)
+serves the set; the SBL completes multi_image_qti.mbn (the image table)
+each cycle, then the channel cycles and the modem re-HELLOs with mode=2
+MEMORY_DEBUG offers. MODEM-PLAN §925-934 names this class: the unresponded
+dump offer times out (~38 s) and PS_HOLD-resets; the dump session carries
+the crash reason ("the data every prior run lost"). The missing
+run17_diag.py walker is being reconstructed (subagent, 2026-11-20) —
+serving the dump is the path to the MPSS crash reason without a reset.
+
+**Also recorded:** the modules staging was stale for the first push
+(mhi_pci_generic.ko built from the pre-expansion 2-channel IPCR-only
+table; a touch+rebuild fixed it — the r8q table now carries the full
+14-channel set: SAHARA/DIAG/MBIM/QMI/IPCR/DUN/FIREHOSE). And the
+Sahara port race: the SBL HELLOs once per channel bring-up — the loader
+must be listening BEFORE the modem's bind (the --wait port-wait exists
+for this), or the port cycles leave it deaf.
+
+## 37. The MPSS crash reason captured live: TZBSP_ERR_FATAL_NOC_ERROR (2026-11-20)
+
+The reconstructed dump walker (tools/run17_diag.py, from the lost
+run17_diag.py — its scratch original was found on this laptop and used as
+the primary reference; 13/13 self-test checks, byte-exact against the
+recorded run21 session) served the SDX55M's MEMORY_DEBUG session live, on
+the phone, over the crash loop — **38 files / 2875204 bytes to
+/tmp/sdx55-crash, no PS_HOLD wipe**: the data every prior run lost.
+
+**The reason (Summary.txt):**
+```
+TZ reset reason : (6) : TZBSP_ERR_FATAL_NOC_ERROR
+AOSS_CC_RESET_STATUS from SDI: (0x803) : SECURE_WDOG_EXPIRE PMIC_RESIN PCIE_PERST_RESET
+OEM_RESET_REASON from SDI : (0x6) : TZBSP_ERR_FATAL_NOC_ERROR
+```
+The Q6's own SW crash fields (Type/Task/File/Error_Msg) are EMPTY: the
+modem died from a **NOC (interconnect) fatal error**, not a software
+assert — the same fatal class as the doorbell read's power-off (the
+out-of-contract fabric access). Interpretation, consistent with the
+session history: the crash-loop's SBL carries its state across the warm
+resets (FLR / Sahara RESET), skipping the DDR-init image (mdmddr, ID 34 —
+served only in the very first session before the mid-protocol abort), so
+its next DDR access hits an uninitialized target → NOC fatal → the
+loop. Run 22's proof: a full phone power cycle (PON) clears the modem's
+carried state and the SBL then walks the complete set (mdmddr →
+multi_image_qti → the images → AMSS — mission mode).
+
+The path forward: one full phone power cycle + the RAM stack
+re-established at boot (the modules from /tmp, the firmware bind-mount,
+the loader + walker) — scripted as tools/r8q-modem-bringup so the cycle
+costs one command. The dump artifacts stay on the phone (RAM) —
+/tmp/sdx55-crash/ — never committed (raw regions; crash-reasons.txt is
+redacted).
+
+## 38. The clean walk works — and the remaining blocker is the AMSS-jump link fault, caught live (2026-11-20)
+
+The full power cycle (the precondition, per Run 22) + the one-command RAM
+stack (`tools/r8q-modem-bringup` — fixed its xargs bug) changed the walk
+completely:
+
+- The fresh modem walked DEEP: 13+ distinct images served over ONE open
+  channel (the port's one-channel fix holds: a single "listening" line for
+  the whole session — IDs 6/8/16/17/20/23/25/29/33/34 (mdmddr!)/36/40/41/42),
+  ~2500 transfers, the mode-2 offers accepted and captured by the walker
+  with NO TZ crash lines in the fresh Summary (the pre-cycle NOC-error
+  crash loop is gone — the carried state was indeed it).
+- The loop shape: the SBL walks the set → **the AMSS jump trips the PCIe
+  link** → the modem resets → the walk restarts (the apdp-dominated
+  re-request phase is the aftermath, exactly Run 4's record: "the loader's
+  loop repeats (apdp → mode-2 → multi_image_qti → channel EIO)").
+- **The fault, live and counted: the root port 0002:00:00.0 reports
+  `RxErr 329`** (physical-layer receive errors; the endpoint itself 0) —
+  the MODEM-PLAN §925-934 open issue at the AMSS jump: "the AMSS jump then
+  trips CmpltTO/RxErr and the link dies. Gen2 and Gen1 failed the same
+  way, so the speed cap is not the cause. Stock's CX vote is the remaining
+  software difference" (the overlay already asks for the top CX corner and
+  caps Gen1). The candidates per the plan: the CX/perf-state vote path, the
+  dummy vddpe-3v3/vdda (the shared 3.3 V rail), or the modem's own
+  PS_HOLD self-reset — now all instrumentable live: the AER counters
+  (/sys/bus/pci/devices/0002:00:00.0/aer_dev_correctable) + the walker's
+  dump on every mode-2.
+- The walk's end state: the phone's USB stopped answering mid-session
+  (the gadget enumerates, SSH times out at the banner) — the link-fault
+  aftermath wedged the system; the phone needs a look (the screen) and
+  likely a reboot before the next cycle.
+
+**Where this leaves the cellular objective:** every host-side dependency
+is now solved and proven on this boot chain (the config, the doorbell
+value-only, the modules-from-RAM, the one-channel loader, the dump
+walker). What stands between SBL and mission mode is the AMSS-jump link
+fault itself — the MODEM-PLAN's known open issue, no longer confounded
+by anything host-side.
+
+## 39. The full QUIC series benched: the poll works, and the CX gdsc is proven still voted ON — the SMMU vote is the culprit (2026-11-20)
+
+The ported r8q-gpu-recovery series (branch g1fa07e423998: the v3 gpucc
+reset prerequisite + the v5 CX-collapse poll, NOTES-ready) flashed, the
+modules pushed, and `tools/r8q-ai-bench` ran the repro on it. Result:
+
+- The ported machinery WORKS: `a6xx_recover` now calls the reset path →
+  `gdsc_wait_for_collapse` polls the CX gdsc status bit for 500 ms and
+  WARNs when held — the exact hardware-level evidence the naive line
+  never produced.
+- **The definitive fact: `gpu_cx_gdsc status stuck at 'on'`** at the
+  recovery point (the WARN fired from a6xx_recover's reset path), then
+  `cx gdsc didn't collapse` and `vk::DeviceLostError` again. The wedge is
+  NOT a wait/timing problem — the CX gdsc is still VOTED ON while the
+  gpu device is runtime-suspended.
+- The culprit is what the port's analysis flagged: **the SMMU's own vote**
+  — sm8250.dtsi:3032 wires the adreno SMMU's power-domains to
+  gpucc/GPU_CX_GDSC; the gpu's runtime suspend does not drop the smmu
+  device's vote (the "devlink between gpu and its smmu" of the QUIC 0/7
+  diagnosis). The gpu-side runtime PM (already absorbed in 7.3) plus the
+  poll still leaves the iommu's vote holding the rail.
+- The next GPU leg: make the recovery release the SMMU's vote — the
+  gpu↔smmu device link state (does msm_gpu_init create one? does the
+  adreno_smmu runtime-suspend with its consumer?), and the vote-holder
+  read from the genpd (the cxpd's voter list at the recovery point).
+- The bench's verdict tooling worked end-to-end: the link-drop retry, the
+  Vulkan check, the wedge-signature parse (PASS/WEDGE verdicts), the log
+  capture (logs/r8q/ai-bench-*.log).
+
+## 40. MIGRATED: the loop root is now the native UFS root (sda36) — the failing SD is out of the boot path (2026-11-20)
+
+The user's call: no spare card, so migrate (the SD's decay is hardware-level
+block-read failures on distinct files, growing — not fsck-repairable). Target:
+the healthy native root `sda36` (ext4, LABEL `omamobile-root`, Run 7's
+install), which the dual-boot images had kept read-only at boot.
+
+- **Pre-flight diff** (mount ro,noload + sha): the native root was already
+  current on everything big — the LFM3 GGUF byte-identical (sha 3793e1e6…),
+  `omamobile-ai` + `llama-server` binaries identical, node v26.13.1, sshd
+  enabled, the Wi-Fi NM profiles present, and the whole
+  /usr/lib/firmware tree name-identical (ath11k/QCA6390 included — the S20
+  FE's Wi-Fi is QCA6390, not the gs201's WCN6855). Real deltas: only
+  /root/.pi (48K), the llama.cpp build-vk bench binaries (55M, copied,
+  llama-bench sha-verified), the ssh host keys + authorized_keys, and the
+  current kernel's modules (the native tree was 4 kernel-eras old).
+- **The write pattern** (the project's own, from r8q-flash-recovery):
+  `blockdev --setrw` on the disk + sda36, mount rw, copy, sha-verify, clean
+  unmount, `blockdev --setro` back (ro=1 read back). The SD root's `umount`
+  binary is dead — an unmount via ctypes `umount(2)` works.
+- **Modules**: streamed from the laptop's
+  `modules-…-g1fa07e423998.tar.zst` straight into the mounted native root —
+  no SD reads (extraction via python3 tarfile; the SD root's GNU tar is
+  dead), `depmod -b` against the native tree, msm.ko sha verified
+  (c4e6f39f… matches the laptop staging).
+- **The boot**: `tools/r8q-boot pack` WITHOUT --dual-boot → the initramfs
+  allowlists userdata (sda36) rw and mounts by LABEL `omamobile-root`
+  (refuses any other label). `tools/r8q-test-image` flashed it to sda24
+  (staged, checksummed, read back) — boot PASS: **root source /dev/sda36**,
+  0 mmcblk and 0 loop mounts, **renderD128 up at boot** (the pre-installed
+  modules), Wi-Fi connected, omamobile-ai active serving LFM3-1.7B.
+- **pi restored on the new root** (`tools/r8q-pi`): RAM install + the
+  carried configs + the chain test → `PI-LFM3-OK`.
+
+Tooling consequence: **future test images pack WITHOUT --dual-boot** (the
+native-root flow is now the phone's boot path); --dual-boot remains the
+documented SD fallback. The old-era modules dirs on the native root are
+harmless leftovers. The SD card stays in the slot, unused by Linux. The
+Vulkan GPU repro stays held until the SMMU-vote branch (in flight) lands —
+the wedge is proven (§39); re-running it on this kernel adds nothing.
+Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
+
+## 42. Session + pi carried over; the model is now pi-tuned (2026-11-20)
+
+(Records from here on stay short and tabular — owner's ask.)
+
+| Item | Fact |
+| --- | --- |
+| UI gap on the native root | Not the image: `tools/r8q-boot` pins `systemd.unit=multi-user.target` by design. The native root (Run 7's install) simply lacked the sddm enablement and the whole `~alarm` home — the SD loop root had both |
+| Fix | `systemctl --root` diff on the read-only-mounted SD named `sddm.service` alone; copied `/etc/sddm.conf.d/` + `~alarm` (`.config` 179M + `.local` 228M, `monitors.lua` sha-verified); `enable --now sddm` → Hyprland + quickshell up, confirmed on screen |
+| sddm quirk | `Session=omarchy.desktop` exists on neither root — sddm falls back to the default session; identical behavior on the SD root |
+| pi | The owner's mise install (`~/.local/share/mise/shims/pi`, 1.5.2) is THE pi — no npm/global churn (owner's preference). Config `~/.pi/agent/{models,settings}.json` → the `omamobile` provider; `tools/r8q-pi` rewritten mise-based (config ensure + a `runuser` test) |
+| Model | Q8_0 base (1.85G) + `harness-hub/LFM3-1.7B-pi` harbor-pi F16 LoRA (63M), via `/usr/local/bin/llama-server-lora` (`LLAMA_BIN`) + `conf.d/20-pi-tuned.conf`; serve cmdline verified with `--lora` |
+| Speed / RAM | 10.5 tok/s out at 32k ctx (Q4_K_M was 10.6–11.0 — Q8 costs ~nothing); 3740/5546 MB used, 1805 available |
+| Verified | `PI-LFM3-OK` through the mise shim as the session user — pi in Foot defaults to the on-device pi-tuned LFM3 |
+
+## 43. Stable record: the native image passes — main moves (2026-11-20)
+
+| Item | Value |
+| --- | --- |
+| Image | `out-r8q/recovery-native.img` sha256 `68fa6540444b0b0bcc66dcdb5df8684ae87dc17ce9c8e0d3637dfcf9ffcfc97d` |
+| Kernel | `7.3.0-rc6-omamobile-push1-g1fa07e423998` (r8q-gpu-recovery; no overlay, PCIe2/PHY disabled) |
+| PASS | `tools/r8q-test-image`: UFS 4 disks, gadget up, banner match |
+| Daily state on it | root `/dev/sda36` (§40); UI on screen (§41); pi-tuned model serving (§42); Wi-Fi/audio/cameras as before the migration |
+| Open, not blocking daily use | GPU compute wedge — the adreno SMMU's CX vote (§39); fix in flight on `r8q-gpu-smmu-vote`, own pass + re-pin when it lands |
+| main | merged through `tools/r8q-merge-main --pass-sha 68fa6540444b0b0bcc66dcdb5df8684ae87dc17ce9c8e0d3637dfcf9ffcfc97d`; work continues on a new topic branch |

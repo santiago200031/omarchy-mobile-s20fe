@@ -1,0 +1,103 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# tools/r8q-modem-bringup: establish the modem's whole RAM stack on a freshly
+# booted phone (the SD-backed root is failing — NOTES.md 36 — so every piece
+# the SDX55M chain needs is pushed to /tmp and loaded from there), then serve
+# its Sahara boot and report the MHI state. One command after any cold boot:
+#
+#   tools/r8q-modem-bringup [--watch]
+#
+# --watch keeps reporting mhi1's EE every 10 s (Ctrl-C to stop).
+#
+# The chain (NOTES.md 36-37): the modem endpoint 0002:01:00.0 needs
+# mhi_pci_generic bound (the SD's alias database is corrupt, so the boot
+# autoload fails — this script insmods the modules from RAM); the wwan
+# chain (gnss/wwan/mhi_wwan_ctrl) opens the Sahara port; the firmware set
+# is bind-mounted from RAM over /lib/firmware/qcom/sdx55m; the loader
+# (with the run17_diag dump walker) serves the image set; mhi1 then walks
+# SBL -> AMSS -> MISSION MODE. A cold boot (a full power cycle) is the
+# precondition: the modem's carried state is what crash-loops it
+# (TZBSP_ERR_FATAL_NOC_ERROR, NOTES.md 37) — run this right after the
+# phone comes up.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+ok() { printf '\e[1;32m  ✔\e[0m %s\n' "$*"; }
+die() { printf '\e[1;31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+
+P="$ROOT/tools/phone-ssh"
+SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
+[[ -f "$SSH_KEY" ]] && export OMAMOBILE_SSH_KEY="$SSH_KEY"
+KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
+FW_SRC="${FW_SRC:-$HOME/omamobile-kernel/r8q-fw-full/sdx55m}"
+KVER="${KVER:-7.3.0-rc6-omamobile-push1-g6085e03490e8-dirty}"
+STAGE="$KERNEL_OUT/modules-staging/lib/modules/$KVER/kernel"
+WATCH=0
+[[ ${1:-} == --watch ]] && WATCH=1
+
+ph() { timeout "${PH_T:-90}" "$P" --fresh "$@"; }
+
+say "Waiting for the phone"
+for _ in $(seq 1 40); do ph true >/dev/null 2>&1 && break; sleep 4; done
+ph true >/dev/null 2>&1 || die "the phone did not answer"
+
+say "Kernel check"
+kver=$(ph 'uname -r')
+[[ $kver == "$KVER" ]] || die "the phone runs $kver, this stack is built for $KVER (set KVER=)"
+
+say "Pushing the modules (RAM)"
+for ko in drivers/bus/mhi/host/mhi.ko drivers/bus/mhi/host/mhi_pci_generic.ko \
+          drivers/gnss/gnss.ko drivers/net/wwan/wwan.ko drivers/net/wwan/mhi_wwan_ctrl.ko; do
+  b=$(basename "$ko")
+  ph "cat > /tmp/$b" < "$STAGE/$ko" || die "push failed: $b"
+done
+ok "mhi, mhi_pci_generic, gnss, wwan, mhi_wwan_ctrl"
+
+say "Loading the modules (dep order)"
+ph 'for m in mhi gnss wwan mhi_wwan_ctrl mhi_pci_generic; do
+      if ! grep -q "^$m " /proc/modules; then insmod /tmp/$m.ko 2>/dev/null \
+        || modprobe $m 2>/dev/null || echo "  note: $m already present or failed"; fi
+    done; ls /sys/bus/mhi/drivers/ | tr "\n" " "' | head -2
+
+say "Waiting for mhi1 (the modem's controller; mhi0 is the Wi-Fi's)"
+mhi1=""
+for _ in $(seq 1 30); do
+  mhi1=$(ph 'ls /sys/kernel/debug/mhi/ 2>/dev/null | grep -c mhi1') || true
+  [[ $mhi1 == 1 ]] && break
+  sleep 4
+done
+[[ $mhi1 == 1 ]] || die "mhi1 never appeared — did pcie2 train? (ls /sys/bus/pci/devices/0002:01:00.0)"
+ok "mhi1 up: $(ph 'cat /sys/kernel/debug/mhi/mhi1/states | head -1')"
+
+say "Pushing the firmware set (17 files, ~88 MB, RAM) + bind-mount"
+ph 'mkdir -p /tmp/sdx55m'
+cd "$FW_SRC"
+for f in *; do ph "cat > /tmp/sdx55m/$f" < "$f" || die "push failed: $f"; done
+cd - >/dev/null
+ph 'mkdir -p /lib/firmware/qcom/sdx55m; mount --bind /tmp/sdx55m /lib/firmware/qcom/sdx55m 2>/dev/null || true; ls /tmp/sdx55m | wc -l' | tail -1 | sed 's/^/  ✔ /'
+
+say "Pushing the Sahara loader + the dump walker"
+ph 'cat > /tmp/r8q-sahara.py' < "$ROOT/tools/r8q-sahara"
+ph 'cat > /tmp/run17_diag.py' < "$ROOT/tools/run17_diag.py"
+ok "loader + walker staged"
+
+say "Starting the loader (dump module armed, listening on the port)"
+ph 'systemctl stop sahara-dump r8q-sahara-memdump 2>/dev/null; true' >/dev/null 2>&1 || true
+ph 'systemd-run --unit=r8q-sahara-memdump --collect /bin/sh -c "R8Q_MEMDUMP_MODULE=/tmp/run17_diag.py python3 /tmp/r8q-sahara.py -d /dev/wwan0sahara0 --wait 600 --idle 60 --dump-dir /tmp/sdx55-crash > /tmp/sahara-memdump.log 2>&1" >/dev/null 2>&1 || die "the loader unit did not start"'
+sleep 5
+ph 'systemctl is-active r8q-sahara-memdump' | grep -q active || die "the loader is not running"
+ok "loader running (log: /tmp/sahara-memdump.log)"
+
+say "The modem chain is armed. mhi1 state:"
+ph 'cat /sys/kernel/debug/mhi/mhi1/states | head -1'
+if ((WATCH)); then
+  say "Watching (Ctrl-C to stop)"
+  while :; do
+    printf '\r%s' "$(date +%H:%M:%S) $(ph 'cat /sys/kernel/debug/mhi/mhi1/states | head -1' 2>/dev/null)"
+    sleep 10
+  done
+else
+  say "Watch with: tools/r8q-modem-bringup --watch (or poll mhi1's states)"
+  say "Success looks like: EE: MISSION MODE, then mhi1_QMI/MBIM/DIAG devices and /dev/wwan0{qmi,mbim,at}0"
+fi

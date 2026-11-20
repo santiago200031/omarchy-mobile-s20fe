@@ -1,0 +1,16 @@
+[Unit]
+Description=Qualcomm remotefs service (read-only shadow for external MHI modems)
+Documentation=https://github.com/linux-msm/rmtfs
+
+[Service]
+# -r keeps every modem write in a RAM shadow: the files under
+# /var/lib/rmtfs are only ever read, and storage_sync() is a no-op.
+# Never run without -r. Never add -s (an MPSS remoteproc, which an
+# external MHI modem has not) or -S (A/B slot suffix; these partitions
+# are not slotted).
+ExecStart=/usr/bin/rmtfs -r -v -P -o /var/lib/rmtfs
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

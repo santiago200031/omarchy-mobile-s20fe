@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: 0BSD
+# Upstream QRTR TFTP service (linux-msm/tqftpserv), serving the modem's
+# file requests over QRTR: reads come from the firmware class paths
+# (/lib/firmware among them), writes land only under its state directory.
+# Maintainer: Santiago <villavicencioandrs@gmail.com>
+
+pkgname=tqftpserv
+pkgver=1.2
+pkgrel=1
+pkgdesc='QRTR TFTP service for Qualcomm modems (serves firmware files, writes only to its state directory)'
+arch=(aarch64)
+url='https://github.com/linux-msm/tqftpserv'
+license=(BSD-3-Clause)
+depends=(glibc qrtr zstd)
+makedepends=(meson ninja)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/linux-msm/tqftpserv/archive/refs/tags/v$pkgver.tar.gz"
+        tqftpserv.service)
+sha256sums=('a3850c34e48f23b7bc360d70f1e91700de2f8c60af003eda93e14182f8cf6af1'
+            'SKIP')
+
+build() {
+  arch-meson "$pkgname-$pkgver" build
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  # Replace upstream's unit with ours: identical content, but pinned here
+  # so the package owns it, and so test/all can check it.
+  install -Dm644 tqftpserv.service "$pkgdir/usr/lib/systemd/system/tqftpserv.service"
+}

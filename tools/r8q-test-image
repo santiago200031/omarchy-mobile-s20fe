@@ -1,0 +1,145 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-test-image: flash a packed recovery image over the USB SSH link, reboot
+# the phone into it, wait for the gadget, fix the host end of the NCM link,
+# verify the boot (kernel, UFS, gadget) and harvest the boot log. One
+# command for the whole flash-test cycle (NOTES.md 30/31: every failed boot
+# since 2026-11-18 was a DEVICE-less build; this prints the kernel banner and
+# the UFS/gadget state so a broken build is diagnosed in one boot, not six).
+#
+#   tools/r8q-test-image IMAGE
+#   tools/r8q-test-image --cold IMAGE     # no ssh reboot: print the power-cycle
+#                                         # dance for a true cold boot instead
+#   tools/r8q-test-image --stable         # test the recorded stable baseline
+#
+# The write goes through tools/r8q-flash-recovery (sda24 only, staged,
+# checksummed, read back, partition returned to read-only). The write is the
+# human's call: run this only after a go.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
+REMOTE="${REMOTE:-root@172.16.42.1}"
+TIMEOUT="${TIMEOUT:-180}"
+COLD=0 STABLE=0
+while [[ ${1:-} == --* ]]; do
+  case $1 in
+    --cold) COLD=1; shift ;;
+    --stable) STABLE=1; shift ;;
+    --) shift; break ;;
+    *) die "unknown option: $1 (try --cold or --stable)" ;;
+  esac
+done
+if ((STABLE)); then
+  IMG="${1:-}"
+  ARGS=(--stable)
+else
+  IMG="${1:-$KERNEL_OUT/recovery-omamobile.img}"
+  ARGS=()
+fi
+[[ -f $IMG ]] || die "image not found: $IMG (run: tools/r8q-boot pack)"
+
+SSH=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+     -o ConnectTimeout=8 -q)
+SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
+[[ -f "$SSH_KEY" ]] && SSH+=(-i "$SSH_KEY" -o IdentitiesOnly=yes)
+
+SSH_OK() { "${SSH[@]}" "$REMOTE" true >/dev/null 2>&1; }
+
+# ---- 1. flash over the SSH link (sda24 only, checksummed, read back) ----
+say "Flashing $(basename "$IMG") over the SSH link (sda24)"
+"$ROOT/tools/r8q-flash-recovery" "${ARGS[@]}" "$IMG"
+
+# ---- 2. reboot into it ----
+if ((COLD)); then
+  say "Cold boot requested: power the phone OFF, then hold Volume Down +"
+  say "Power ~20 s until the Samsung logo, release Power, keep Vol Down."
+  say "Waiting for the phone to leave and come back (cold) ..."
+else
+  SSH_OK || die "$REMOTE not answering (is the gadget link up?)"
+  say "Rebooting the phone into the new image (ssh reboot)"
+  "${SSH[@]}" "$REMOTE" reboot >/dev/null 2>&1 || true
+  say "Waiting for the gadget to come back (timeout ${TIMEOUT}s) ..."
+fi
+
+# ---- 3. wait for the gadget on the bus ----
+found=""
+for _ in $(seq 1 "$TIMEOUT"); do
+  if lsusb 2>/dev/null | grep -q "1d6b:0104"; then found=gadget; break; fi
+  sleep 1
+done
+[[ -n $found ]] || die "gadget 1d6b:0104 never appeared on the bus in ${TIMEOUT}s
+  - if the screen shows the initramfs console, read the two lines:
+    '=== ufs-probe: N disks ===' and 'USB gadget up' vs 'no USB device
+    controller found'; a rescue-shell boot with 0 disks is a config/build
+    failure (NOTES.md 30), not a PCIe2 problem."
+
+# ---- 4. host end of the NCM link (a replug re-enumerates it with no IPv4) ----
+ncm_if=""
+for d in /sys/class/net/*; do
+  if [[ -L "$d/device" ]] && readlink "$d/device" | grep -q "/usb"; then
+    if [[ "$(basename "$(readlink -f "$d/device/driver")" 2>/dev/null)" == cdc_ncm ]]; then
+      ncm_if="${d##*/}"
+    fi
+  fi
+done
+if [[ -n $ncm_if ]] && ! ip -4 addr show "$ncm_if" | grep -q "inet "; then
+  say "Host NCM interface $ncm_if has no IPv4: setting 172.16.42.2/24"
+  con=$(nmcli -g NAME,DEVICE connection show --active 2>/dev/null \
+        | grep ":$ncm_if\$" | cut -d: -f1 || true)
+  if [[ -n $con ]]; then
+    nmcli connection modify "$con" ipv4.method manual \
+      ipv4.addresses 172.16.42.2/24 >/dev/null 2>&1 || true
+    nmcli connection up "$con" >/dev/null 2>&1 || true
+  else
+    sudo -n ip addr add 172.16.42.2/24 dev "$ncm_if" 2>/dev/null || true
+    sudo -n ip link set "$ncm_if" up 2>/dev/null || true
+  fi
+fi
+
+# ---- 5. wait for SSH and verify the boot ----
+say "Waiting for SSH to answer ..."
+up=""
+for _ in $(seq 1 60); do
+  SSH_OK && { up=1; break; }
+  sleep 2
+done
+[[ -n $up ]] || die "gadget is on the bus but SSH never answered in 120s"
+say "SSH is up: verifying the boot (retries if the USB link drops)"
+
+VERIFIED=""
+for attempt in $(seq 1 6); do
+  line=$("${SSH[@]}" "$REMOTE" '
+    echo "$(uname -r) $(ls -d /sys/block/sd* 2>/dev/null | wc -l) $(ls /sys/class/udc 2>/dev/null | head -1)"' 2>/dev/null || true)
+  if [[ -n $line ]]; then VERIFIED="$line"; break; fi
+  say "  link dropped at verify (attempt $attempt/6) — waiting for gadget+SSH again"
+  for _ in $(seq 1 120); do
+    lsusb 2>/dev/null | grep -q "1d6b:0104" && SSH_OK && break
+    sleep 2
+  done
+done
+[[ -n $VERIFIED ]] || die "could not verify the boot after 6 attempts: replug the USB cable, then re-check with: $ROOT/tools/phone-ssh 'uname -r; ls -d /sys/block/sd*'"
+read -r KVER SDN UDC <<<"$VERIFIED"
+
+# ---- 6. harvest the boot log ----
+mkdir -p "$ROOT/logs/r8q"
+stamp=$(date +%Y%m%d-%H%M%S)
+LOG="$ROOT/logs/r8q/test-${stamp}-dmesg.log"
+"${SSH[@]}" "$REMOTE" 'dmesg' >"$LOG" 2>/dev/null || true
+banner=$(grep -m1 "Linux version" "$LOG" | cut -c1-100)
+
+# ---- 7. verdict ----
+say "kernel : $KVER"
+say "dmesg  : $banner"
+say "UFS    : $SDN disk(s) ($(ls -d /sys/block/sd* 2>/dev/null | wc -l) expected >= 1)"
+say "UDC    : ${UDC:-missing}"
+say "log    : $LOG"
+if ((SDN >= 1)) && [[ -n $UDC ]]; then
+  printf '\e[1;32m==>\e[0m PASS: UFS enumerated, gadget up\n'
+  exit 0
+else
+  printf '\e[1;31m==>\e[0m FAIL: %s disks, UDC=%s — read $LOG (NOTES.md 30: a 0-disk boot is a build/config failure)\n' "$SDN" "${UDC:-missing}"
+  exit 1
+fi

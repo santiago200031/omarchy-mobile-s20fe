@@ -1,0 +1,72 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# tools/r8q-merge-main: the stability gate (device/r8q/BRANCHING.md) — merge
+# the current topic branch into main ONLY when an image built from this
+# tree has a recorded on-device PASS. The check is mechanical: --pass-sha
+# must name an image sha256 that NOTES.md records as passing
+# tools/r8q-test-image on hardware. No override flag — a human records the
+# PASS (the flash is the human's call, AGENTS.md section 1); the tool only
+# verifies the record exists.
+#
+#   tools/r8q-merge-main --pass-sha <sha256> [--push] [--branch NAME]
+#
+# --branch merges that branch instead of the current one. --push pushes
+# main to origin after the merge. The merge is --no-ff: the topic branch's
+# history stays readable on main.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+ok() { printf '\e[1;32m  ✔\e[0m %s\n' "$*"; }
+die() { printf '\e[1;31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+
+PASS_SHA="" PUSH=0 BRANCH=""
+while [[ ${1:-} == --* ]]; do
+  case $1 in
+    --pass-sha) PASS_SHA="$2"; shift 2 ;;
+    --push) PUSH=1; shift ;;
+    --branch) BRANCH="$2"; shift 2 ;;
+    --) shift; break ;;
+    *) die "unknown option: $1 (try --pass-sha <sha256> [--push] [--branch NAME])" ;;
+  esac
+done
+[[ -n $PASS_SHA ]] || die "the gate needs the hardware PASS: --pass-sha <sha256>
+  record the passing image in device/r8q/NOTES.md first (BRANCHING.md: a
+  human records the PASS, this tool only verifies the record exists)"
+[[ $PASS_SHA =~ ^[0-9a-f]{64}$ ]] || die "--pass-sha must be a full sha256"
+
+BRANCH="${BRANCH:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)}"
+[[ $BRANCH != "main" ]] || die "nothing to merge: you are on main"
+
+# ---- the gate: the PASS must be recorded ----
+say "Gate: looking for the PASS record of $PASS_SHA in NOTES.md"
+grep -q "$PASS_SHA" "$ROOT/device/r8q/NOTES.md" ||
+  die "no NOTES.md record mentions $PASS_SHA
+  A hardware PASS that is not recorded did not happen (BRANCHING.md).
+  Add the entry: image sha, kernel, what passed (tools/r8q-test-image
+  output), the date — then re-run."
+
+# ---- a clean tree ----
+[[ -z $(git -C "$ROOT" status --porcelain | grep -v '^??') ]] ||
+  die "the working tree has uncommitted changes — commit them first
+$(git -C "$ROOT" status --short | grep -v '^??' | head -4)"
+
+# ---- the branch tip is what gets merged ----
+tip=$(git -C "$ROOT" rev-parse --short "$BRANCH")
+say "Merging $BRANCH ($tip) into main (no-ff)"
+git -C "$ROOT" checkout -q main
+git -C "$ROOT" merge --no-ff -q -m "r8q stable merge: $BRANCH
+
+Hardware PASS gate (device/r8q/BRANCHING.md): image $PASS_SHA passed
+tools/r8q-test-image on the phone; the PASS is recorded in NOTES.md.
+Merged from $BRANCH at $tip." "$BRANCH"
+git -C "$ROOT" checkout -q "$BRANCH"
+ok "merged: $BRANCH ($tip) is on main"
+
+if ((PUSH)); then
+  say "Pushing main to origin"
+  git -C "$ROOT" push origin main
+  ok "origin/main updated"
+else
+  say "Push with: git push origin main"
+fi

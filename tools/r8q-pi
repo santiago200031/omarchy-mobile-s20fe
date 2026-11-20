@@ -1,0 +1,72 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# tools/r8q-pi — set the session user's pi to the on-device LFM3 and test it.
+#
+#   tools/r8q-pi          ensure the agent config, then test
+#   tools/r8q-pi test     test only
+#
+# pi itself is the session user's mise install (~alarm/.local/share/mise/shims/pi);
+# only the agent config is ours: ~/.pi/agent/{models,settings}.json point pi at
+# the omamobile-ai supervisor (127.0.0.1:8080, OpenAI-compatible, no key needed —
+# the dummy satisfies pi's check). The supervisor's conf.d/20-pi-tuned.conf serves
+# the pi-tuned model: Q8_0 base + harness-hub harbor-pi LoRA (LLAMA_BIN wrapper).
+# The first query lazily loads the model (~1 min); later ones answer directly.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+ok()  { printf '\e[1;32m  ✔\e[0m %s\n' "$*"; }
+die() { printf '\e[1;31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+
+MODELS_JSON='{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "omamobile": {
+      "name": "Omarchy Mobile (on-device)",
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "api": "openai-completions",
+      "apiKey": "local-no-auth",
+      "models": [{
+        "id": "LFM3-1.7B", "name": "LFM3-1.7B pi-tuned (on-device)",
+        "reasoning": false, "input": ["text"],
+        "contextWindow": 32768, "maxTokens": 4096,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+      }]
+    }
+  }
+}'
+
+SETTINGS_JSON='{
+  "$schema": "https://pi.dev/schemas/settings.schema.json",
+  "defaultProvider": "omamobile",
+  "defaultModel": "LFM3-1.7B",
+  "defaultThinkingLevel": "off"
+}'
+
+P="$ROOT/tools/phone-ssh"
+[[ -f "${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}" ]] && export OMAMOBILE_SSH_KEY
+ph() { timeout 420 "$P" --fresh "$@"; }
+
+if [[ ${1:-} != test ]]; then
+  say "Waiting for the phone"
+  for _ in $(seq 1 30); do ph true >/dev/null 2>&1 && break; sleep 4; done
+  ph true >/dev/null 2>&1 || die "the phone did not answer"
+
+  if ! ph 'grep -q omamobile /home/alarm/.pi/agent/models.json' >/dev/null 2>&1; then
+    say "Writing the agent config (LFM3 everywhere)"
+    ph "mkdir -p /home/alarm/.pi/agent && cat > /home/alarm/.pi/agent/models.json" <<<"$MODELS_JSON" >/dev/null
+    ph "cat > /home/alarm/.pi/agent/settings.json" <<<"$SETTINGS_JSON" >/dev/null
+    ph 'chown -R alarm:alarm /home/alarm/.pi' >/dev/null
+    ok "config written (~alarm/.pi/agent/)"
+  else
+    ok "config present (~alarm/.pi/agent/)"
+  fi
+  ph 'runuser -u alarm -- bash -lc "command -v pi" >/dev/null' 2>/dev/null \
+    || die "the session user has no pi (mise install missing: ~/.local/share/mise/shims/pi)"
+fi
+
+say "Testing: pi (mise) -> omamobile -> pi-tuned LFM3-1.7B"
+out=$(ph 'runuser -u alarm -- bash -lc "timeout 380 pi -p \"Reply with exactly this and nothing else: PI-LFM3-OK\"" 2>&1 | tail -3')
+printf '%s\n' "$out"
+grep -q PI-LFM3-OK <<<"$out" && ok "PASS: pi answers from the on-device pi-tuned LFM3" \
+  || die "test failed — check: systemctl status omamobile-ai, curl http://127.0.0.1:8080/v1/models"

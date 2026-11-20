@@ -47,13 +47,77 @@
 	};
 };
 
+&{/soc@0/spmi@c440000/pmic@4/gpio@c000} {
+	ap2mdm_errfatal2_default: ap2mdm-errfatal2-default-state {
+		pins = "gpio7";
+		function = "normal";
+		bias-disable;
+		output-low;
+		input-disable;
+	};
+};
+
 &{/soc@0/phy@1c16000} {
 	vdda-phy-supply = <&vreg_l5a_0p88>;
 	vdda-pll-supply = <&vreg_l9a_1p2>;
 	status = "okay";
 };
 
-&{/soc@0/pcie@1c10000} {
-	pinctrl-0 = <&pcie2_default_state &mdm2ap_default &ap2mdm_default>;
+/*
+ * Stock votes VDD_CX to its maximum while PCIe runs: every PCIe node has
+ * vreg-cx-supply and qcom,vreg-cx-voltage-level = <0xffff 0x100 0x0>.
+ * Mainline has no vreg-cx property. The equivalent is the RPMHPD CX
+ * domain plus required-opps, as sc8280xp does: GCC attaches CX (its
+ * GDSCs become CX subdomains) and pcie2's GDSC performance state
+ * propagates up to CX. dev_pm_domain_attach() only attaches the first
+ * power domain, so CX must come in through GCC, not through pcie2.
+ */
+/*
+ * The flashless SDX55M reads and writes its EFS through a host DRAM
+ * window: rmtfs maps /dev/qcom_rmtfs_mem1 (created by the
+ * qcom,rmtfs-mem driver from this region) and hands the physical
+ * address to the modem over QMI, and the modem DMAs through PCIe.
+ * The address is negotiated, not fixed, so allocate the region
+ * dynamically from free System RAM (0xc0000000 is free per
+ * /proc/iomem; stock's low map has no hole to reuse).
+ */
+&{/reserved-memory} {
+	rmtfs_mem: rmtfs-region {
+		compatible = "qcom,rmtfs-mem";
+		alloc-ranges = <0x0 0xc0000000 0x0 0x40000000>;
+		size = <0x0 0x200000>;
+		no-map;
+
+		qcom,client-id = <1>;
+	};
+};
+
+&{/soc@0/clock-controller@100000} {
+	/* RPMHPD_CX = 0, dt-bindings/power/qcom,rpmhpd.h */
+	power-domains = <&rpmhpd 0>;
+};
+
+&{/soc@0/msi-controller@17a10040} {
+	/*
+	 * The doorbell follows pcie2: it is the endpoint's MSI target and is
+	 * only needed when the modem link runs. The base DT keeps it
+	 * disabled because probing it correlates with the phone powering
+	 * off during kernel start on cold boots (NOTES.md 29-31).
+	 */
 	status = "okay";
+};
+
+&{/soc@0/pcie@1c10000} {
+	pinctrl-0 = <&pcie2_default_state &mdm2ap_default &ap2mdm_default &ap2mdm_errfatal2_default>;
+	status = "okay";
+	/*
+	 * The SBL image set moves at Gen3 x2, but the AMSS jump then trips
+	 * CmpltTO/RxErr and the link dies. Gen2 (5 GT/s) and Gen1 (2.5
+	 * GT/s) failed the same way, so the speed cap is not the cause.
+	 * Stock's CX vote is the remaining software difference; ask for
+	 * the top CX corner (rpmhpd clamps to what the rail supports) and
+	 * keep Gen1 until the link survives the AMSS jump.
+	 */
+	required-opps = <&rpmhpd_opp_turbo_l1>;
+	max-link-speed = <1>;
 };

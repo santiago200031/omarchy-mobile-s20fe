@@ -2,7 +2,7 @@
 
 # Success 05: USB NCM Gadget, Power/Battery Telemetry & Memory Tuning
 
-- **Status:** Verified on live phone (`7.3.0-rc6-omamobile-push1-gd469bd3bf2a9` + `omamobile-device-r8q` `0.1.16`).
+- **Status:** Verified on live phone (`7.3.0-rc6-omamobile-push1-gd469bd3bf2a9` + `omamobile-device-r8q` `0.1.16`) — **gadget missing on the new image, investigating (2026-11-20)**: the gadget goes missing on the new image (branch `r8q-modem-nom3` @ 0fd2c260d); the stable baseline (`omamobile-r8q-signed` @ 3667ab368, `out-r8q-uw/recovery-cam-uw.img`, 66fe127f…) brings it up. Details: [USB-GADGET-PLAN.md](../../USB-GADGET-PLAN.md), [NOTES §25](../../NOTES.md).
 - **Back:** [SUCCESS.md](../SUCCESS.md) · [Board Overview](../README.md)
 
 ## What Works

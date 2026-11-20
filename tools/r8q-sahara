@@ -29,6 +29,11 @@ DONE_CMD = 0x5
 DONE_RESP_CMD = 0x6
 RESET_CMD = 0x7
 RESET_RESP_CMD = 0x8
+MEM_DEBUG_CMD = 0x9          # Sahara memory-debug table (32-bit addressing)
+MEM_READ_CMD = 0xa           # host -> target: read target memory (32-bit)
+MEM_DEBUG64_CMD = 0x10       # memory-debug table (64-bit addressing)
+MEM_READ64_CMD = 0x11        # host -> target: read target memory (64-bit)
+READ_DATA64_CMD = 0x12       # 64-bit image read (image-transfer mode only)
 
 HELLO_LENGTH = 0x30          # 48 bytes on the wire (24 used + 24 reserved)
 READ_DATA_LENGTH = 0x14      # 20 bytes
@@ -39,15 +44,19 @@ SAHARA_VERSION = 2
 SAHARA_SUCCESS = 0
 MODE_IMAGE_TX_PENDING = 0x0
 MODE_IMAGE_TX_COMPLETE = 0x1
+MODE_MEMORY_DEBUG = 0x2
 
 # mhi_wwan_ctrl caps a single write at MHI_WWAN_MAX_MTU (0x8000).
 CHUNK = 0x8000
 
 CMD_NAMES = {
     HELLO_CMD: "HELLO", HELLO_RESP_CMD: "HELLO_RESP",
-    READ_DATA_CMD: "READ_DATA", END_OF_IMAGE_CMD: "END_OF_IMAGE",
+    READ_DATA_CMD: "READ_DATA", READ_DATA64_CMD: "READ_DATA64",
+    END_OF_IMAGE_CMD: "END_OF_IMAGE",
     DONE_CMD: "DONE", DONE_RESP_CMD: "DONE_RESP",
     RESET_CMD: "RESET", RESET_RESP_CMD: "RESET_RESP",
+    MEM_DEBUG_CMD: "MEM_DEBUG", MEM_READ_CMD: "MEM_READ",
+    MEM_DEBUG64_CMD: "MEM_DEBUG64", MEM_READ64_CMD: "MEM_READ64",
 }
 
 # Image IDs observed in the r8q vendor Sahara map. Values are either files in
@@ -84,7 +93,24 @@ CROSS_PLATFORM_IDS = {28, 30, 31, 37}
 
 
 def log(msg):
-    print("[r8q-sahara] " + msg, flush=True)
+    print("[r8q-sahara %9.3f] %s" % (time.monotonic(), msg), flush=True)
+
+
+def load_memdump_module():
+    """Load run17_diag.py for the Sahara mode=2 memory-debug table walker.
+
+    The walker (dump_memory_table + sahara_mem_read) is maintained and
+    battle-tested in run17_diag.py; loading it avoids a second copy of the
+    protocol here. Deployed next to this tool as /usr/local/bin/run17_diag.py.
+    """
+    path = os.environ.get("R8Q_MEMDUMP_MODULE", "/usr/local/bin/run17_diag.py")
+    if not os.path.exists(path):
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("run17_diag_memdump", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def find_partition(name):
@@ -207,6 +233,9 @@ def main():
                     help="with no packet for SECONDS, close the channel and exit "
                          "(default: 20); the SBL sends the next HELLO on the same "
                          "open channel, so do not reopen it per image")
+    ap.add_argument("--dump-dir", default="/tmp/sdx55-crash", metavar="DIR",
+                    help="where a Sahara mode=2 memory-debug dump is written "
+                         "(default: %(default)s)")
     ap.add_argument("--probe", type=int, default=3, metavar="SECONDS",
                     help="before the first HELLO, reopen the port every SECONDS "
                          "to restart the channel (default: 3) until --wait expires")
@@ -247,6 +276,7 @@ def main():
     served = 0
     active_source = None
     session_started = False
+    diag = None
     try:
         while True:
             # Keep one open channel across the whole image set: after DONE_RESP
@@ -283,6 +313,16 @@ def main():
                 if e.errno not in (errno.EIO, errno.ENODEV, errno.EBADF) or \
                         time.monotonic() >= deadline:
                     raise
+                # EIO here covers both a not-yet-ready fresh bind and the
+                # SBL -> AMSS EE transition. The channel table keeps SAHARA
+                # valid in AMSS (ee_mask SBL|AMSS), so the MHI core re-creates
+                # the port at mission-mode entry: reopening re-attaches to
+                # the AMSS port and this loader keeps serving whatever the
+                # modem offers next. Keep the channel OPEN across the whole
+                # lifecycle like stock's mdm_helper - closing it at the jump
+                # (Run 20) unprepared the channels mid-boot and the modem
+                # died at the handoff.
+                log("port went away (%s); reopening" % e.strerror)
                 log("channel not ready (%s); reopening" % e.strerror)
                 try:
                     os.close(port)
@@ -318,15 +358,29 @@ def main():
                     log("WARNING: HELLO length %#x (expected %#x)" %
                         (length, HELLO_LENGTH))
                 session_started = True
-                # A mode=2 HELLO offers the MEMORY_DEBUG/EFS dump. Accepting
-                # it (echoing mode=2) makes the modem wait for a MEMORY_READ
-                # that this loader does not serve, and it resets via PS_HOLD
-                # about 38 s later, taking the PCIe link down. Decline it.
-                resp_mode = 0 if mode == 2 else mode
+                resp_mode = mode
+                if mode == MODE_MEMORY_DEBUG:
+                    # A mode=2 HELLO offers the MEMORY_DEBUG session: the
+                    # SBL-phase offer carries the previous boot's stale
+                    # table, the AMSS one (apps.mbn remotefs_sahara) carries
+                    # the live crash data. Serve it with run17_diag.py's
+                    # walker instead of declining: declining only lets the
+                    # SBL continue its boot, while the AMSS client asserts
+                    # (remotefs_sahara.c:850) and resets the whole modem.
+                    if diag is None:
+                        diag = load_memdump_module()
+                    if diag is None:
+                        log("mode=2 offered but no dump module "
+                            "(R8Q_MEMDUMP_MODULE); declining")
+                        resp_mode = 0
+                    else:
+                        log("HELLO mode=2 (MEMORY_DEBUG) - accepting, "
+                            "will serve the dump into %s" % args.dump_dir)
                 send_hello_resp(port, resp_mode)
                 log("sent HELLO_RESP (version=%d, mode=%d%s)" %
                     (SAHARA_VERSION, resp_mode,
-                     "; declined memory-debug" if mode == 2 else ""))
+                     "; accepted memory-debug"
+                     if mode == MODE_MEMORY_DEBUG and resp_mode == mode else ""))
 
             elif cmd == READ_DATA_CMD:
                 image_id, offset, data_len = struct.unpack_from("<3I", pkt, 8)
@@ -371,15 +425,49 @@ def main():
                 log("DONE_RESP received - transfer complete; keeping the channel open")
                 continue
 
-            elif cmd in (RESET_CMD, RESET_RESP_CMD):
-                log("%s received - stopping" % CMD_NAMES.get(cmd, cmd))
+            elif cmd == RESET_CMD:
+                log("RESET received - stopping")
                 return 1
 
-            elif cmd == 0x9:  # MEMORY_DEBUG
-                # Only reachable if the modem sent it before reading our
-                # decline; wait for its next packet instead of exiting, so the
-                # idle timeout decides.
-                log("MEMORY_DEBUG offered; waiting for the modem to continue")
+            elif cmd == RESET_RESP_CMD:
+                # Reply to the RESET we sent to end a memory-debug session:
+                # the target is resetting (fresh SBL for the crashdload
+                # flow, SSR continuation in AMSS). Keep listening; the
+                # channel may go down when the target resets and the
+                # reopen path re-attaches to whatever comes next.
+                log("RESET_RESP received - target resetting; keeping the channel open")
+                continue
+
+            elif cmd in (MEM_DEBUG_CMD, MEM_DEBUG64_CMD):
+                # The memory-debug table: run17_diag.py's walker reads the
+                # table over MEMORY_READ(64), saves every region, and walks
+                # the ULog list, mhi/pcie contexts, smem and tz_data.
+                if diag is None:
+                    diag = load_memdump_module()
+                if diag is None:
+                    log("MEMORY_DEBUG table with no dump module - stopping")
+                    return 2
+                is64 = (cmd == MEM_DEBUG64_CMD)
+                os.makedirs(args.dump_dir, exist_ok=True)
+                files_saved, bytes_saved = diag.dump_memory_table(
+                    port, is64, rest, args.dump_dir)
+                log("memory-debug dump complete: %d files, %d bytes -> %s" %
+                    (files_saved, bytes_saved, args.dump_dir))
+                # End the session like stock's ks does: after collecting the
+                # dump the host asks the target to RESET. Without it the SBL
+                # crashdload client waits forever (Run 21: no packets for the
+                # whole idle window and no boot), and the AMSS client's
+                # remotefs_sahara needs the same session end to continue its
+                # SSR handling instead of asserting.
+                log("sending RESET to end the memory-debug session")
+                send_all(port, struct.pack("<2I", RESET_CMD, DONE_LENGTH))
+                continue
+
+            elif cmd == DONE_CMD:
+                # In memory-debug mode the device closes the session with
+                # DONE; answer DONE_RESP and keep the channel open.
+                log("DONE received; sending DONE_RESP")
+                send_all(port, struct.pack("<2I", DONE_RESP_CMD, DONE_LENGTH))
                 continue
 
             else:

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# r8q-m3-cycle-revert [flash-timeout] [gadget-timeout]: experiment flow —
+# wait for the phone in Samsung Download Mode, flash the M3-cycle-free
+# image (d87d5999…) to sda24, then wait for the USB gadget + SSH to be
+# back on the rebooted phone and probe SSH. Prints the verdict.
+set -u
+flash_timeout=${1:-180}
+gadget_timeout=${2:-150}
+if tools/r8q-wait-download "$flash_timeout"; then
+  echo "--- waiting for gadget + ssh on the new image ---"
+  tools/r8q-wait-gadget "$gadget_timeout"
+  echo "experiment done"
+fi

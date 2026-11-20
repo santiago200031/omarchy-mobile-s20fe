@@ -1,0 +1,66 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# tools/r8q-modules: build the r8q's kernel modules, push them over the USB
+# link with the chunked tool, install them into /usr/lib/modules on the
+# phone and depmod — the flow NOTES.md 339-346 established (the msm/adreno
+# GPU driver is CONFIG_DRM_MSM=m, so every new kernel needs its modules on
+# the phone before the GPU comes up; loading msm by hand fails, the module
+# must load at boot, so end with a reboot).
+#
+#   tools/r8q-modules [--reboot]
+#
+# Refuses to install modules whose kernel version does not match the
+# running kernel's (a tarball for another build installs fine but never
+# loads; flash the matching image first). KERNEL_DIR/KERNEL_OUT pass
+# through to bin/omamobile modules.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+say() { printf '\e[1;34m==>\e[0m %s\n' "$*"; }
+ok() { printf '\e[1;32m  ✔\e[0m %s\n' "$*"; }
+die() { printf '\e[1;31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+
+KERNEL_DIR="${KERNEL_DIR:-$HOME/omamobile-kernel/wt-r8q}"
+KERNEL_OUT="${KERNEL_OUT:-$HOME/omamobile-kernel/out-r8q}"
+REBOOT=0
+[[ ${1:-} == --reboot ]] && REBOOT=1
+
+# ---- 1. build the tarball ----
+say "Building the modules tarball (DEVICE=r8q)"
+DEVICE=r8q KERNEL_DIR="$KERNEL_DIR" KERNEL_OUT="$KERNEL_OUT" \
+  "$ROOT/bin/omamobile" modules >/dev/null
+tarball=$(ls -t "$KERNEL_OUT"/modules-*.tar.zst | head -1)
+version=$(basename "$tarball" | sed 's/^modules-//; s/\.tar\.zst$//')
+ok "tarball: $(basename "$tarball") (kernel $version)"
+
+# ---- 2. check the phone is running this kernel ----
+REMOTE="${REMOTE:-root@172.16.42.1}"
+SSH=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+     -o ConnectTimeout=8 -o ServerAliveInterval=5 -q)
+SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
+[[ -f "$SSH_KEY" ]] && SSH+=(-i "$SSH_KEY" -o IdentitiesOnly=yes)
+running=$("${SSH[@]}" "$REMOTE" uname -r 2>/dev/null) || die "$REMOTE not answering"
+say "phone runs: $running"
+if [[ $running != "$version" ]]; then
+  die "the tarball is for $version but the phone runs $running
+  flash the matching image first (tools/r8q-test-image), then re-run this"
+fi
+
+# ---- 3. push (chunked) and install ----
+say "Pushing the tarball with the chunked tool"
+"$ROOT/tools/r8q-push" "$tarball" /tmp/modules-new.tar.zst >/dev/null
+say "Installing into /usr/lib/modules/$version and depmod"
+"${SSH[@]}" "$REMOTE" "cd /usr/lib/modules && tar --zstd -xf /tmp/modules-new.tar.zst \
+  && depmod $version && rm -f /tmp/modules-new.tar.zst" >/dev/null
+ok "modules installed"
+
+# ---- 4. reboot so they load at boot ----
+if ((REBOOT)); then
+  say "Rebooting so the modules load at boot"
+  "${SSH[@]}" "$REMOTE" reboot >/dev/null 2>&1 || true
+  say "Wait for the gadget, then verify with:"
+  say "  tools/phone-ssh 'ls /dev/dri/'   # renderD128 = the Adreno is up"
+else
+  say "Reboot the phone to load them at boot (NOTES.md 346: a hand modprobe fails):"
+  say "  tools/r8q-modules --reboot  (or: tools/phone-ssh reboot)"
+fi

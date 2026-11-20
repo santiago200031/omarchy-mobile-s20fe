@@ -97,6 +97,16 @@
 	power-domains = <&rpmhpd 0>;
 };
 
+&{/soc@0/msi-controller@17a10040} {
+	/*
+	 * The doorbell follows pcie2: it is the endpoint's MSI target and is
+	 * only needed when the modem link runs. The base DT keeps it
+	 * disabled because probing it correlates with the phone powering
+	 * off during kernel start on cold boots (NOTES.md 29-31).
+	 */
+	status = "okay";
+};
+
 &{/soc@0/pcie@1c10000} {
 	pinctrl-0 = <&pcie2_default_state &mdm2ap_default &ap2mdm_default &ap2mdm_errfatal2_default>;
 	status = "okay";

@@ -675,3 +675,138 @@ Stable escape available: flash `out-r8q-uw/recovery-cam-uw.img`
 (66fe127f…) to sda24 via heimdall in Download Mode (USB-GADGET-PLAN.md §E4).
 The user said the phone is "left there" — the revert work proceeds
 unattended (docs, branches).
+
+## 26. PCIe2 endpoint MSI fault — the gadget/cellular blocker, with mainline fix (2026-11-20)
+
+**Root cause (verified-ranked, subagent analysis + mainline commit):** the
+external SDX55M modem on PCIe2 sits behind `apps_smmu`, and its endpoint MSI
+writes target the RC `cfg0` address, which is **not mapped in the endpoint's
+IOMMU domain** — the writes fault, so the modem's MHI event rings never raise
+an interrupt. (Mainline commit message of the fix, verbatim: "the writes
+fault, so the MHI event rings never raise an interrupt and the modem never
+leaves the primary bootloader after BHI loads sbl1.") On the user's tree the
+modem does reach SBL (the loader serves it — the PCIe2 writes only break in
+AMSS), and the new image's gadget goes missing — the PCIe2 fault takes the
+SoC dwc3 up with it.
+
+**The fix is mainline and is applied to the tree:** `5be4efd5e` ("pci: dwc:
+prepare PCIe2 MSI in the endpoint IOMMU domain", mainline tip of the PCIe2
+work; mainline = `3667ab368` + `7896cfb4b` (`net: wwan: WWAN_PORT_SAHARA`) +
+`4d5ae30a8` (`bus: mhi: pci_generic: load sbl1 on r8q`) + `5be4efd5e`). The
+fix: `dw_pcie_irq_domain_alloc()` calls `iommu_dma_prepare_msi(desc,
+pp->msi_data)` and `dw_pci_setup_msi_msg()` uses the allocated IOVA
+(`msi_msg_set_addr`) for the PCIe2 host (`cfg0_base == 0x64100000`); PCIe0
+(the QCA6390 WLAN) is unchanged. Applied (staged) to `wt-r8q`
+(`drivers/pci/controller/dwc/pcie-designware-host.c`, +37/-2, 5 fix markers),
+kernel branch `r8q-modem-nom3` at `0fd2c260d` (the M3-cycle patch still
+reverted there), image packed: `out-r8q/recovery-omamobile.img`, sha256
+`c51bd505…`.
+
+**The second mainline-ahead commit is secondary** (`7896cfb4b` +
+`4d5ae30a8`: WWAN_PORT_SAHARA + r8q SBL loading via BHI — the port serves
+SBL with the loader tool, so these are less load-bearing here; test them
+after the PCIe2 fix if needed).
+
+**Test plan (the user's next step):**
+1. Power the phone off; from off, hold **Volume Up + Power** (release Power,
+   keep Vol Up) → boots `sda24` (the PCIe2-fix image).
+2. Tell me when it's up; I check:
+   - `lsusb` → expect the gadget (`1d6b:0104` "Omarchy Mobile"),
+   - `ls /sys/class/udc` via SSH → expect `a600000.usb`,
+   - if the gadget is up → **Run 30**: loader + DIAG client + MMIO probe —
+     the PCIe2 fix should arm UL consumption and the +32.4 s death disappears.
+3. If not: the PCIe2-bisect plan (the subagent): builds from the stable
+   base adding the PCIe2 commits one at a time (commit list on the subagent
+   report, §B) — "two-crash rule": if some build crashes the phone, bisect
+   there.
+
+**State:** the phone is in its current state (reverted image, gadget missing,
+USB/SSH unreachable). The PCIe2-fix image is packed and staged in the tree.
+The other blocker of the objective — the GPU/Vulkan + NPU (GMU cx gdsc
+wedge, secure-boot wall) — is unchanged (separate investigation,
+NPU-PLAN.md P1 §4; the ADR/GPN is offline).
+
+## 27. Adreno 650 CX-gdsc wedge — the Vulkan compute blocker, mainline fix
+
+**The wedge** (`board/failed/08`, well recorded — llama-bench -ngl 99 at
+305 MHz → `device lost on Vulkan0` + `msm_dpu: hangcheck detected gpu
+lockup rb 0!` + `a6xx_recover: cx gdsc didn't collapse`; `vkcube`
+segfaults; render path — vkcube/Hyprland — is fine): a compute submit
+trips the Adreno 6xx lockup; hangcheck → `a6xx_recover()`; the CX gdsc
+can't collapse (a6xx_gmu.c's `cxpd_notifier_cb` on `GENPD_NOTIFY_OFF`
+completes `pd_gate` — mainline polls nothing else), `recover_worker`
+loops, session dies, reboot required.
+
+**Root cause (subagent analysis, saved at
+`BOARD-REPORT-GPU-WEDGE.md`): mainline gap, QUIC kernelthread v4.0
+0/7 "Improve GPU Recovery": "Currently, cx doesn't collapse due to a
+devlink between gpu and its smmu. So the struct gpu device needs to
+be runtime suspended to ensure that the iommu driver removes its vote
+on cx gdsc."** Adreno 650 IS mainline on SM8250 (a6xx_gpu.c,
+a6xx_gmu.c, `gpu@3d00000`/`gmu@3d6a000`; mainline sm8250.dtsi disables
+adreno+gmu, the port enables them). The mainline `a6xx_recover()`
+already does `pm_runtime_put_sync(&gpu->pdev->dev)` then
+`wait_for_completion_timeout(&gmu->pd_gate, ...)` — the wedge: the
+put_sync doesn't complete the suspend, so the iommu keeps its cx vote.
+
+**The fix (branch `r8q-gmu-recover-fix`):** in `a6xx_recover()`
+(wt-r8q/drivers/gpu/drm/msm/adreno/a6xx_gpu.c:1626, mainline
+a6xx_gpu.c:1626) add, before the wait:
+```c
+	pm_runtime_suspend(&gpu->pdev->dev);
+```
+(commit `29cfed48c`). Also on the branch: `f7f3096b1`, the PCIe2
+endpoint-MSI mainline fix (see NOTES §26) — both fixes tested on the
+phone when it's up. Packed image: `out-r8q/recovery-omamobile.img`,
+sha256 `463ff67a…`.
+
+**Test plan (the phone):**
+1. Boot the phone: after the PCIe2 test's boot — from the OMARCHY
+   desktop — the GPU is already up (the render path works at 587 MHz).
+   - PCIe2 fix verification: `lsusb` → gadget; `ls /sys/class/udc` →
+     `a600000.usb` (Run 30).
+   - GPU wedge fix verification (needs the user to run the wedge
+     repro, per the `08` rules): repro: `llama-bench -m
+     LFM3-1.7B-Q4_K_M.gguf -ngl 99 -p 512 -n 128` → capture wedges.
+     Expect: before fix — wedges (reboot required); after fix —
+     `a6xx_recover: cx gdsc didn't collapse` gone, recovery completes.
+     Full VLANG path: `vkcube` + Hyprland compositing (should be
+     unchanged). Then the LLM on GPU: `omamobile-ai serve` +
+     `GPU_LAYERS=99` LLM queries.
+2. Note the render-path rule from board/failed/08: `GPU_LAYERS=0` is
+   the default; treat compute-wedge as reboot-required; don't confuse
+   the wedges (the wedge takes Hyprland down with it).
+
+## 28. UFS: mainline SM8250 UFS broken — "0 disks" on the PCIe2-fault image, 2026-11-20 (subagent)
+
+**What "0 disks" means** — `initramfs/init:436`: `ls -d /sys/block/sd* | wc -l` → 0 = the UFS produced no SCSI disks; `boot_arch` looks for `PARTNAME=userdata` on `/sys/block/sda` and finds nothing → the init stays in the rescue shell. The phone is on the PCIe2-fault image (`463ff67a…`, mainline tip); the user reads the boot console: `omamobile: === ufs-probe: 0 disks, 0 partitions ===`, "Interconnect & Clock sync_state blocked ... due to 1d84000.ufs" (the UFS HC + the aggre1/gem_noc + gcc-sm8250 clocks), and the DT dependency cycle between `/soc@0/phy@1d87000` (UFS PHY) and `/soc@0/ufshc@1d84000` (UFS HC). The phone "crashes in 20 s, ABL falls back to slot a" — the PCIe2 fault's reset loop takes the phone down during early boot.
+
+**Mainline status (the port's mainline tree — branch `omamobile` @ 2db2bc35b, Linux 7.3-rc6):** mainline sm8250 = mainline @2db2bc35b, **different from the stable branch** `omamobile-r8q-signed` @ 3667ab368 — the stable boots fine with UFS, so the breakage is on the mainline tip side, not the stable side.
+
+**The mainline UFS stack (all mainline, nothing port-changed):**
+- HC: `qcom,sm8250-ufshc` → `drivers/ufs/host/ufs-qcom.c` (`ufs_qcom_power_up_sequence` 488, `ufs_qcom_icc_init` 1554 / `ufs_qcom_icc_set_bw` 916 — the flow votes BW via the ICC set, so if that sync never completes, the UFS HC is left unsynced → 0 disks).
+- PHY: `qcom,sm8250-ufshc-phy` → `drivers/phy/qualcomm/phy-qcom-qmp-ufs.c` (`qmp_ufs_probe` 2333, `qmp_ufs_power_on` 2061, `qmp_ufs_phy_init` 2155, `qmp_ufs_phy_calibrate` 2086 — `reset_control_assert(qmp->ufs_reset)` (the shared GCC_UFS_PHY_BCR via the PHY's reset = the HC's `phys[0]`), `qmp_ufs_phy_calibrate` → `reset_control_deassert` → poll `PCS_READY`).
+- Mainline DTS (`sm8250.dtsi`): `ufs_mem_hc` 2516 (`power-domains = <&gcc UFS_PHY_GDSC>`, `resets = <&gcc GCC_UFS_PHY_BCR>`, `phys = <&ufs_mem_phy>`, icc `aggre1_noc→mc_virt` "ufs-ddr" + `gem_noc→config_noc` "cpu-ufs", clock-controllers `gcc-sm8250` @0x1500000 etc.), `ufs_mem_phy` 2588 (`resets = <&ufs_mem_hc 0>` — the cycle).
+- The cycle (B): main.) — this is expected on mainline sm8250 and is not by itself a breakage — it means the mainline flow has no probe-order constraint between the HC and the PHY, so the HC (`1d84000.ufs`) can be the device left waiting in sync_state — the user reads this as "the gcc sm8250 sync state pending due to <id>.phy" — actually the phone's line paraphrases the UFS HC (the message is on the blocked device; the PCIe2's own line is the PCIe2 GDSC one).
+- The mainline ICC flow (C): the phone's "sync_state blocked: Multiple interconnect providers and clock controllers are held in sync_state() pending due to 1d84000.ufs..." — the mainline `drivers/interconnect/core.c:1218 icc_sync_state()` is what pends; if that set never completes during the boot, the UFS HC is left without its icc/clk state synced — consistent with a blocked probe/link state.
+
+**The PCIe2 connection**: the PCIe2 breakage (endpoint missing from the bus — "gcc sm8250 sync state pending due to <id>.phy", the modem never leaves PBL) is a separate mainline gap on mainline sm8250 — mainline PCIe2 is `status = "disabled"` and the PCIe2-MSI fix (5be4efd5e) is mainline (applied to the port, f7f3096b1) but insufficient on this device. The PCIe2 investigation subagent (session `ses_e07ac9606ffe6fyzD8HVOq81ke`) is finding the PCIe2 root cause + bisect plan.
+
+**Ranked hypotheses (the UFS mainline-tip breakage)**:
+1. The mainline sm8250 tip's UFS flow is stuck: the UFS HC is the blocked device — its icc/clk set (`1d84000.ufs`) never completes sync_state → 0 disks, no UFS error in dmesg (a blocked probe). Plausible mechanism: the PCIe2 fault's reset loop wedging the power-domain/clock sync machinery the UFS flow uses.
+2. The PHY (1d87000) never gets to `PCS_READY` — SerDes stuck — then `ufshcd_hba_enable` should print an error; the absence of any UFS error argues against a hard failure, so lower rank.
+3. A mainline regression between mainline 3667ab368 (the stable — UFS fine) and the mainline tip 2db2bc35b (the UFS breakage) in the 7.3-rc window — `ufs-qcom.c` and sm8250.dtsi's last mainline commits are both the 7.3-rc6 merge; a mainline sm8250 UFS change there is the likely root.
+4. The cycle/defer-loop (a `devm_probe_defer` loop that never resolves) — lower rank (mainline expects the cycle).
+5. r8q-specific — low.
+
+**UFS bisect plan ("two-crash rule")** — builds, each: flash/boot, wait ~35 s, read `=== ufs-probe: N disks ===` (or `ls /dev/sda*` over SSH):
+1. Stable image `out-r8q-uw/recovery-cam-uw.img` (66fe127f…) — baseline: UFS fine, PCIe2 fine.
+2. Current mainline image (463ff67f…) — PCIe2 fault + `0 disks`.
+3. Port tree `wt-r8q` (@ f7f3096b1) — PCIe2 should be fixed (doorbell); the UFS is the question.
+4. Bisect mainline `3667ab368..2db2bc35b` on mainline — find the UFS regression commit; build at each step (`bin/omamobile kernel` into an explicit `KERNEL_OUT`).
+5. Two-crash rule: if a built image crashes the phone or the bus stops answering, stop and restart from a known-good build; the last-good/first-bad pair is the regression window.
+6. Expected: the mainline commit that broke mainline sm8250 UFS is identified; then decide a port commit ("add mainline sm8250 UFS fix") for PORT-PLAN.
+
+**Phone-side diagnostics** (once the phone is reachable — the initramfs rescue shell reads dmesg): `dmesg | grep -iE 'ufs|scsi|sd[a-z]|1d84000|1d87000'`; `ls /sys/class/scsi_host/`; `ls /sys/bus/platform/devices/ | grep -i ufs; cat /sys/bus/platform/devices/1d84000.ufs/power/runtime_status`; `ls /proc/device-tree/soc@0/ufshc@1d84000/ /proc/device-tree/soc@0/phy@1d87000/`; `cat /sys/kernel/debug/clk/clk_summary | grep -i ufs`.
+
+**UFS phone state (the user reads it now)**: stuck in the initramfs console (`=== ufs-probe: 0 disks ===`, `omamobile: no /sys/block/sd*`); SSH times out (the SoC USB gadget is down — `a600000.usb: deferred probe pending: dwc3: failed to initialize core` — also a broken path); the PCIe2 endpoint missing from the laptop bus ("gcc sm8250 sync state pending due to <id>.phy").

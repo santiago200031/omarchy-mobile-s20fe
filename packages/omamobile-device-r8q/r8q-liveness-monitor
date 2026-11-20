@@ -124,9 +124,10 @@ offline_unreserved_xpu_pages() {
 
 pin_r8q_power_control() {
     [ "$SYS" = "/sys" ] || return 0
+    # NOTE: 3d00000.gpu and 3d6a000.gmu are NOT pinned on purpose — see
+    # 80-r8q-gpu.rules: a6xx recovery needs their runtime PM live to
+    # collapse the CX gdsc.
     for ctl in \
-        "$SYS/devices/platform/soc@0/3d00000.gpu/power/control" \
-        "$SYS/devices/platform/soc@0/3d6a000.gmu/power/control" \
         "$SYS/devices/platform/soc@0/9c0000.geniqup/power/control" \
         "$SYS/devices/platform/soc@0/9c0000.geniqup/980000.i2c/power/control" \
         "$SYS/devices/platform/soc@0/9c0000.geniqup/994000.i2c/power/control" \

@@ -116,6 +116,12 @@ grep -q 'https://pkgs.omamobile.org/stable/\$arch' omamobile-mirrorlist
 grep -q 'KERNEL=="3d00000.gpu"' 80-r8q-gpu.rules
 grep -q '305000000' 80-r8q-gpu.rules
 grep -q 'power/control.*on' 80-r8q-gpu.rules
+# The gpu/gmu runtime PM stays live: a power/control="on" pin on them
+# defeats a6xx recovery's CX collapse (NOTES §46) — assert not pinned.
+! grep -q 'KERNEL=="3d00000.gpu", ATTR{power/control}' 80-r8q-gpu.rules
+! grep -q 'KERNEL=="3d6a000.gmu", ATTR{power/control}' 80-r8q-gpu.rules
+! grep -q '3d00000.gpu/power/control' r8q-liveness-monitor
+! grep -q '3d6a000.gmu/power/control' r8q-liveness-monitor
 grep -q 'KERNEL=="9c0000.geniqup"' 80-r8q-gpu.rules
 grep -q 'KERNEL=="980000.i2c"' 80-r8q-gpu.rules
 grep -q 'KERNEL=="994000.i2c"' 80-r8q-gpu.rules

@@ -1330,3 +1330,32 @@ value-only, the modules-from-RAM, the one-channel loader, the dump
 walker). What stands between SBL and mission mode is the AMSS-jump link
 fault itself — the MODEM-PLAN's known open issue, no longer confounded
 by anything host-side.
+
+## 39. The full QUIC series benched: the poll works, and the CX gdsc is proven still voted ON — the SMMU vote is the culprit (2026-11-20)
+
+The ported r8q-gpu-recovery series (branch g1fa07e423998: the v3 gpucc
+reset prerequisite + the v5 CX-collapse poll, NOTES-ready) flashed, the
+modules pushed, and `tools/r8q-ai-bench` ran the repro on it. Result:
+
+- The ported machinery WORKS: `a6xx_recover` now calls the reset path →
+  `gdsc_wait_for_collapse` polls the CX gdsc status bit for 500 ms and
+  WARNs when held — the exact hardware-level evidence the naive line
+  never produced.
+- **The definitive fact: `gpu_cx_gdsc status stuck at 'on'`** at the
+  recovery point (the WARN fired from a6xx_recover's reset path), then
+  `cx gdsc didn't collapse` and `vk::DeviceLostError` again. The wedge is
+  NOT a wait/timing problem — the CX gdsc is still VOTED ON while the
+  gpu device is runtime-suspended.
+- The culprit is what the port's analysis flagged: **the SMMU's own vote**
+  — sm8250.dtsi:3032 wires the adreno SMMU's power-domains to
+  gpucc/GPU_CX_GDSC; the gpu's runtime suspend does not drop the smmu
+  device's vote (the "devlink between gpu and its smmu" of the QUIC 0/7
+  diagnosis). The gpu-side runtime PM (already absorbed in 7.3) plus the
+  poll still leaves the iommu's vote holding the rail.
+- The next GPU leg: make the recovery release the SMMU's vote — the
+  gpu↔smmu device link state (does msm_gpu_init create one? does the
+  adreno_smmu runtime-suspend with its consumer?), and the vote-holder
+  read from the genpd (the cxpd's voter list at the recovery point).
+- The bench's verdict tooling worked end-to-end: the link-drop retry, the
+  Vulkan check, the wedge-signature parse (PASS/WEDGE verdicts), the log
+  capture (logs/r8q/ai-bench-*.log).

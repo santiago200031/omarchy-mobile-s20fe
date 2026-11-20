@@ -23,6 +23,17 @@ root is read-write again.
 
 ## 1. Safety Rules (Mandatory)
 
+0. **Dual-boot non-destructive constraint relaxed by the owner
+   (2026-11-19):** the phone holds no data the owner needs, so
+   LineageOS/Android partitions may be overwritten, formatted or removed
+   when a bring-up step genuinely requires it — the dual-boot way back
+   is a convenience now, not a constraint. **Exception, for a hardware
+   reason, not a data reason:** the NV/calibration partitions stay
+   read-only — `efs*`, `sec_efs`, `persist`, `modemst1/2`, `fsg`, `fsc`,
+   `mdm1m9kefs1/2/3/c`, `mdmddr`, `param`, `steady`, `devinfo` hold the
+   modem's IMEI and RF calibration, which cannot be regenerated; wiping
+   them kills the radio permanently. `device.conf`'s `UFS_RW` stays
+   `userdata`.
 1. **Verify NV backup & read-only guard before any modem work (`AGENTS.md` §1):**
    - Device descriptor `device/r8q/device.conf` defines:
      - `NV_PARTS="efs sec_efs persist modemst1 modemst2 fsg fsc mdm1m9kefs1 mdm1m9kefs2 mdm1m9kefsc mdm1m9kefs3 mdmddr"` (commit `839eb96`)
@@ -1961,6 +1972,106 @@ check — `ls -l /dev/wwan0sahara0` **in mission mode** (the node used to vanish
 - Logs: `logs/r8q/run20-*.log`, `run21*.log`, `run20-21-logs.tgz`; two dump
   sets pulled to the laptop (run 20's and the warm-loop's, both stale, both
   `TZBSP_ERR_FATAL_NOC_ERROR`).
+
+### Gotcha (2026-11-20): AER's soc reset lands the modem in EDL, and
+### the next probe times out
+
+`mhi_pci_reset_prepare()` calls `mhi_soc_reset()` as part of the PCI
+error-recovery sequence, and the r8q profile has `.edl_trigger = true`:
+after a crash whose AER slot reset runs, the modem can sit in EDL, and
+any subsequent `mhi-pci-generic` probe fails with
+`failed to power up MHI controller ... -110` (the power-up waits for
+SBL). Observed after stopping the crash loop mid-cycle and re-probing:
+debugfs loses `mhi0`, `lspci` still shows the function, and no unbind/
+rebind cycle recovers it. **Recovery: power-cycle the phone** (S-Boot
+re-PONs and re-initializes the modem; the next boot probes a fresh
+SBL). Do not unbind/rebind a modem that just went through an AER
+slot reset - check `dmesg | tail` for `reset`/`-110` first.
+
+**Run 26 (2026-11-20): the DIAG handshake is silent too.** The client
+opened `/dev/wwan0qcdm0` at mission entry, sent `DIAG_CTRL_MSG_REG`
+(catch-all) and `DTR`, and received **nothing** until the +32.4 s death
+(EIO at the reset). Same for the QRTR replies our fake Service-64
+sends: no follow-up queries ever come back, consistent with the
+modem not receiving them. **The next discriminator (Run 27, prepared):
+the UL channel ring state** - our QRTR/DIAG packets queue into UL
+rings (IPCR ch20, DIAG ch4); if the device never consumes them, the
+debugfs `channels` view will show `wp` ahead of `rp`, proving
+host-to-device channel data is dead (the command ring demonstrably
+works: the SFR config is accepted and the SFR buffer is DMA'd back).
+That would explain every silent service at once - the modem gets none
+of our answers (servreg, diag, QMI), its clients time out on their own
+deadlines, and the last one asserts `remotefs_sahara.c:850` at +32 s.
+Run 27 was launched but the modem had landed in EDL from the previous
+loop's AER reset; the UL-ring probe runs after the power-cycle
+recovery.
+
+**Run 27 (2026-11-20, after the power cycle): UL ring freeze PROVEN.**
+Through the whole mission window (1 Hz debugfs snapshots): DIAG(4) UL
+ring `rp` frozen at element 1 with `wp` at element 4 (3 unconsumed
+TREs - our REG/DTR/DIAGMODE handshake), IPCR(20) `rp` frozen with 8
+unconsumed TREs (our QRTR replies), from mission entry to the +32.4 s
+death. Device-to-host on the same channel pair works. Mainline also
+validates the channel-START completion code
+(`mhi_update_channel_state`, main.c:1420: `ccs != MHI_EV_CC_SUCCESS`
+fails the prepare), so the frozen rings are not silently-rejected
+STARTs: the device accepted them (the ports appeared) and never
+consumed. The starvation chain is proven end-to-end: every silent
+service (servreg, DIAG, QMI) is the modem not receiving our answers,
+and its own remotefs_sahara deadline fires the :850 assert at +32 s.
+
+**Gotcha: the WiFi chip is a second MHI controller in debugfs.** The
+S20 FE's QCA6390 WLAN (ath11k_pci, `0000:01:00.0`) creates `mhi1`
+alongside the modem's `mhi0` - and it prints the same
+`Mission mode doorbell offsets: CHDBOFF=0x300 ERDBOFF=0x700` because
+our klein-derived re-read patch is in the shared MHI core. It is a
+healthy, working MHI mission-mode device on the same phone: a free
+control experiment. Never hardcode `mhi0` when reading
+`/sys/kernel/debug/mhi/` - find the modem by a channel name only it
+has (SAHARA/DIAG/IPCR).
+
+**Run 29 (2026-11-20): the doorbell-delivery discriminator - reads
+back PROVEN, offsets PROVEN RIGHT, the AMSS just never acts.** A
+read-only userspace probe (`/usr/local/bin/r8q_mmio_probe.py`, source
+in the antigravity scratch) mmap'd BAR0
+(`/sys/bus/pci/devices/0002:01:00.0/resource0`, 4 KB) and sampled the
+control region, the channel doorbells, BHI EXECENV (exact EE phase)
+and the debugfs ctxt at 4 Hz, sweeping the whole BAR for known
+doorbell values every 8 s. Results from a clean SBL->AMSS lifecycle:
+
+- EE timestamps: SBL at +271.9, AMSS at +274.6, death at +307.5
+  (mission lifetime 32.9 s, the bug's signature, again).
+- **CHDBOFF reads 0x300 in SBL and in AMSS** - the "0x0 -> 0x300"
+  move the klein patch exists for NEVER HAPPENS on r8q; our re-read
+  is a no-op here and the SBL doorbells (Sahara ch2/3, demonstrably
+  consumed) are at the same 0x300 window as AMSS.
+- **Doorbell registers read back the exact values the kernel wrote,
+  through the healthy window**: `db[ch4]@0x320 = 0x1e3ba040` (the DIAG
+  ctxt wp), `db[ch20]@0x3a0 = 0x1f26a060` (the IPCR ctxt wp),
+  `db[ch2]@0x310 = 0x1fff35d0` (SAHARA), `CRDB@0x70 = 0x1fff4070`.
+  The wrong-offset / dead-space / XPU-blocked doorbell theory is
+  DEAD: our writes land in live registers at the published window.
+- The UL freeze is captured in the same samples: `DIAG rp` frozen at
+  `0x100000001`, `IPCR rp` frozen at `0x200000001` (the device's own
+  ctxt writes - its DMA path into host memory works), wp frozen at
+  elem 4/6 from entry to death.
+- The control region survives the EE switch unchanged (REGLEN 0x100,
+  CFG 0x40b80, the power-up-programmed ring pointers at 0x58/0x60/
+  0x68 all stable) - consistent with the cmd ring working across
+  the jump.
+
+**Where that leaves the root cause:** the device receives our
+doorbells (they sit in its registers), accepted our channel STARTs
+(CC_SUCCESS), DMA-writes our ctxt, and simply never fetches UL ring
+elements in AMSS. Whatever stock does that arms the AMSS UL fetch
+path - a ctxt CHSTATE write the host must make, an MHICFG/doorbell-
+mode config step, a post-EE channel RESET+re-START, a doorbell
+re-ring with the device's expected format - is the remaining
+hypothesis space. The vendor msm-4.19 mission-mode flow is being
+compared against ours to name it (Run 28's partial data - a live
+CRDB readback mid-crash - already proved the readback method valid;
+its full story was lost with the /tmp power cycle, superseded by
+Run 29).
 
 ### Run 22 runbook — cold-boot lifecycle attempt (2026-11-19)
 

@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: MIT
-# Omarchy Mobile: Adreno 650 (3d00000.gpu) devfreq governor, 305-587 MHz OPP range, and active GMU/GPU runtime PM.
+# Omarchy Mobile: Adreno 650 (3d00000.gpu) devfreq governor and 305-587 MHz OPP range.
 # 587 MHz is the highest stock OPP; sustained clean under vkcube load (see board card 05). Min stays 305 so the
 # governor scales down when idle; max is the cap, not a pin.
+#
+# The GPU and GMU devices are deliberately NOT pinned to power/control="on": a6xx gpu recovery
+# collapses the CX gdsc by runtime-suspending every vote on it (the gpu, the gmu, their device
+# links on the adreno smmu and the gmu cxpd), and a userspace runtime-PM pin (disable_depth)
+# makes the recover's usage drops no-ops — the wedge bench of 2026-11-20 showed all three
+# framework votes stuck active through every collapse window (NOTES §45-§46). The early-port
+# RPMh churn mitigation pinned them; if churn returns, fix it at its own device, not here.
 ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{governor}="simple_ondemand"
 ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{min_freq}="305000000"
 ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="3d00000.gpu", ATTR{max_freq}="587000000"
-ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="3d00000.gpu", ATTR{power/control}="on"
-ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="3d6a000.gmu", ATTR{power/control}="on"
 # Keep I2C1 (max77705/max17042), I2C5 (stmfts touchscreen), and their GENI QUP wrapper awake: runtime PM suspends trigger RPMh BCM/QUP churn.
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="9c0000.geniqup", ATTR{power/control}="on"
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="980000.i2c", ATTR{power/control}="on"

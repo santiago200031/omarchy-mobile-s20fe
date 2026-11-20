@@ -1426,3 +1426,86 @@ Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
 | Daily state on it | root `/dev/sda36` (§40); UI on screen (§41); pi-tuned model serving (§42); Wi-Fi/audio/cameras as before the migration |
 | Open, not blocking daily use | GPU compute wedge — the adreno SMMU's CX vote (§39); fix in flight on `r8q-gpu-smmu-vote`, own pass + re-pin when it lands |
 | main | merged through `tools/r8q-merge-main --pass-sha 68fa6540444b0b0bcc66dcdb5df8684ae87dc17ce9c8e0d3637dfcf9ffcfc97d`; work continues on a new topic branch |
+
+## 44. Objective audit on the native root (2026-11-20, kernel ga60f7256c741)
+
+| Item | Verified state |
+| --- | --- |
+| Battery telemetry | **Working.** `max170xx_battery`: `capacity 99`, `status Charging`, 4.35 V, +133 mA, 27.5 °C, `health Good`; charger `max77705-charger` `online 1 USB`. The old "FG deferred, can't get irq" was an early-boot artifact of the bring-up era: the current boot has **zero** defer lines — `omamobile-r8q-battery.service` (`r8q-battery-modprobe`, multi-user.target) orders the module load. Minor gaps: `design_capacity` and `time_to_*` empty (FG config), `cycle_count` mis-scaled |
+| Display refresh | `1080x2400@60` is the **deliberate** state (board failed-05: `@120` stressed DSI CMD/TE pacing before Adreno tuning; the permanent rule pins @60 + `misc.vrr = 0`). **@120 is queued behind GPU stabilization** — the running bench verdict decides when it is safe to retry |
+| Fallback docs | Verified accurate by grep: PORT-PLAN:16 + NOTES §24 carry the owner-observed model (sda24 is the power-on default, no automatic LineageOS fallback, Download Mode is the recovery path). No stale "reboots boot LineageOS" wording remains in repo docs |
+
+## 45. The SMMU-vote fix benched: WEDGE — the diagnostic names all three holders live (2026-11-20)
+
+| Item | Fact |
+| --- | --- |
+| Verdict | **WEDGE** — the ~1 Hz recover loop persists on `ga60f7256c741`; the fix did not hold |
+| The diagnostic's first live catch | `cx vote holders: adreno-smmu active usage 2, gmu-cxpd active usage 1, gmu active` — **all three framework votes back ON at the failed poll** |
+| Mechanism read | The forced `pm_runtime_suspend(smmu)` is raced/undone inside the poll window: the still-faulting context's fault-path `pm_runtime_get_if_active` re-arms the SMMU (usage 2 = base + a fault get), and overlapping recovery activity resumes the gmu chain. A dynamic race, not a static leak |
+| The bench | Hung at first GPU work — model never loaded (RSS 5 MB, 0 CPU in 14 min); no result table |
+| The tool's false PASS | `r8q-ai-bench` graded the device-enumeration line as PASS with an EMPTY dmesg capture (the USB drop killed its read). **Fixed**: PASS now requires the result table; no table = INCOMPLETE (exit 3) |
+| Next GPU leg | Quiesce before the forced suspend: keep the SMMU fault path from re-arming during recovery (a recovering flag in the qcom glue / CB stall before the suspend), and serialize overlapping recover workers; `r8q-gpu-smmu-vote` stays unmerged |
+| Phone | Rebooted clean after the wedge (board/failed/08 rule); daily state verified on the native root |
+
+## 46. Objective 3's RAM tuning verified complete on the native root (2026-11-20)
+
+| Item | State |
+| --- | --- |
+| zram | `/dev/zram0` **2.7 GB**, priority 100 (first tier), `systemd-zram-setup@` managed |
+| MGLRU | `lru_gen/enabled = 0x0003`, `min_ttl_ms = 1000` |
+| Swapfile | **4 GB `/swapfile`** created (fallocate + mkswap + swapon, fstab-persisted), priority −1 (overflow tier) |
+| Total | 5.5 GB RAM + **6.8 GB tiered swap** — the shell + the tuned LFM3 (~3.5 GB) fit with the desktop running |
+
+## 47. The §45 "race" was a userspace pin — the holders line decoded, quiesce iteration ready (2026-11-20)
+
+| Item | Finding / change |
+| --- | --- |
+| The §45 dump decoded | `adreno-smmu active usage 2, gmu-cxpd active usage 1, gmu active` is **not a dynamic re-arm**: it is the steady state of `power/control="on"` on `3d00000.gpu` + `3d6a000.gmu` (80-r8q-gpu.rules + the liveness monitor's pin, both from the 2026-11-15 churn fix, i.e. present through **every** GPU observation since). A pin sets `disable_depth > 0`: the recover's `pm_runtime_put_sync(gpu)` drops usage but gets `-EACCES` (the gpu/gmu never suspend, their device-link votes on the smmu and cxpd stay), and the forced `pm_runtime_suspend(smmu)` gets `-EAGAIN` at usage 2 (`rpm_check_suspend_allowed` refuses on a nonzero usage count) — the smmu never suspends, the CX power-off never runs, every window fails identically |
+| The two smmu usage refs | The gpu's (SID 0) and the gmu's (SID 5, `iommus = <&adreno_smmu 5 0x400>`) iommu-consumer device links — both consumers pinned active. The cxpd usage 1 is the gmu↔cxpd link ref |
+| The overlapping recover | msm_gpu's own `recover_work`, re-queued by the still-armed hangcheck timer (it re-arms itself while submits remain past the fence and queues recover per fire); single gpu-worker kthread + `gpu->lock` serialize it — the [29.348] entry print is the queued item starting 1 ms after the first released the lock. No DPU-side recover exists (dpu1 has none; "msm_dpu ae01000.display-controller" is just the DRM device carrier) |
+| The fault-path re-arm (real, but secondary) | The arm-smmu handler + `get_fault_info` are raw (no PM); the PM-taking paths reachable in the window are the glue's `set_stall` (`get_if_active`+`put_autosuspend`, one per storm after each replay's stall re-enable) and `set_ttbr0_cfg`/PRR (`resume_and_get`, from lock-free userspace pagetable churn). Once unpinned these re-arm a *suspended* smmu only via the `resume_and_get` family; the generic domain ops (`arm_smmu_rpm_get`) remain an accepted, logged risk |
+| Kernel leg | Branch **`r8q-gpu-fault-quiesce`** (2 commits on `r8q-gpu-smmu-vote`): `iommu/arm-smmu-qcom: gate the adreno fault path for gpu recovery` (new `set_recovery_gate` priv callback: context-fault IRQ disabled across the window + flag-gated `get_fault_info`/`set_stall`/`set_ttbr0_cfg`, state still tracked and re-applied by the smmu's reset at the recovery's closing resume) and `drm/msm/a6xx: quiesce the adreno smmu across the CX collapse window` (gate around the window + `a6xx_fault_handler` early-out + the holders line names the **gpu** device and prints a pin WARN). Built `7.3.0-rc6-omamobile-push1-gae195e6deaac` (W=1 clean, `tools/r8q-kernel --verify` PASS), modules tarball staged; **not packed or flashed** |
+| Userspace leg | `omamobile-device-r8q` **0.1.28**: the gpu/gmu `power/control="on"` pins removed from `80-r8q-gpu.rules` and `r8q-liveness-monitor` (test/all asserts they stay unpinned). The pins were the 2026-11-15 RPMh-churn mitigation's collateral; if BCM/QUP churn returns, fix it at its own device. **Removing the pins is required for the bench to pass: no kernel fix can collapse CX behind a pin** |
+| Expected bench | Unpinned + quiesced: a successful window prints nothing (pd_gate completes inside the 1 s); a failure now names its holder in one line — all-suspended means a hardware vote (the gdsc WARN points at the GMU force-off/rpmh path), and a pin prints the explicit WARN |
+
+## 48. GPU acceleration demonstrated: the recovery machinery fixed, the first Vulkan result table (2026-11-20)
+
+| Item | Fact |
+| --- | --- |
+| The fix | `r8q-gpu-fault-quiesce` (`gae195e6deaac`) + the device-r8q 0.1.28 unpin: the gpu/gmu `power/control="on"` pins (NOTES §5-B era) were the real holders behind §45's "usage 2" — the forced suspend hit -EAGAIN forever |
+| The recovery, proven | A fault-induced recovery ran with **zero** collapse-failure lines (vs 2/s in the old loop), a **single** event, and **the desktop survived it** — Hyprland + quickshell alive after, the GPU idle-suspended cleanly. First effective recovery on this board |
+| The first Vulkan table | `llama-bench -ngl 99 -p 64 -n 16`: **pp64 30.23 ± 0.07, tg16 1.37 ± 0.00**, exit 0, no new hangcheck — full offload, repeatable, clean |
+| The honest performance read | The CPU still beats the Adreno 650 on this model (34.5 pp / 13.5 tg vs 30.2 pp / 1.37 tg — the 650 has no tensor cores/int-dot; generation is memory-bound on the tile GPU). **Serving stays on the CPU** (the pi-tuned LoRA at 10.5 tok/s); the GPU's win is the desktop (compositing through the Adreno, surviving faults) and the option for other workloads |
+| Remaining | The `-p 512 -n 128` config still stalls at the first compute fence (`almost_ready_fence`, device lost) — a workload-size-dependent trigger to bisect; the recovery now handles it without the death spiral |
+
+**Correction to §48 (same day):** "the desktop survived it" was true at the *process* level only — the display pipeline did **not** restore: after the fault recovery `DSI-1 dpms: Off`, `enabled: disabled`, `crtc=(null)` in the DRM atomic state, and a `hyprctl reload` does **not** re-bind it (Hyprland ran headless). The remaining recovery gap is DPU-side: after a successful CX collapse + GPU restore, the KMS pipeline needs a session restart or a reboot to come back. The next kernel/display leg: make `recover_worker` restore the display (or teach the compositor to re-enable the connector).
+
+## 49. Native 120 Hz achieved and load-tested (2026-11-20)
+
+| Item | Fact |
+| --- | --- |
+| The flip | `monitors.lua` DSI-1 `1080x2400@60` → `@120`; the panel advertises both (`availableModes: 1080x2400@120.00Hz 1080x2400@60.00Hz`); applied at the sddm/Hyprland session start — `hyprctl monitors`: **`1080x2400@120.00000`** |
+| Display health at 120 | **Zero** DSI/TE/underrun errors in dmesg — the failed-05 era symptom (pacing stress before Adreno tuning) did not recur on the fault-tolerant GPU stack |
+| Under load | `llama-bench -ngl 99 -p 64 -n 16` **at 120 Hz**: pp64 **30.17 ± 0.13** (identical to the 60 Hz runs), **zero hangchecks** — compute and compositing share the Adreno cleanly at the doubled refresh |
+| Why it works now | failed-05's own rule held: @60 + `misc.vrr = 0` until the Adreno side is stable — the stability arrived (the unpin + quiesced recovery, §47–48), and the mode flip took without any of the early-era symptoms |
+
+## 50. E2E audit vs "stable" (2026-11-21, kernel gae195e6deaac, tools 87bf0514)
+
+`tools/phone-smoke` (§6.5) on the live phone — required checks all pass: storage
+guard (77 ro), root on userdata, kernel health (no oops), systemd clean, USB,
+session + lock, touch, buttons, Wi-Fi (link up), Bluetooth (powered), battery
+(100 %, 27 °C), sensors (accel + light), thermal (42 °C), display, GPU.
+
+| Gap | Root cause / state |
+| --- | --- |
+| **Audio: no ALSA card** | `va_macro: unable to get macro clock` → `3370000.codec` defers → `snd-sm8250: MultiMedia1: error getting cpu dai name` → the card never registers. The amps themselves answer I2C (CS35L41 @ 0x40/0x41). **Fix: the LPASS audio clock nodes (lpassaudiocc/lpass-core) in the r8q DT — a kernel bring-up leg** |
+| **Camera listing** | Kernel side up (9 modules, 14 `/dev/video*`); the smoke's libcamera listing found no tool installed — the userspace camera path needs its own test (the port's camera stack: libcamera 0.7.2 + omacam) |
+| Boot dmesg noise | Classified benign: Samsung PSCI firmware-bug WARN + a one-shot DSI clock double-disable at [5.165] + the ufshcd query attr failures ×3 (every boot, one-shot) |
+| GPU polish (non-blocking) | `-p 512` stall bisect; the DPU-restore-after-recovery (§48 correction) |
+
+**Stable record moved to the current state:** the PASS image is
+`recovery-fault-quiesce.img` sha256
+`adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a6`
+(kernel `gae195e6deaac`): boot PASS (sda24 readback verified), the daily state
+verified on it (§44–§49), the smoke above. `stable-image.conf` re-pins to it;
+the previous pin (the SMMU-vote kernel) stays in history.

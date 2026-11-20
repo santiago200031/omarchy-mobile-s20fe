@@ -1488,3 +1488,24 @@ Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
 | Display health at 120 | **Zero** DSI/TE/underrun errors in dmesg — the failed-05 era symptom (pacing stress before Adreno tuning) did not recur on the fault-tolerant GPU stack |
 | Under load | `llama-bench -ngl 99 -p 64 -n 16` **at 120 Hz**: pp64 **30.17 ± 0.13** (identical to the 60 Hz runs), **zero hangchecks** — compute and compositing share the Adreno cleanly at the doubled refresh |
 | Why it works now | failed-05's own rule held: @60 + `misc.vrr = 0` until the Adreno side is stable — the stability arrived (the unpin + quiesced recovery, §47–48), and the mode flip took without any of the early-era symptoms |
+
+## 50. E2E audit vs "stable" (2026-11-21, kernel gae195e6deaac, tools 87bf0514)
+
+`tools/phone-smoke` (§6.5) on the live phone — required checks all pass: storage
+guard (77 ro), root on userdata, kernel health (no oops), systemd clean, USB,
+session + lock, touch, buttons, Wi-Fi (link up), Bluetooth (powered), battery
+(100 %, 27 °C), sensors (accel + light), thermal (42 °C), display, GPU.
+
+| Gap | Root cause / state |
+| --- | --- |
+| **Audio: no ALSA card** | `va_macro: unable to get macro clock` → `3370000.codec` defers → `snd-sm8250: MultiMedia1: error getting cpu dai name` → the card never registers. The amps themselves answer I2C (CS35L41 @ 0x40/0x41). **Fix: the LPASS audio clock nodes (lpassaudiocc/lpass-core) in the r8q DT — a kernel bring-up leg** |
+| **Camera listing** | Kernel side up (9 modules, 14 `/dev/video*`); the smoke's libcamera listing found no tool installed — the userspace camera path needs its own test (the port's camera stack: libcamera 0.7.2 + omacam) |
+| Boot dmesg noise | Classified benign: Samsung PSCI firmware-bug WARN + a one-shot DSI clock double-disable at [5.165] + the ufshcd query attr failures ×3 (every boot, one-shot) |
+| GPU polish (non-blocking) | `-p 512` stall bisect; the DPU-restore-after-recovery (§48 correction) |
+
+**Stable record moved to the current state:** the PASS image is
+`recovery-fault-quiesce.img` sha256
+`adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a`
+(kernel `gae195e6deaac`): boot PASS (sda24 readback verified), the daily state
+verified on it (§44–§49), the smoke above. `stable-image.conf` re-pins to it;
+the previous pin (the SMMU-vote kernel) stays in history.

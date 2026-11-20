@@ -493,11 +493,15 @@ that reaches a usable modem.
    Stock's separate MHI group (pool `0x20000000-0x3fffffff`) is a downstream
    device; mainline has no per-MHI group. Confirm the IOVA appears in the right
    domain with the IOMMU debugfs before the first MHI bind.
-2. **Whether Linux may touch `0x17a10040`.** It lies outside the GICD window
-   (`0x17a00000-0x17a0ffff`) and the GICR window (`0x17a60000+`), and no
-   mainline driver owns it. The stock MSI driver arguably never reads it (the
-   endpoint writes the doorbell). A single read at probe, before any mapping,
-   proves it; do that read first.
+2. **Whether Linux may touch `0x17a10040` — ANSWERED (2026-11-20, RE +
+   ablation): it must not.** The page is the GIC-600's GICA
+   message-based alias (GICD+0x10000, all registers write-only;
+   `GICA_SETSPI_NSR` at +0x40), stock and mainline-MBI use the address
+   as a value only, and our probe's "proof" readl is the configuration
+   that power-offs the phone during kernel start on cold/ssh-reboot
+   boots ([NOTES §32-33](NOTES.md)). The doorbell becomes
+   address-as-data in the driver (no ioremap, no read, ever); the
+   §10 Step 3 "doorbell reads 0x0" check line goes with it.
 3. **How the block selects the bank.** All three stock nodes share the address,
    so the selection must be by root complex. r8q uses only the `0x340` bank;
    the first test should allocate one vector to keep the question small.
@@ -601,8 +605,9 @@ matches the record above before flashing.
 first, as in §8 Step 3.
 
 - **Expect / Pass:** `uname -r` is the new release; guard ok; root `rw`;
-  `dmesg | grep -i "qcom-pci-msi"` shows the probe line with the doorbell
-  readback and `32 SPIs from 832`; **no reset**.
+  `dmesg | grep -i "qcom-pci-msi"` shows the probe line and `32 SPIs
+  from 832` (no doorbell readback — the fixed driver never reads the
+  alias page, [NOTES §33](NOTES.md)); **no reset**.
 - **Stop condition:** no return after several minutes (ask the human;
   Power ~30 s, never send commands to a silent phone); a reset at any
   point; an SMMU context fault naming `0x17a10040`.

@@ -983,3 +983,155 @@ probe-time ioremap/debugfs path (the stock-legal AP-side debug is a
 WRITE to GICD_SETSPI_NSR 0x17a00040). The cold-boot analysis subagent
 is sanity-checking the fix shape against the GIC-600 alias-page
 behavior (session ses_e06315ea9ffeAPOrA3ULb56tbF).
+
+## 33. Cold-boot power-off closed: the SETSPI-alias read is the mechanism (2026-11-20, cold-boot analysis subagent)
+
+The RE verdict (§32) plus the ablation is a complete causal story, and the
+Arm documentation says exactly why the probe was lethal. This folds the
+follow-up analysis in; the GIC-600/TRM part answers the two questions the
+parent session left open (the cold-vs-warm failure chain, and whether the
+probe's other actions contribute).
+
+**What the page is (citable sources).** The GIC-600 register map (Arm
+CoreLink GIC-600 TRM r1p6, Table 4-1 "Register map pages") puts page 1 —
+the 64 KiB at GICD+0x10000 — as **GICA, the "GICD message-based
+interrupts alias"**. The GICA register summary (TRM Table 4-20) lists the
+entire page's register file as four **write-only** registers:
+`GICA_SETSPI_NSR` (+0x40), `GICA_CLRSPI_NSR` (+0x48) and the two secure
+twins (+0x50/+0x58); everything else is reserved. GICv3 (IHI0069) defines
+the same register in the distributor as WO with the written value the SPI
+INTID in bits [12:0] — "accesses to this register are WO". So `0x17a10040`
+is `GICA_SETSPI_NSR` of the interrupt controller whose GICD main page is
+0x17a00000, and the page's only defined use is a message **write**. Two
+independent implementations already use it that way and never do what our
+probe did: mainline's `irq-gic-v3-mbi.c` treats the alias address as a
+pure value — `iommu_dma_prepare_msi(desc, mbi_phys_base +
+GICD_SETSPI_NSR)` in alloc, `msi_msg_set_addr(…)` in compose, no ioremap,
+no read — with `arm,gic-v3.yaml` documenting `mbi-alias` as "an alias of
+the GICD region containing only the {SET,CLR}SPI registers"; and stock
+(`vendor-r8q/drivers/pci/controller/pci-msm-msi.c`) reads `reg` as a raw
+value (`be32_to_cpup(of_get_address())`), maps it into the endpoint's
+IOMMU domain with `dma_map_resource()`, and composes `msg->data` = the
+GIC parent hwirq — the stock DT (`kona-pcie.dtsi`) declaring all three
+RC nodes at the same `reg = <0x17a10040 0x0>`, zero size, an
+address-as-data. [MODEM-PLAN](MODEM-PLAN.md) §9.6 item 2 ("a single read
+at probe … proves it; do that read first") was **backwards: the read is
+the one thing the AP must never do on that page.**
+
+**The failure chain (the follow-up's question 1).** By elimination the
+probe's only bus transaction is the `readl_relaxed` at kernel start
+(runs 16-18: `[0.194] … doorbell 0x0000000017a10040 reads 0x0`):
+`devm_ioremap_resource` is request+page-tables, the `ioremap(0x17a00000,
+SZ_64K)` is page-tables only, `devm_request_mem_region` is kernel
+bookkeeping (and no other node claims 0x17a10000-0x17a1ffff: GICD is
+0x17a00000-0x17a0ffff, GICR 0x17a60000+, so §29's mem_region-conflict
+theory was already dead), and the irq domain is software. A CPU **load**
+from a write-only message alias is outside the page's contract: the
+architecture defines only write semantics there, so the read's outcome is
+implementation state, not a datum. The GIC-600's designed response to
+out-of-decode accesses is an **error record** (the GICD summary's
+"SYN_ACE_BAD access" note) — and on this phone a fatal fabric/error event
+at kernel start lands in the secure side's fatal path, whose vocabulary
+our own crash dumps already printed: `TZBSP_ERR_FATAL_NOC_ERROR` →
+`SECURE_WDOG_EXPIRE` → `PS_HOLD` (MODEM-PLAN §13.2). Externally that is
+the observed signature: the phone goes dark and **off** during kernel
+start, no reset loop, and no pstore — a power cut takes DDR with it, which
+is why no crash log ever existed and the case needed RE + ablation. On
+warm push/reboot-to boots the same read landed in a state where the alias
+answered benignly (RAZ, 0x0, boot continued); on cold power-on and plain
+ssh-reboot boots it did not. That differential follows the **boot path,
+not the address**: this platform carries always-on state through warm
+resets that a cold power-on re-initializes — the same asymmetry the modem
+work measured directly on this phone (SDX55M PON survives warm reboots,
+only a power-off clears it; MODEM-PLAN §13 Run 22's premise). Which exact
+state (the secure side's error-reporting/firewall configuration, or the
+fabric's default read handling for the page) is **unobservable now and
+labelled open below** — the fix removes the only access that could
+resolve it.
+
+**The counter-example that bounds the claim.** Run 22 (2026-11-19,
+`poweroff` → power-on, kernel `g238696e3884c-dirty`, doorbell node in the
+DT) probed the doorbell on a cold boot and **passed**. So the read is not
+deterministically fatal per "cold boot" — its fate is state-dependent.
+The ablation differential (the correctly-configured f7f3096b1 lineage:
+node enabled → cold boots power off at kernel start; node disabled →
+cold pass, kernel `gc8be07674331`) still pins the cause on the probe, and
+the RE's elimination (stock never executes this load) explains why the
+probe is the only configuration that ever could fail this way.
+
+**Question 2 — independent contributions: none.** The
+`ioremap(0x17a00000, SZ_64K)` and the `devm_request_mem_region` cannot
+contribute to the cold-boot power-off: both are transaction-free (page
+tables / resource tree), the doorbell reg overlaps neither GIC window,
+and the mainline gic-v3 driver does not request its regions, so there is
+nothing for them to collide with. They are hygiene problems, not killers:
+the fix should still drop them along with the read (see below).
+
+**Question 3 — fix verdict: endorsed, with three refinements.** The RE's
+shape is exactly mainline's MBI pattern and stock's pattern on the same
+hardware, and the mechanism above adds no objection — it removes the only
+bus transaction the probe made:
+
+1. **Value-only doorbell:** parse the address as a value
+   (`of_get_address()`/`of_translate_address()`, or keep
+   `platform_get_resource` and use `->start` only), feed it to
+   `iommu_dma_prepare_msi()`/`msi_msg_set_addr()` exactly as
+   `irq-gic-v3-mbi.c` feeds `mbi_phys_base`. No `devm_ioremap_resource`,
+   no `readl`, at probe or anywhere.
+2. **Zero-size reg like stock:** `reg = <0x0 0x17a10040 0x0 0x0>`, and
+   the binding yaml must document that `reg` is an address-as-data (zero
+   size), so nobody "fixes" the size back and makes the page mappable
+   again. The `interrupts` bank (GIC_SPI 832-863) is untouched and
+   claimed by nothing else in our DT (checked: the doorbell node is the
+   only user).
+3. **Debugfs:** the knobs are already write-only (mode 0200) and inert
+   until used, but with the mapping gone, **drop the `fire` knob**
+   (its whole question — which data value raises which SPI — is settled:
+   GIC parent hwirq, proven live) and **keep the `setspi` knob**: a write
+   of an INTID to GICD_SETSPI_NSR at 0x17a00040 is the architecturally
+   defined AP-side use and was proven live on this phone (`SETSPI
+   864`/`872` incremented the right counts). Keep its GICD ioremap lazy
+   or narrowed to the one register; it touches nothing at kernel start
+   either way.
+4. **Keep the ablation** (`c8be07674`, doorbell off in the base DT, the
+   modem overlay enabling it with pcie2) even after the driver fix: the
+   doorbell is meaningless without pcie2, and a future cold-boot
+   regression on the daily image is then provably not the doorbell.
+5. **`f7f3096b1` becomes dead code:** with the doorbell domain owning
+   pcie2's MSI, the dwc iMSI-RX alloc path (which that commit patches,
+   pcie2-gated) never runs for pcie2 — drop or rework it in the same
+   series so the tree carries one MSI story. (Its Stage-3A twin,
+   `5be4efd5e`, is the documented wrong-half change.)
+
+**Remaining cold-boot risk on the modem path: none at kernel start.**
+With the fix the probe makes no bus transaction; the doorbell address is
+first consumed when pcie2's endpoint allocates vectors, as a pure
+argument to `iommu_dma_prepare_msi()` — a page-table edit plus ordinary
+SMMU driver traffic. The only writer of the alias page is then the
+endpoint's DMA write, stock's exact mechanism, proven on this phone both
+as stock and by our own rescue-shell retest (image `bcb62616…`,
+unassisted BHI/event MSI counts). The first cold boot of the fixed driver
+with the `--dual-boot --overlay modem` image remains the closing
+experiment — attended, runbook §10's stop conditions — because of the
+state co-factor, not because any access remains.
+
+**WTSR/SMPL: closed as a cause.** The PMIC never powered the phone off
+by its own decision: the ablation differential (same kernel, same PMIC,
+same battery, same flash path — only the doorbell node's `status`
+differs) leaves no room for a PMIC-initiated shutdown, watchdog or
+sudden-power-loss event. The dark/off state was the SoC's fatal-error
+response, plus the human's recovery power-hold where one was used. The
+Samsung-PMIC WTSR/SMPL angle (a real mechanism on the Exynos phones,
+docs/review/lessons/kernel-2.md) is retired for r8q; keep only the free
+postmortem habit: if another dead boot ever happens, read the PON
+off-reason on the next boot before anything else.
+
+**What remains open.** (1) The exact state that made the read fatal on
+cold power-on and plain ssh-reboot boots but benign on warm push/reboot
+boots and on Run 22's cold boot — unobservable now that the access is
+gone; it closes only if a fixed-driver cold boot ever fails (then the
+warm-kexec discriminator of §31 applies, against a non-doorbell cause).
+(2) The first attended cold boot of the fixed driver + modem overlay
+(the pass that ends the story). (3) The binding yaml + driver commits
+above, human-signed. Nothing else — in particular nothing on the PMIC,
+and nothing further on the GIC-600 alias itself.

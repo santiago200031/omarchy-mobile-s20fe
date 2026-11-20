@@ -1164,3 +1164,43 @@ the on-phone source tree — logs/r8q/ai-bench-20261120-175150.log):
   reordering across the series). Next: obtain the series, port the
   relevant patches, and re-run `tools/r8q-ai-bench`.
 - The LLM stays CPU-only meanwhile (34.5 pp / 13.5 tg t/s on this kernel).
+
+## 35. MISSION MODE: the +32.4 s death is gone — the modem holds M0 stable (2026-11-20)
+
+The modem image (recovery-modem-fixed.img ec3e461c…, kernel
+g6085e03490e8-dirty: the value-only doorbell 9c1214a01 + the ablation
+c8be07674 + the GPU fix + the f7f3096b1 revert) booted with its modules
+installed (tools/r8q-modules, first real run) and reached, for the
+first time past the 29-run +32.4 s wall:
+
+- `[0.192] qcom-pci-msi: doorbell 0x…17a10040 (address-as-data), 32
+  SPIs from 832` — the fixed driver, no read, clean probe.
+- `[6.60] qcom-pcie 1c10000.pcie: PCIe Gen.1 x2 link up` — the modem
+  link; the SDX55M endpoint at 0002:01:00.0.
+- `[7.90] mhi mhi0: Power on setup success` → `[8.01] Device already in
+  SBL, queuing transition` → `[8.11] Mission mode doorbell offsets`.
+- MSI vectors DELIVER: /proc/interrupts `DW-PCI-MSI-0000:01:00.0`
+  vectors 1+2 at 4 and 23 counts — the MHI event rings raise, the exact
+  thing the endpoint-MSI fault starved for 29 runs.
+- `/sys/kernel/debug/mhi/mhi0/states`: **`PM state: M0 Device: Active
+  MHI state: M0 EE: MISSION MODE wake: false`** at 2+ minutes uptime,
+  zero MHI errors, pending packets 0. The IPCR channels (20/21) are up.
+- The same boot carries the full module stack: ath11k (Wi-Fi, pcie0
+  Gen.2 x1 link up), msm (GPU), cs35l41 (audio amps), qcom_camss/hi847
+  (cameras), bluetooth/btbcm, the panel module.
+
+The chain that got here: the config fix (§30, DEVICE=r8q — without it
+nothing enumerates) → the ablation (§32 — the doorbell node off unless
+the overlay enables it) → the value-only doorbell (§33 — no CPU read of
+the GICA write-only page) → the modules push (PHY_QCOM_QMP_PCIE=m was
+the silent deferred supplier holding BOTH RCs) → the link up → MHI
+mission mode.
+
+Open items: (1) this image still boots INTERMITTENTLY — some power
+attempts power off during kernel start before a good boot lands (the
+state co-factor of §31/§33, unresolved); the ablated no-modem image
+boots reliably and stays the daily baseline; (2) the cellular stack's
+next rungs per MODEM-PLAN: QRTR service lookups, rmtfs for the modem's
+partitions, then registration/SIM; (3) the GPU wedge remains (§34).
+Full boot log: logs/r8q/modem-fixed-20261120-full-dmesg.log (the
+pre-modules boot, both RCs deferred on the missing PHY module).

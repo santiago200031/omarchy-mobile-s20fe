@@ -1204,3 +1204,56 @@ next rungs per MODEM-PLAN: QRTR service lookups, rmtfs for the modem's
 partitions, then registration/SIM; (3) the GPU wedge remains (§34).
 Full boot log: logs/r8q/modem-fixed-20261120-full-dmesg.log (the
 pre-modules boot, both RCs deferred on the missing PHY module).
+
+## 36. Corrections + a new hardware blocker: mhi0 is the WI-FI's controller, and the SD card is failing (2026-11-20)
+
+**§35's "modem in mission mode" was WRONG — corrected.** mhi0 is the
+Wi-Fi's own MHI controller (ath11k registers its own; the QCA6390 reaches
+mission mode via ath11k's glue — the "mission mode doorbells", the IPCR
+channels and the QRTR services I read were the Wi-Fi chip's, with the
+"Snapdragon Sensor Core" and friends being its neighbors). The MODEM's
+controller is **mhi1**, and it only exists once mhi_pci_generic binds
+0002:01:00.0 — which never happened at boot on these images: the udev
+autoload failed (the modules.alias/depmod database on the corrupting SD
+is unreadable), so the modem sat unclaimed until `modprobe
+mhi_pci_generic` by hand — after which mhi1 powered up, the r8q config
+selected ("MHI PCI device found: qcom-sdx55m"), the modem reached SBL,
+and the SAHARA serving began (the first image, mdmddr from the healthy
+UFS partition /dev/sdd2, transferred clean: HELLO → chunks →
+END_OF_IMAGE → DONE_RESP).
+
+**The SD card is failing.** 132 storage-error lines in dmesg; files
+corrupted so far: /usr/lib/.../mhi_pci_generic-installed copies,
+wwan.ko (ls itself I/O-errors), modules.dep, the whole drivers/gnss/
+directory, /usr/bin/nohup, /usr/bin/tar, and /lib/firmware/qcom/sdx55m
+files (the Sahara loader's apdp.mbn read failed mid-protocol — the
+abort that wedged the SBL). The loop root (/omarchy-r8q.img) lives on
+this SD. Workarounds in play, all from RAM (/tmp, tmpfs):
+- the modules load by hand: insmod /tmp/gnss.ko, wwan.ko,
+  mhi_wwan_ctrl.ko (the "unknown symbol" was only the missing gnss.ko
+  dependency — the running kernel matches its modules);
+- the full sdx55m firmware set (17 files, 88 MB) pushed to /tmp/sdx55m
+  and bind-mounted over /lib/firmware/qcom/sdx55m;
+- the loader runs via systemd-run (nohup is corrupt).
+**The daily-phone decision this forces:** the SD must be replaced or the
+loop root migrated to the UFS (the native-root partition sda36, ext4,
+label omamobile-root, is healthy) — a human decision for the next
+session.
+
+**The modem's current state (the live chain):** mhi1 in SBL; the Sahara
+loader (tools/r8q-sahara, running as a systemd unit, images from RAM)
+serves the set; the SBL completes multi_image_qti.mbn (the image table)
+each cycle, then the channel cycles and the modem re-HELLOs with mode=2
+MEMORY_DEBUG offers. MODEM-PLAN §925-934 names this class: the unresponded
+dump offer times out (~38 s) and PS_HOLD-resets; the dump session carries
+the crash reason ("the data every prior run lost"). The missing
+run17_diag.py walker is being reconstructed (subagent, 2026-11-20) —
+serving the dump is the path to the MPSS crash reason without a reset.
+
+**Also recorded:** the modules staging was stale for the first push
+(mhi_pci_generic.ko built from the pre-expansion 2-channel IPCR-only
+table; a touch+rebuild fixed it — the r8q table now carries the full
+14-channel set: SAHARA/DIAG/MBIM/QMI/IPCR/DUN/FIREHOSE). And the
+Sahara port race: the SBL HELLOs once per channel bring-up — the loader
+must be listening BEFORE the modem's bind (the --wait port-wait exists
+for this), or the port cycles leave it deaf.

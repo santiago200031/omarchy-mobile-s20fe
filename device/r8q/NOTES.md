@@ -1135,3 +1135,32 @@ warm-kexec discriminator of §31 applies, against a non-doorbell cause).
 (the pass that ends the story). (3) The binding yaml + driver commits
 above, human-signed. Nothing else — in particular nothing on the PMIC,
 and nothing further on the GIC-600 alias itself.
+
+## 34. GPU cx-gdsc fix 29cfed48c FALSIFIED by the repro — the full QUIC series is needed (2026-11-20)
+
+The first fair test of the cx-gdsc recover fix, on the ablated correct-config
+image (kernel gc8be07674331, msm module from the same tree, renderD128 +
+Turnip Vulkan 1.3.354 answering, llama-bench built with GGML_VULKAN=ON from
+the on-phone source tree — logs/r8q/ai-bench-20261120-175150.log):
+
+- The bench ENGAGED the GPU ("ggml_vulkan: Found 1 Vulkan devices: 0 =
+  Turnip Adreno (TM) 650") — the historic wedge died at exactly this point,
+  so reaching compute is already past it.
+- The compute wedged anyway, and the fix did NOT hold the recovery (dmesg):
+  `[1397.8] msm_dpu: hangcheck detected gpu lockup rb 0!` →
+  `[1398.5] adreno 3d00000.gpu: gpu fault ring 0 fence 547 status 00800005`
+  → `[1398.9] a6xx_recover: cx gdsc didn't collapse` →
+  `[1399.9] a6xx_recover: cx gdsc didn't collapse` (recover_worker looping).
+- **Differences from the historic wedge (board/failed/08):** the phone
+  SURVIVED — SSH answered, renderD128 stayed registered; the wedge is
+  GPU-local (the display path is in recover with it). The bench itself was
+  killed by its 300 s timeout (no table). The board rule stands: treat the
+  wedge as needing a reboot before further GPU work.
+- **Conclusion:** the single QUIC 0/7 line ("the gpu device needs to be
+  runtime suspended so the iommu removes its vote") is NOT sufficient —
+  `pm_runtime_suspend(&gpu->pdev->dev)` ran inside the recover and the CX
+  gdsc still didn't collapse. The full 7-patch "Improve GPU Recovery"
+  series (kernelthread v4) holds the actual combination (SMMU/runtime-PM
+  reordering across the series). Next: obtain the series, port the
+  relevant patches, and re-run `tools/r8q-ai-bench`.
+- The LLM stays CPU-only meanwhile (34.5 pp / 13.5 tg t/s on this kernel).

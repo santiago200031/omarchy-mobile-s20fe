@@ -810,3 +810,46 @@ sha256 `463ff67a…`.
 **Phone-side diagnostics** (once the phone is reachable — the initramfs rescue shell reads dmesg): `dmesg | grep -iE 'ufs|scsi|sd[a-z]|1d84000|1d87000'`; `ls /sys/class/scsi_host/`; `ls /sys/bus/platform/devices/ | grep -i ufs; cat /sys/bus/platform/devices/1d84000.ufs/power/runtime_status`; `ls /proc/device-tree/soc@0/ufshc@1d84000/ /proc/device-tree/soc@0/phy@1d87000/`; `cat /sys/kernel/debug/clk/clk_summary | grep -i ufs`.
 
 **UFS phone state (the user reads it now)**: stuck in the initramfs console (`=== ufs-probe: 0 disks ===`, `omamobile: no /sys/block/sd*`); SSH times out (the SoC USB gadget is down — `a600000.usb: deferred probe pending: dwc3: failed to initialize core` — also a broken path); the PCIe2 endpoint missing from the laptop bus ("gcc sm8250 sync state pending due to <id>.phy").
+
+## 29. Bisect: the no-modem image ALSO fails — UFS 0 disks with PCIe2 disabled (2026-11-20)
+
+Flashed the bisect image `out-r8q/recovery-nomodem.img` (sha256 23e7f68c…, the
+current tree f7f3096b1 packed with NO overlays — PCIe2/pcie2_phy stay
+`disabled` in the base DT). Result: **it fails the same way** — the user reads
+the console: "no userdata partition, ufs did not enumerate" + the fw_devlink
+"Fixed dependency cycle(s) with /soc@0/phy@1d87000 and /soc@0/ufshc@1d84000"
+line. No gadget on the laptop bus, SSH times out (checks over several
+minutes). **So the fault is NOT the modem overlay's PCIe2 enable** — the
+modem-overlay images and the no-overlay image fail identically; the working
+stable (66fe127f…) is the only image that boots.
+
+Established facts:
+- The stable image was packed `--dual-boot --overlay camera-uw`
+  (NOTES.md:188; a prior modem-era image NOTES.md:466 was packed
+  `--dual-boot --overlay modem`). My packs (463ff67a…, c51bd505…, b55a3440…,
+  d87d5999…, 23e7f68c…) were all packed WITHOUT `--dual-boot`.
+- BUT the `--dual-boot` delta is post-enumeration only (tools/r8q-boot):
+  it empties the storage-guard RW allowlist (all UFS read-only) and adds
+  `omamobile.loop=/omarchy-r8q.img` to the cmdline; without it the guard
+  allows RW on userdata + mounts the root by label "omamobile-root". None
+  of that can stop the UFS from *enumerating* (0 disks) — so the pack flag
+  is likely NOT the root cause, but it IS a real difference to record.
+- The doorbell node `pcie2_msi` (msi-controller@17a10040, 32 SPIs 832-863,
+  no status property = okay) is in the BASE DT of every failing image and
+  `CONFIG_QCOM_PCI_MSI=y` — it probes unconditionally, even with PCIe2
+  disabled. Its reg (0x17a10040, 4 bytes) sits inside the GIC-600
+  distributor/intc region at 0x17a00000 (the SETSPI alias page) — a
+  `devm_ioremap_resource` there may conflict with the GIC driver's own
+  mem_region request → possible forever-deferred probe → fw_devlink holds
+  supplier sync_state ("gcc sm8250 sync state pending due to <id>.phy") →
+  downstream probes stall (UFS 0 disks, dwc3 "failed to initialize core").
+  Prime suspect for the whole cascade.
+
+Two subagents running (2026-11-20):
+1. Image forensics (session ses_e07167bf2ffexB76NkFpcPAFVP): extract both
+   images (stable 66fe127f… vs failing 23e7f68c…) and diff cmdline, DTB,
+   ramdisk /init, kernel version — the full delta table.
+2. Kernel-delta boot-time analysis (session ses_e0716209effeZC1oIaYVKHiMYm):
+   the 3667ab368→f7f3096b1 code delta vs UFS enumeration with PCIe2
+   disabled — the doorbell irqchip probe vs the GIC mem_region conflict,
+   and the fw_devlink sync_state stall mechanism.

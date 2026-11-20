@@ -892,3 +892,45 @@ CONFIG:**
   kernel` (running now), verify `out-r8q/.config` has
   `CONFIG_SCSI_UFS_QCOM=y` + `CONFIG_PHY_QCOM_QMP_UFS=y` +
   `CONFIG_QCOM_PCI_MSI=y`, then pack `--dual-boot` and re-test.
+
+## 31. Corrections from the kernel-delta analysis (2026-11-20, subagent ses_e0716209effeZC1oIaYVKHiMYm)
+
+The tree-A(3667ab368)→tree-B(f7f3096b1) kernel-delta analysis exonerates
+the entire source delta for the failing boots and corrects two earlier
+hypotheses:
+
+- **§29's doorbell-vs-GIC mem_region "prime suspect" is disproven.** The
+  sm8250.dtsi `intc` node claims GICD 0x17a00000–0x17a0FFFF and GICR
+  0x17a60000+; the doorbell's `reg = 0x17a10040..0x17a10043` lies OUTSIDE
+  both windows (the GIC-600 SETSPI alias page, deliberately unclaimed by
+  the mainline DT) — no `devm_request_mem_region` collision is possible,
+  and even an overlap would be a one-shot -EBUSY, not a defer loop. The
+  probe is warm-proven-good: runs 16–18 (kernel g238696e3884c, same DT with
+  the doorbell node) logged `doorbell 0x0000000017a10040 reads 0x0, 32
+  SPIs from 832` plus 62 ufshcd/sd lines and MHI mission mode. The probe
+  writes nothing, defers never, and no SPI is allocated until a PCIe
+  endpoint requests an MSI.
+- **§28's "mainline regression 3667ab368..2db2bc35b" hypothesis does not
+  apply to this lineage**: merge-base(3667ab368, f7f3096b1) is exactly
+  3667ab368 — the wt-r8q branch has no mainline window; 2db2bc35b is a
+  different branch.
+- The whole delta is boot-inert with PCIe2 disabled: MHI/wwan/qrtr run
+  only from an MHI PCI device; the pcie-designware-host.c changes are
+  gated on cfg0 0x64100000 (pcie2 only; pcie0 stays byte-identical); the
+  a6xx recover change runs only on GPU recovery. And decisively:
+  `git diff 69e130a27 0fd2c260d` is EMPTY — the first failing image
+  (c51bd505) ran content-identical kernel code to the last proven-good
+  kernel (Run 25, g69e130a27a94, full system up). The kernel code never
+  broke; the build config did (§30).
+- Remaining cold-vs-warm nuance for the retest: every good tree-B boot in
+  the logs was WARM (push/reboot-to/stage loops); every failing boot was a
+  COLD power cycle after a heimdall flash — but all the cold failures were
+  the DEVICE-less builds (§30), so the config explains them. The retest
+  order: first a cold boot of the correct-config tree-B with NO modem
+  overlay (tests UFS + gadget + doorbell-cold + gives a working daily
+  image), THEN the `--dual-boot --overlay modem` image for the endpoint-MSI
+  fix's first fair test. If the modem image cold-fails with the doorbell
+  probe visible, the fallback is the subagent's discriminator: kexec the
+  same kernel warm from the running system (warm-good + cold-bad isolates
+  the doorbell), and the fix is `status = "disabled"` on the doorbell node
+  in the base DT + enabling it in the modem overlay.

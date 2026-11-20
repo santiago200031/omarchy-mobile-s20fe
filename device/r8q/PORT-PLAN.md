@@ -9,6 +9,7 @@
 | Boot | `sda24` (recovery) → **native root `sda36`** (LABEL `omamobile-root`); the failing microSD is out of the path — read-only source of last resort |
 | Session | sddm autologin → Hyprland + quickshell; confirmed on screen (§41) |
 | AI | `omamobile-ai` serves the **pi-tuned LFM3-1.7B** — Q8_0 base + harbor-pi LoRA, 10.5 tok/s out (§42); pi = the session user's mise install |
+| RAM | zram 2.7 G + MGLRU (ttl 1 s) + 4 G swapfile = **6.8 G tiered swap** (NOTES §46) |
 | Battery | **verified live**: 99 %, charging, 4.35 V, 27.5 °C, `health Good` (NOTES §44) — the old FG-defer claim was a bring-up artifact |
 | Display | `1080x2400@60` deliberate (failed-05); **@120 queued behind GPU stabilization** |
 | Kernel | `r8q-gpu-smmu-vote` (`ga60f7256c741`) under test; the GPU wedge is root-caused to the adreno SMMU's CX vote (§39), fix in flight on `r8q-gpu-smmu-vote` |

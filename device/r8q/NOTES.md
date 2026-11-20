@@ -1446,3 +1446,12 @@ Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
 | The tool's false PASS | `r8q-ai-bench` graded the device-enumeration line as PASS with an EMPTY dmesg capture (the USB drop killed its read). **Fixed**: PASS now requires the result table; no table = INCOMPLETE (exit 3) |
 | Next GPU leg | Quiesce before the forced suspend: keep the SMMU fault path from re-arming during recovery (a recovering flag in the qcom glue / CB stall before the suspend), and serialize overlapping recover workers; `r8q-gpu-smmu-vote` stays unmerged |
 | Phone | Rebooted clean after the wedge (board/failed/08 rule); daily state verified on the native root |
+
+## 46. Objective 3's RAM tuning verified complete on the native root (2026-11-20)
+
+| Item | State |
+| --- | --- |
+| zram | `/dev/zram0` **2.7 GB**, priority 100 (first tier), `systemd-zram-setup@` managed |
+| MGLRU | `lru_gen/enabled = 0x0003`, `min_ttl_ms = 1000` |
+| Swapfile | **4 GB `/swapfile`** created (fallocate + mkswap + swapon, fstab-persisted), priority −1 (overflow tier) |
+| Total | 5.5 GB RAM + **6.8 GB tiered swap** — the shell + the tuned LFM3 (~3.5 GB) fit with the desktop running |

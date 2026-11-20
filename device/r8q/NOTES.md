@@ -1434,3 +1434,15 @@ Still open elsewhere: the AMSS-jump link fault (§38), the battery FG IRQ.
 | Battery telemetry | **Working.** `max170xx_battery`: `capacity 99`, `status Charging`, 4.35 V, +133 mA, 27.5 °C, `health Good`; charger `max77705-charger` `online 1 USB`. The old "FG deferred, can't get irq" was an early-boot artifact of the bring-up era: the current boot has **zero** defer lines — `omamobile-r8q-battery.service` (`r8q-battery-modprobe`, multi-user.target) orders the module load. Minor gaps: `design_capacity` and `time_to_*` empty (FG config), `cycle_count` mis-scaled |
 | Display refresh | `1080x2400@60` is the **deliberate** state (board failed-05: `@120` stressed DSI CMD/TE pacing before Adreno tuning; the permanent rule pins @60 + `misc.vrr = 0`). **@120 is queued behind GPU stabilization** — the running bench verdict decides when it is safe to retry |
 | Fallback docs | Verified accurate by grep: PORT-PLAN:16 + NOTES §24 carry the owner-observed model (sda24 is the power-on default, no automatic LineageOS fallback, Download Mode is the recovery path). No stale "reboots boot LineageOS" wording remains in repo docs |
+
+## 45. The SMMU-vote fix benched: WEDGE — the diagnostic names all three holders live (2026-11-20)
+
+| Item | Fact |
+| --- | --- |
+| Verdict | **WEDGE** — the ~1 Hz recover loop persists on `ga60f7256c741`; the fix did not hold |
+| The diagnostic's first live catch | `cx vote holders: adreno-smmu active usage 2, gmu-cxpd active usage 1, gmu active` — **all three framework votes back ON at the failed poll** |
+| Mechanism read | The forced `pm_runtime_suspend(smmu)` is raced/undone inside the poll window: the still-faulting context's fault-path `pm_runtime_get_if_active` re-arms the SMMU (usage 2 = base + a fault get), and overlapping recovery activity resumes the gmu chain. A dynamic race, not a static leak |
+| The bench | Hung at first GPU work — model never loaded (RSS 5 MB, 0 CPU in 14 min); no result table |
+| The tool's false PASS | `r8q-ai-bench` graded the device-enumeration line as PASS with an EMPTY dmesg capture (the USB drop killed its read). **Fixed**: PASS now requires the result table; no table = INCOMPLETE (exit 3) |
+| Next GPU leg | Quiesce before the forced suspend: keep the SMMU fault path from re-arming during recovery (a recovering flag in the qcom glue / CB stall before the suspend), and serialize overlapping recover workers; `r8q-gpu-smmu-vote` stays unmerged |
+| Phone | Rebooted clean after the wedge (board/failed/08 rule); daily state verified on the native root |

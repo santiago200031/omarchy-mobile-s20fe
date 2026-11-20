@@ -69,16 +69,25 @@ say "Running the repro: llama-bench -ngl 99 -p 512 -n 128 (this can wedge the GP
 cat "$LOG" | tail -14
 
 # ---- verdict ----
+# The honest ladder: a PASS needs the result table (llama-bench prints the
+# pp512/tg128 rows only when the run completed). The device-enumeration line
+# alone means the backend engaged, not that compute finished — and an SSH
+# drop can leave the dmesg section empty, which must never grade as clean.
 wedge=$(grep -cE "cx gdsc didn't collapse|gpu lockup|device lost" "$LOG" || true)
+table=$(grep -cE "pp512|tg128" "$LOG" || true)
 vulkan=$(grep -c "Vulkan" "$LOG" || true)
 printf '\n'
 if ((wedge > 0)); then
   printf '\e[1;31m==>\e[0m WEDGE: the GPU-recovery failure signature is present (%s hit(s)) — the fix did not hold. Reboot the phone before further GPU work (board/failed/08 rule).\n' "$wedge"
   exit 1
 fi
-if ((vulkan > 0)) || grep -q "Vulkan" "$LOG"; then
-  printf '\e[1;32m==>\e[0m PASS: Vulkan compute ran with a clean dmesg (no cx-gdsc wedge). Log: %s\n' "$LOG"
+if ((table > 0)); then
+  printf '\e[1;32m==>\e[0m PASS: the result table is present and dmesg is clean. Log: %s\n' "$LOG"
   exit 0
+fi
+if ((vulkan > 0)); then
+  printf '\e[1;33m==>\e[0m INCOMPLETE: Vulkan engaged but no result table — the bench hung or the SSH link dropped mid-run. Treat as unproven; check the log, re-run. Log: %s\n' "$LOG"
+  exit 3
 fi
 printf '\e[1;33m==>\e[0m CPU-ONLY: the GPU backend never engaged (no Vulkan lines). Build it: %s -> cmake -B build-vk -DGGML_VULKAN=ON && cmake --build build-vk --target llama-bench -j8\n' "$R8Q_LLAMA_VK_SRC"
 exit 2

@@ -1257,3 +1257,37 @@ table; a touch+rebuild fixed it — the r8q table now carries the full
 Sahara port race: the SBL HELLOs once per channel bring-up — the loader
 must be listening BEFORE the modem's bind (the --wait port-wait exists
 for this), or the port cycles leave it deaf.
+
+## 37. The MPSS crash reason captured live: TZBSP_ERR_FATAL_NOC_ERROR (2026-11-20)
+
+The reconstructed dump walker (tools/run17_diag.py, from the lost
+run17_diag.py — its scratch original was found on this laptop and used as
+the primary reference; 13/13 self-test checks, byte-exact against the
+recorded run21 session) served the SDX55M's MEMORY_DEBUG session live, on
+the phone, over the crash loop — **38 files / 2875204 bytes to
+/tmp/sdx55-crash, no PS_HOLD wipe**: the data every prior run lost.
+
+**The reason (Summary.txt):**
+```
+TZ reset reason : (6) : TZBSP_ERR_FATAL_NOC_ERROR
+AOSS_CC_RESET_STATUS from SDI: (0x803) : SECURE_WDOG_EXPIRE PMIC_RESIN PCIE_PERST_RESET
+OEM_RESET_REASON from SDI : (0x6) : TZBSP_ERR_FATAL_NOC_ERROR
+```
+The Q6's own SW crash fields (Type/Task/File/Error_Msg) are EMPTY: the
+modem died from a **NOC (interconnect) fatal error**, not a software
+assert — the same fatal class as the doorbell read's power-off (the
+out-of-contract fabric access). Interpretation, consistent with the
+session history: the crash-loop's SBL carries its state across the warm
+resets (FLR / Sahara RESET), skipping the DDR-init image (mdmddr, ID 34 —
+served only in the very first session before the mid-protocol abort), so
+its next DDR access hits an uninitialized target → NOC fatal → the
+loop. Run 22's proof: a full phone power cycle (PON) clears the modem's
+carried state and the SBL then walks the complete set (mdmddr →
+multi_image_qti → the images → AMSS — mission mode).
+
+The path forward: one full phone power cycle + the RAM stack
+re-established at boot (the modules from /tmp, the firmware bind-mount,
+the loader + walker) — scripted as tools/r8q-modem-bringup so the cycle
+costs one command. The dump artifacts stay on the phone (RAM) —
+/tmp/sdx55-crash/ — never committed (raw regions; crash-reasons.txt is
+redacted).

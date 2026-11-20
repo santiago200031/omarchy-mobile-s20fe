@@ -934,3 +934,52 @@ hypotheses:
   same kernel warm from the running system (warm-good + cold-bad isolates
   the doorbell), and the fix is `status = "disabled"` on the doorbell node
   in the base DT + enabling it in the modem overlay.
+
+## 32. The doorbell root cause: stock NEVER reads the MSI page — and the GPU stack is back (2026-11-20)
+
+**The LineageOS recovery.img reverse-engineering (session
+ses_e0642a82affel8u3T2Q4x80IVY, kernel 4.19.325-cip136-st20-perf)
+found the design difference that killed our boots.** Stock's doorbell
+DT node declares `reg = <0x17a10040 0x0>` — ZERO SIZE, an
+address-as-data — so no driver can ever map or read it. The vendor
+kernel's of_msi/pld_get_msi_address path reads `reg.start` as a VALUE,
+hands it to the PCIe endpoint as the MSI target, and maps it into the
+ENDPOINT's IOMMU domain; the endpoint's DMA write of the SPI number
+raises the interrupt. The AP never executes a load from 0x17a10040 in
+stock — the only stock-legal AP-side touch is a WRITE to GICD_SETSPI_NSR
+at 0x17a00040. Our driver (drivers/irqchip/irq-qcom-pci-msi.c) is the
+only configuration in which a CPU load from the GIC-600 SETSPI alias
+page executes during kernel start (devm_ioremap_resource + probe-time
+readl_relaxed + ioremap(0x17a00000, SZ_64K)) — and that is the
+configuration that power-offs the phone on cold/ssh-reboot boots.
+
+**The ablation confirms it end to end.** With the doorbell
+`status = "disabled"` in the base DT (kernel commit c8be07674, the
+modem overlay enables it with pcie2) the correct-config tree boots:
+`tools/r8q-test-image` PASSED (kernel gc8be07674331, UFS 4 disks, gadget
+a600000.usb; log logs/r8q/test-20261120-171712-dmesg.log), after the
+forensics-proven config fix (NOTES 30) and with both fix commits in.
+
+**The GPU stack is back on the new tree.** The msm module for
+gc8be07674331 was built (`bin/omamobile modules` with DEVICE=r8q),
+pushed with tools/r8q-push, extracted into /usr/lib/modules on the
+phone + depmod, and — after a REBOOT (NOTES 346: loading msm by hand
+fails; the module must load at boot) — **renderD128 + card1 came up:
+"adreno 3d00000.gpu" probed, qcom/a650_sqe.fw loaded, and vulkaninfo
+reports "Turnip Adreno (TM) 650", API 1.3.354.** The installed
+omamobile-llama is deliberately CPU-only (its PKGBUILD: "the
+Adreno/Vulkan compute path wedges the GPU on this board —
+board/failed/08"), so a Vulkan build was configured from the same
+on-phone source tree (build-vk/, GGML_VULKAN=ON; the vulkan-headers +
+shaderc packages are installed) to run the wedge repro against the
+29cfed48c fix.
+
+**The doorbell driver fix (the modem path, next):** per the RE —
+(1) drop the probe-time readl + devm_ioremap_resource: keep
+`res->start` as the address value for `iommu_dma_prepare_msi()` (stock's
+"map msi address" mechanism); (2) change our DT to stock's zero-size
+`reg = <0x0 0x17a10040 0x0 0x0>`; (3) drop or make write-only the
+probe-time ioremap/debugfs path (the stock-legal AP-side debug is a
+WRITE to GICD_SETSPI_NSR 0x17a00040). The cold-boot analysis subagent
+is sanity-checking the fix shape against the GIC-600 alias-page
+behavior (session ses_e06315ea9ffeAPOrA3ULb56tbF).

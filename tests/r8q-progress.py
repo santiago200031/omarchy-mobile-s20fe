@@ -59,7 +59,8 @@ def main() -> None:
     next_out = run("--next", "3")
     assert "Step-by-Step Remaining Atomic Tasks:" in next_out
     assert "\n   4. " not in next_out
-    assert "Stage 9:" not in next_out
+    shown = [ln for ln in next_out.splitlines() if ln.lstrip().startswith(("1. ", "2. ", "3. ", "4. "))]
+    assert len(shown) <= 3, f"expected <= 3 tasks in --next 3, got {len(shown)}"
 
     stage_out = run("--stage", "14")
     assert "Remoteprocs, Sensors & Audio" in stage_out

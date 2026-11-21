@@ -2,9 +2,9 @@
 
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
-**Updated:** `2026-11-21` (`0.1.33-1` + `recovery-rt8547-torch.img`)
+**Updated:** `2026-11-21` (`0.1.33-1` + `recovery-gpu-hangcheck.img`)
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-gae195e6deaac` (`recovery-rt8547-torch.img` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + Vulkan, Wi-Fi, BT, remoteprocs, `SamsungGalaxyS2` playback + `DMIC3` capture via `dmic-va.dtso`, `camera-uw.dtso` + `omacam` `0.5x..3x` lenses, RT8547 `white:torch` via `torch.dtso`, SLPI sensors)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-g802d3d3bc512` (`recovery-gpu-hangcheck.img` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + `-p 512` hangcheck fix + Vulkan, Wi-Fi, BT, remoteprocs, `SamsungGalaxyS2` playback + `DMIC3` capture via `dmic-va.dtso`, `camera-uw.dtso` + `omacam` `0.5x..3x` lenses, RT8547 `white:torch` via `torch.dtso`, SLPI sensors)
 **Live Packages:** `omamobile-device-r8q 0.1.33-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.3-1` (upgraded natively via `tools/phone-install-package`), `libcamera 0.7.2-4.25`
 **Boot Method:** Samsung `recovery` (`sda24`) → native `/dev/sda36` (`LABEL=omamobile-root`); a plain power-on boots it ([NOTES §24](NOTES.md))
 **Safety:** `77/77` UFS partitions read-only (`ro=1`), `userdata` (`sda36`) `rw`; NV partitions untouched
@@ -41,9 +41,9 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 
 | Metric | Progress | Notes |
 | --- | --- | --- |
-| **Overall (Hardware + Upstream)** | **67.7% (44/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
-| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **71.4% (40/56)** | Stages 1–3, 5, 6, 7–8, 14 achieved; 4, 9–13, 15–16 partial/researched (`HARDWARE-DISCOVERY.md`) |
-| **Daily Core (Stages 1–8 + UI)** | **81.8% (18/22)** | Usable daily phone on desk (`120 Hz`, full-duplex audio, `0.5x`/`3x` cams, torch, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI) |
+| **Overall (Hardware + Upstream)** | **72.3% (47/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
+| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **76.8% (43/56)** | Stages 1–6, 7–8, 14 achieved; 9–13, 15–16 partial/researched (`HARDWARE-DISCOVERY.md`) |
+| **Daily Core (Stages 1–8 + UI)** | **95.5% (21/22)** | Usable daily phone on desk (`120 Hz`, full-duplex audio, `0.5x`/`3x` cams, torch, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI `70.2 pp512 / 12.5 tg128`) |
 | **Upstream & Docs (U1–U2)** | **44.4% (4/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` pass; 38/83 kernel commits need human `Signed-off-by:` |
 
 | Column | Count | Last Updated |
@@ -61,7 +61,7 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 | 01 | [Dual-Boot & UFS RO Guard](board/success/01-dual-boot-ufs-ro-guard.md) | `sda24` recovery boot -> native `/dev/sda36`; 77/77 UFS `ro=1` | `phone-smoke`: `77/77` UFS guarded, `/dev/sda36` rw |
 | 02 | [RPMh TCS Reclaim & Liveness Net](board/success/02-rpmh-rsc-and-liveness-net.md) | `rpmh-rsc.c` TCS timeout reclaim; XPU `no-map` DT (`1324fe066`) | No RPMh/RCU freezes; `HardwareCorrupted: 0 kB` |
 | 03 | [Display: simpledrm → MSM & S6E3FC3](board/success/03-display-mdss-s6e3fc3.md) | Zero white flash; native `1080x2400@120`; DPMS + lock wake | Zero DSI/TE errors under GPU load (`NOTES §49`) |
-| 04 | [Adreno 650, Freedreno & Hyprland Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) | GPU `305–587 MHz` (`ae195e6de` fault quiesce); Turnip Vulkan; `stmfts` + keys | `pp64 30.23 / tg16 1.37 t/s`; desktop survives recovery |
+| 04 | [Adreno 650, Freedreno & Hyprland Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) | GPU `305–587 MHz` (`ae195e6de` fault quiesce + `802d3d3bc` compute hangcheck fix); Turnip Vulkan; `stmfts` + keys | `pp64..512` `30.3..23.4 t/s` (`0` errors); `DSI-1` 120 Hz survives recovery (`NOTES §54`) |
 | 05 | [USB Gadget, Power/Battery & ZRAM](board/success/05-usb-power-battery-zram.md) | USB NCM `172.16.42.1`; battery `100%`; `2.7G` zram + `4G` swapfile + MGLRU | `max77705`/`max17042` live; `6.8 G` tiered swap |
 | 06 | [Wi-Fi, Bluetooth, Clock Sync & Boot GUI](board/success/06-wifi-bluetooth-and-clock.md) | `wlp1s0` UP; `hci0` Powered (`BR/EDR`+`LE`); RTC `sysinit`; `sddm` | `ath11k` + `qca6390` + `caa385175` native UART |
 | 07 | [Stability Soak, Pseudo-NMI & On-Device AI](board/success/07-stability-soak-nmi-and-ai.md) | `1800 s` soak (`failures=0`); NMI watchdog; pi-tuned `LFM3` (`10.5 tok/s`); full-duplex `SamsungGalaxyS2` audio + SLPI sensors + `camera-uw` (`2` sensors) | `pd-mapper 1.1-2` + `0.1.30-1` `pw-play`/`pw-record` clean, `cam -l` 2 sensors, 0 dmesg errors (`NOTES §51–§52`) |
@@ -79,7 +79,7 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 | 05 | `[omamobile]/mesa, misc.vfr, @120` | Mali Mesa lacked `msm_dri.so`; `vfr` error | Use `extra/mesa` + `vulkan-freedreno`; `vrr=0`; native `@120` verified `2026-11-20` |
 | 06 | [Boot & session hazards](board/failed/06-boot-and-session-hazards.md) | Serial alias `-19`, `btmgmt` hang, RTC `1975`, `SIGPIPE` loop | `caa385175` (kernel), `--timeout` on btmgmt, `sysinit.target` RTC, direct sysfs |
 | 07 | [stmfts5 8-byte vs 16-byte](board/failed/07-stmfts5-8byte-vs-samsung-16byte-events.md) | `unknown FTS5 event` errors | 16-byte parser `5866f774c`; pin `994000.i2c` `on` |
-| 08 | [Vulkan `llama.cpp` Adreno GPU Wedge](board/failed/08-vulkan-llm-adreno-gpu-wedge.md) | Vulkan LLM load wedges GPU -> `cx gdsc` collapse failure | Fixed `cx collapse` quiesce (`ae195e6de`); `-p 512` stall open -> keep `GPU_LAYERS=0` |
+| 08 | [Vulkan `llama.cpp` Adreno GPU Wedge](board/failed/08-vulkan-llm-adreno-gpu-wedge.md) | Vulkan LLM load wedges GPU -> `cx gdsc` collapse failure | Fixed `cx collapse` (`ae195e6de`) & `-p 512` hangcheck (`802d3d3bc`); CPU stays `GPU_LAYERS=0` (faster) |
 
 ---
 
@@ -87,8 +87,8 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 
 > **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **38 of 83** commits in `~/omamobile-kernel/wt-r8q` (`omamobile..HEAD`) await Santiago's sign-off (`git -C ~/omamobile-kernel/wt-r8q rebase --signoff ...`).
 
-1. **Immediate Software / Offline Tasks (`3` open):** `[net-03]` BT A2DP audio + Wi-Fi concurrency; `[gpu-03]` bisect `-p 512` compute stall (attended; triggers blanking recovery -> `[gpu-05]`); `[fp-02]` write `goodix,gw9558x` SPI/TZ feasibility note.
-2. **Kernel DT Fixes (`human-gate` reboot, `7` open):** `[cam-03..04]` fix `camss` `port@1` (`s5k3l6_out`) async deadlock -> `omacam` tele/uw verify; `[aud-04..05]` `va_macro` `qcom,dmic-sample-rate = <600000>` + LPI DMIC capture; `[hap-04]` `&pm8150l_flash` (`leds-qcom-flash.ko` ready); `[hap-02]` haptics DT (`LINEAR_0832RC` / `max77705`); `[gpu-04]` DPU scanout recovery restore; `[doc-04]` re-pin `stable-image.conf`.
+1. **Immediate Software / Offline Tasks (`2` open):** `[net-03]` BT A2DP audio + Wi-Fi concurrency; `[fp-02]` write `goodix,gw9558x` SPI/TZ feasibility note.
+2. **Kernel DT Fixes (`human-gate` reboot, `2` open):** `[hap-02]` haptics DT (`LINEAR_0832RC` / `max77705`); `[doc-04]` fold base-DTS overlays & re-pin `stable-image.conf`.
 3. **High-Risk Hardware Bring-Up (`8` open):** `[usb-03..04]` Type-C replug/PD & OTG (`usbc-deadman`), `[mdm-03..05]` native `sda36` `modem.dtso` boot + NV verify + SIM/QMI/MBIM, `[pwr-03..04]` / `[slp-02..03]` `s2idle`/DVFS/`cpuidle`/UFS PM w/ watchdog, `[cam-05]` IMX555/IMX616 drivers.
 4. **Kernel Upstream (`4` open):** `[krn-02..05]` Human `Signed-off-by:` on 38 commits -> split topic branches -> `tools/kernel-pr-check --build --merge origin/omamobile` -> fork PRs.
 

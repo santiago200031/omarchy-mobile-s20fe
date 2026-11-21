@@ -4,10 +4,10 @@
 
 Source of truth: [`tasks.json`](tasks.json) — check live percentages and next steps anytime with `tools/r8q-progress` (`--live`), or run `tools/r8q-check-all --quick` for a single read-only repo + worktree + phone health pass. Stock hardware findings live in [HARDWARE-DISCOVERY.md](../HARDWARE-DISCOVERY.md).
 
-As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.33-1`):
-- **Overall (Hardware + Upstream):** `67.7%` (**44 / 65** atomic tasks)
-- **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `71.4%` (**40 / 56** atomic tasks)
-- **Daily Core (Stages 1–8):** `81.8%` (**18 / 22** atomic tasks)
+As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-g802d3d3bc512`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.33-1`):
+- **Overall (Hardware + Upstream):** `72.3%` (**47 / 65** atomic tasks)
+- **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `76.8%` (**43 / 56** atomic tasks)
+- **Daily Core (Stages 1–8):** `95.5%` (**21 / 22** atomic tasks)
 - **Upstream & Docs (Stages U1–U2):** `44.4%` (**4 / 9** atomic tasks)
 
 ## Stage-by-Stage Milestones (`CONTRIBUTING.md` §5.4)
@@ -16,7 +16,7 @@ As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-se
 | --- | --- | --- | --- | --- | --- |
 | `1–2` | Boot, USB gadget, SSH, Native root & Storage guard | `5/5` | `100.0%` | ✅ Achieved | — |
 | `3` | Touch & Buttons (`stmfts`, `gpio-keys`) | `3/3` | `100.0%` | ✅ Achieved | — |
-| `4` | GPU (`Adreno 650` / Vulkan & recovery) | `2/5` | `40.0%` | ⚠️ Open polish | `[gpu-03]` `-p 512` bisect; `[gpu-04]` DPU post-recovery restore; `[gpu-05]` GPU layers bench |
+| `4` | GPU (`Adreno 650` / Vulkan & recovery) | `5/5` | `100.0%` | ✅ Achieved | — (`802d3d3bc` `-p 512` fixed; `DSI-1` 120 Hz fault survival; `GPU_LAYERS=0` verified faster) |
 | `5` | Display (`S6E3FC3 120 Hz`) & Shell UI | `4/4` | `100.0%` | ✅ Achieved | — (`omamobile-settings 0.1.3-1` live) |
 | `6` | Battery & Fuel Gauge (`max77705` / `max17042`) | `2/2` | `100.0%` | ✅ Achieved | — |
 | `7–8` | Wi-Fi & Bluetooth (`QCA6390`) | `2/3` | `66.7%` | ✅ Achieved | `[net-03]` BT A2DP audio + Wi-Fi concurrency test |
@@ -31,17 +31,15 @@ As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-se
 | `U1` | Kernel Branch Hygiene & Upstream DCO (`wt-r8q`) | `1/5` | `20.0%` | 🔧 Open | `[krn-02..05]` human `Signed-off-by:` on 38 commits, split topic branches, `kernel-pr-check`, upstream PRs |
 | `U2` | Repo Registry & Stable Pin | `3/4` | `75.0%` | 🔧 Open | `[doc-04]` re-pin `stable-image.conf` after base-DTS fold |
 
-## Complete Step-by-Step Queue (`21` Remaining Atomic Tasks)
+## Complete Step-by-Step Queue (`18` Remaining Atomic Tasks)
 
 ### Track A — Local Userspace / Offline Tasks (No Reboot Required)
 1. `[net-03]` Pair a BT audio sink and verify A2DP playback alongside `wlp1s0` Wi-Fi traffic.
-2. `[gpu-03]` *(caution: `-p 512` triggers GPU recovery which blanks `DSI-1` until reboot; run when attended)* Bisect `-p 512` Vulkan compute stall (`llama-bench -ngl 99 -p 64/128/256/512`) -> `[gpu-05]` follows if faster than CPU (`10.5 tok/s`).
-3. `[fp-02]` Write `goodix,gw9558x` TrustZone/SPI feasibility assessment in `device/r8q/`.
+2. `[fp-02]` Write `goodix,gw9558x` TrustZone/SPI feasibility assessment in `device/r8q/`.
 
 ### Track B — Next Kernel DT Fixes (`AGENTS.md` §1–2)
-4. `[hap-02]` *(human-gate)* Add `disabled` `LINEAR_0832RC` (`gpio137`/`L10C`) / `max77705-haptic` DT node + overlay and test single click via `feedbackd`.
-5. `[gpu-04]` *(human-gate)* Restore DPU scanout cleanly in `recover_worker` after Adreno fault recovery so `DSI-1` doesn't stay blank.
-6. `[doc-04]` *(human-gate)* Fold verified `camera-uw`/`torch`/`dmic-va` DT changes cleanly, pack, verify `tools/phone-smoke` 100% green, and re-pin `device/r8q/stable-image.conf`.
+3. `[hap-02]` *(human-gate)* Add `disabled` `LINEAR_0832RC` (`gpio137`/`L10C`) / `max77705-haptic` DT node + overlay and test single click via `feedbackd`.
+4. `[doc-04]` *(human-gate)* Fold verified `camera-uw`/`torch`/`dmic-va` DT changes cleanly, pack, verify `tools/phone-smoke` 100% green, and re-pin `device/r8q/stable-image.conf`.
 
 ### Track C — High-Risk Hardware Bring-Up (Needs Watchdog / `usbc-deadman` / NV Re-check)
 10. `[usb-03]` -> `[usb-04]` *(human-gate via `tools/usbc-deadman`)* Test Type-C replug gadget recovery + PD/OTG role-switch (`max77705` MUIC/TCPM).

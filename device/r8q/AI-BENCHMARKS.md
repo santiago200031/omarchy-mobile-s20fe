@@ -2,8 +2,8 @@
 
 # On-Device AI & Accelerator Probe — Samsung Galaxy S20 FE (r8q)
 
-**Status:** `omamobile-ai` supervisor (CPU, `LFM3-1.7B`) verified end-to-end on the stable kernel; the backend is now the packaged `omamobile-llama` (`llama.cpp` `98d67c8`), measured at **15.3 tok/s generation / 35.2 tok/s pp512** on 2026-11-18; GPU Vulkan 1.3 and 587 MHz scaling measured; Vulkan LLM build blocked (Failed 08)
-**Last Updated:** 2026-11-18
+**Status:** `omamobile-ai` supervisor (CPU, `LFM3-1.7B`) verified end-to-end; Stage 4 `[gpu-03..05]` closed (`802d3d3bc` fixes `-p 512` hangcheck timeout; `power-profiles-daemon` `performance` unlocks `2.42/2.84 GHz` -> **`70.18 t/s` `pp512` / `12.48` `tg128`** on `Q8_0` `4-6` vs **`23.39` `pp512` / `1.36` `tg128`** on Turnip Vulkan); `GPU_LAYERS=0` stays default
+**Last Updated:** 2026-11-21
 
 The supported design is the `omamobile-ai` supervisor package: one small Rust
 process that owns `llama-server`, starts it lazily on the first request, proxies
@@ -118,10 +118,27 @@ pins inference to the three Gold cores.
 | `THREADS` | `3` | llama.cpp threads (one per pinned core) |
 | `CPU_AFFINITY` | `4-6` | Gold cores; 0-3 stay with the desktop, 7 is excluded |
 | `CTX_SIZE` | `32768` | Context window |
-| `GPU_LAYERS` | `0` | CPU inference; the packaged backend is CPU-only (Vulkan compute wedges, [Failed 08](board/failed/08-vulkan-llm-adreno-gpu-wedge.md)) |
+| `GPU_LAYERS` | `0` | CPU inference (CPU beats Adreno 650 on `LFM3-1.7B` by `2.4x` `pp512` and `9.2x-11.6x` `tg128`) |
 | `IDLE_TIMEOUT` | `180` | Seconds before the model is unloaded |
 | `LISTEN_HOST` / `LISTEN_PORT` | `0.0.0.0` (drop-in) / `8080` | Supervisor on the USB link; the base config alone listens on loopback |
 | `LLAMA_PORT` | `18080` | Private loopback port for `llama-server` |
+
+### 2.3 `2026-11-21` CPU (`balanced` vs `performance`) vs Turnip Vulkan (`7.3.0-rc6-omamobile-push1-g802d3d3bc512`)
+
+Measured on live hardware (`LFM3-1.7B`, `-p 512 -n 128 -r 2` unless noted). Unlocking `power-profiles-daemon` `performance` raises CPU clusters from `1.34 / 1.77 / 2.17 GHz` (`balanced`) to `1.80 / 2.42 / 2.84 GHz` (`peak thermal 66.4 °C`, zero errors):
+
+| Backend / Model | Config | `pp512` (`t/s`) | `tg128` (`t/s`) |
+|---|---|---|---|
+| **CPU `Q8_0`** (`performance`, `4-7` `-t 4`) | `2.42 / 2.84 GHz` | **`75.84 ± 0.18`** | `12.46 ± 0.04` |
+| **CPU `Q8_0`** (`performance`, `4-6` `-t 3`) | `2.42 GHz` | **`70.18 ± 1.73`** | `12.48 ± 0.03` |
+| **CPU `Q8_0`** (`balanced`, `4-6` `-t 3`) | `1.77 GHz` | `56.62 ± 0.00` | `12.60 ± 0.08` |
+| **CPU `Q4_K_M`** (`performance`, `4-6` `-t 3`) | `2.42 GHz` | **`43.69 ± 0.21`** | **`16.73 ± 0.18`** |
+| **CPU `Q4_K_M`** (`balanced`, `4-6` `-t 3`) | `1.77 GHz` | `35.16 ± 0.00` | `15.78 ± 0.01` |
+| **Vulkan `Q4_K_M`** (`-ngl 99`, `HC=250`) | `802d3d3bc`, Turnip a650 | `23.39 ± 0.01` | `1.36 ± 0.00` |
+| **Vulkan `Q4_K_M -fa 1`** (`-ngl 99 -ub 64`) | Turnip a650 | `22.09 ± 0.00` | `1.37` (`-n 16`) |
+| **Vulkan `Q8_0`** (`-ngl 99 -ub 64`) | Turnip a650 | `23.71 ± 0.00` | `1.04` (`-n 16`) |
+
+With `DRM_MSM_HANGCHECK_PROGRESS_RETRIES=31` (`802d3d3bc`), bare `llama-bench -ngl 99 -p 64,128,256,512 -n 16` passes cleanly at default `hangcheck_period_ms=250` (`30.26 / 30.17 / 27.24 / 23.39 t/s`, `tg16 1.37 ± 0.00`, `0` GPU errors), but CPU remains `GPU_LAYERS=0` default.
 
 Routes: `/health`, `/v1/models`, `/v1/chat/completions`, `/v1/unload`, and the
 llama.cpp router surface (`/models`, `/props`, `/models/load`, ...) so a client
@@ -152,6 +169,6 @@ override the base URL and answer length.
 
 ## 4. Optional Future Work
 
-1. **Vulkan LLM (`GGML_VULKAN=ON`)** — **blocked** by the GMU `cx gdsc` wedge ([Failed 08](board/failed/08-vulkan-llm-adreno-gpu-wedge.md)); the GPU already caps at 587 MHz. CPU is the packaged default; retry only after a Turnip/kernel fix.
+1. **Vulkan LLM (`GGML_VULKAN=ON`)** — **working (`802d3d3bc`)**, passes `-p 64..512` cleanly without hangcheck (`[gpu-03..05]` closed), but slower than Kryo 585 Gold (`1.36` vs `12.5-16.7 tok/s` generation). CPU stays `GPU_LAYERS=0` default.
 2. **Adreno `libcamera` SoftISP (`debayer_egl`):** Re-test removing `LIBCAMERA_SOFTISP_MODE=cpu` (`packages/omamobile-device-r8q/70-r8q-libcamera.conf`) against `587 MHz` / `SWIspWorker` hangcheck debugging.
 3. **Hexagon CDSP Compute:** now planned in [`NPU-PLAN.md`](NPU-PLAN.md): a private `ggml-hexagon` fork for Hexagon v66 (HVX-only, no HMX), needing Hexagon SDK 5.4 and `libcdsprpc`.

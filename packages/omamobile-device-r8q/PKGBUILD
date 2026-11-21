@@ -137,6 +137,8 @@ package() {
     "$pkgdir/usr/share/alsa/ucm2/conf.d/sm8250/Samsung-Galaxy-S20-FE.conf"
   install -Dm644 "$startdir/ucm2/Samsung/r8q/HiFi.conf" \
     "$pkgdir/usr/share/alsa/ucm2/Samsung/r8q/HiFi.conf"
+  install -Dm644 "$startdir/50-r8q-audio.conf" \
+    "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/50-r8q-audio.conf"
   # SLPI sensors (P4): point hexagonrpcd-sdsp at r8q's sensor root and tag
   # /dev/fastrpc-sdsp* with ssc-accel ahead of 80-iio-sensor-proxy.rules.
   install -Dm644 "$startdir/10-r8q-hexagonrpcd.conf" \
@@ -145,6 +147,8 @@ package() {
     "$pkgdir/usr/lib/udev/rules.d/79-r8q-iio-sensor-proxy.rules"
   install -Dm644 "$startdir/70-omamobile-dma-heap.rules" \
     "$pkgdir/usr/lib/udev/rules.d/70-omamobile-dma-heap.rules"
+  install -Dm644 "$startdir/20-r8q-torch.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/20-r8q-torch.rules"
   install -Dm644 "$startdir/70-r8q-libcamera.conf" \
     "$pkgdir/usr/lib/environment.d/70-r8q-libcamera.conf"
   # Bring-up overlays (device/r8q/overlays/): enable nodes disabled in the

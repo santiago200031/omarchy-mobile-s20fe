@@ -167,10 +167,18 @@ test -f ../../device/r8q/overlays/display.dtso
 test -f ../../device/r8q/overlays/camera.dtso
 test -f ../../device/r8q/overlays/slpi-sensors.dtso
 test -f ../../device/r8q/overlays/vol-up.dtso
+test -f ../../device/r8q/overlays/torch.dtso
+test -f ../../device/r8q/overlays/dmic-va.dtso
+grep -q 'SectionDevice."Mic"' ucm2/Samsung/r8q/HiFi.conf
+grep -q 'VA DMIC MUX0.*DMIC3' ucm2/Samsung/r8q/HiFi.conf
+grep -q '50-r8q-audio.conf' PKGBUILD
+grep -q 'audio.format = "S16LE"' 50-r8q-audio.conf
 grep -q '10-r8q-hexagonrpcd.conf' PKGBUILD
 grep -q '79-r8q-iio-sensor-proxy.rules' PKGBUILD
 grep -q '70-omamobile-dma-heap.rules' PKGBUILD
 grep -q 'SUBSYSTEM=="dma_heap"' 70-omamobile-dma-heap.rules
+grep -q '20-r8q-torch.rules' PKGBUILD
+grep -q 'white:torch' 20-r8q-torch.rules
 grep -q '70-r8q-libcamera.conf' PKGBUILD
 grep -qx 'LIBCAMERA_SOFTISP_MODE=cpu' 70-r8q-libcamera.conf
 grep -q 'ConditionPathExists=/usr/share/qcom/sm8250/samsung/r8q/sensors/sns_reg.conf' 10-r8q-hexagonrpcd.conf

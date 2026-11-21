@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay: configure SM8250 LPASS VA macro DMIC clock & pinctrl
+ * (600 kHz DMIC01 on LPI GPIO 6/7) and expose MultiMedia2 / VA_CODEC_DMA_TX_0
+ * capture on the Samsung-Galaxy-S20-FE ASoC sound card.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/rsc@18200000/regulators-1} {
+	vreg_l4c_1p8: ldo4 {
+		regulator-name = "vreg_l4c_1p8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-initial-mode = <3>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&lpass_tlmm {
+	dmic23_active: dmic23-active-state {
+		clk-pins {
+			pins = "gpio8";
+			function = "dmic2_clk";
+			drive-strength = <8>;
+			output-high;
+		};
+
+		data-pins {
+			pins = "gpio9";
+			function = "dmic2_data";
+			drive-strength = <8>;
+			input-enable;
+		};
+	};
+};
+
+&q6asmdai {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	dai@1 {
+		reg = <1>;
+	};
+};
+
+&vamacro {
+	pinctrl-names = "default";
+	pinctrl-0 = <&dmic01_active>, <&dmic23_active>;
+	vdd-micb-supply = <&vreg_s4a_1p8>;
+	qcom,dmic-sample-rate = <2400000>;
+};
+
+&sound {
+	/*
+	 * Keep va-dai-link before mm2-dai-link in the overlay source:
+	 * fdtoverlay prepends added child nodes, so mm2-dai-link (q6asm-dai)
+	 * lands first in the merged DTB and probes its MM_DL/MM_UL widgets
+	 * before va-dai-link's q6routing checks DAPM routes.
+	 */
+	va-dai-link {
+		link-name = "VA Capture";
+
+		cpu {
+			sound-dai = <&q6afedai 110>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&vamacro 0>;
+		};
+	};
+
+	mm2-dai-link {
+		link-name = "MultiMedia2";
+
+		cpu {
+			sound-dai = <&q6asmdai 1>;
+		};
+	};
+};

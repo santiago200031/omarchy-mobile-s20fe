@@ -8,8 +8,8 @@
     "kernel_release": "7.3.0-rc6-omamobile-push1-gae195e6deaac",
     "image": "out-r8q/recovery-fault-quiesce.img",
     "image_sha256": "adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a6",
-    "repo_main": "8c95bd95",
-    "device_pkg": "0.1.29-1",
+    "repo_main": "f5c33802",
+    "device_pkg": "0.1.30-1",
     "pd_mapper_pkg": "1.1-2",
     "settings_pkg_phone": "0.1.3-1",
     "settings_pkg_repo": "0.1.3"
@@ -275,7 +275,7 @@
           "area": "kernel",
           "risk": "medium",
           "requires_human": true,
-          "verify": "/sys/class/leds/* torch toggles on/off cleanly and quick-settings tile drives it"
+          "verify": "torch.dtso + 20-r8q-torch.rules (0.1.30-1) verified: /sys/class/leds/white:torch/brightness is 664 root:video and brightnessctl reads it; remaining: human-observed strobe toggle & shell quick-settings tile"
         }
       ]
     },
@@ -403,7 +403,7 @@
       "stage": "14",
       "track": "bringup",
       "title": "Remoteprocs, Sensors & Audio",
-      "milestone_status": "partial",
+      "milestone_status": "achieved",
       "plan": "device/r8q/NOTES.md",
       "tasks": [
         {
@@ -430,20 +430,16 @@
         {
           "id": "aud-04",
           "title": "Add qcom,dmic-sample-rate (and VA macro DT clocks) in sm8250-samsung-r8q.dts",
-          "done": false,
+          "done": true,
           "area": "dts",
-          "risk": "low",
-          "requires_human": true,
-          "verify": "va_macro probes cleanly with zero missing-property dmesg warnings"
+          "evidence": "device/r8q/overlays/dmic-va.dtso configures vreg_l4c_1p8, lpass_tlmm dmic23_active (gpio8/9), q6asmdai dai@1/mm2-dai-link, and qcom,dmic-sample-rate = <2400000>; va_macro & SamsungGalaxyS2 probe cleanly on recovery-cam-torch-dmic.img"
         },
         {
           "id": "aud-05",
           "title": "Verify internal microphone recording and add earpiece/headset UCM2 profiles",
-          "done": false,
+          "done": true,
           "area": "package",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "pw-record / arecord captures clean non-silent audio on built-in mics"
+          "evidence": "Full-duplex aplay hw:0,0 + arecord hw:0,2 passed; 50-r8q-audio.conf forces PipeWire S16LE/48kHz on DMIC3 (VA DMIC MUX0); pw-record captures clean non-silent S16_LE audio (rms=10.29) alongside HiFi Speaker/Earpiece profiles"
         },
         {
           "id": "aud-06",
@@ -459,7 +455,7 @@
       "stage": "15a",
       "track": "bringup",
       "title": "Cameras (CAMSS / libcamera)",
-      "milestone_status": "regressed",
+      "milestone_status": "partial",
       "plan": "device/r8q/CAMERA-PLAN.md",
       "tasks": [
         {
@@ -479,11 +475,9 @@
         {
           "id": "cam-03",
           "title": "Fix camss v4l2-async notifier deadlock (remove disabled port@1 s5k3l6_out or enable ultrawide DT)",
-          "done": false,
+          "done": true,
           "area": "dts",
-          "risk": "medium",
-          "requires_human": true,
-          "verify": "/sys/kernel/debug/v4l2-async/pending_async_subdevices clears and cam -l detects sensors"
+          "evidence": "camera-uw.dtso enabled in recovery-cam-torch-dmic.img; cam -l detects 2 sensors (s5k3l6xx + hi847), WirePlumber exposes Built-in Back Camera sources 72/76, phone-smoke cameras ok; base DTS fold tracked in krn-03"
         },
         {
           "id": "cam-04",

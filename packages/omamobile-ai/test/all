@@ -74,7 +74,7 @@ while IFS= read -r match; do
     total=$((total + 1))
     ((total > 20)) && fail "public method too long (>$total lines) at line $lineno"
     # Stop at next top-level fn.
-    echo "$line" | grep -qE '^\s*(pub\s+)?fn\s+[a-z]' && break
+    echo "$line" | grep -cE '^\s*(pub\s+)?fn\s+[a-z]' >/dev/null && break
   done < <(tail -n +"$lineno" "$main_rs")
 done < <(grep -n '^\s*pub\s\+fn\|^\s*fn\s\+[a-z]' "$main_rs" | grep -v '^\s*[0-9]*:.*fn\s\+_')
 

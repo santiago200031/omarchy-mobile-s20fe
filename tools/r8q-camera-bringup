@@ -91,9 +91,9 @@ check_modules() {
     kver=$(uname -r)
     for mod in camcc_sm8250 qcom_camss hi847 i2c_qcom_cci; do
       state="NOT loaded"
-      lsmod | grep -q "^${mod} " && state="loaded"
+      lsmod | grep -c "^${mod} " >/dev/null && state="loaded"
       on_disk="missing"
-      find "/lib/modules/$kver" -name "${mod//_/-}.ko*" -o -name "${mod}.ko*" 2>/dev/null | grep -q . && on_disk="present"
+      find "/lib/modules/$kver" -name "${mod//_/-}.ko*" -o -name "${mod}.ko*" 2>/dev/null | grep -c . >/dev/null && on_disk="present"
       echo "$mod: $state (module $on_disk)"
     done
     echo "---"

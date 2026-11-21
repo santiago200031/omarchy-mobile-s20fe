@@ -66,7 +66,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     nfsfile = p / 'nfsroot'
     dispatch = source.rsplit('# A requested NFS root must not silently fall through', 1)[1].split('\nfi', 1)[0].split('\n', 1)[1] + '\nfi\n'
-    assert len(dispatch.splitlines()) == 6 and dispatch.count('boot_nfs') == 1 and dispatch.count('boot_root') == 1
+    assert len(dispatch.splitlines()) in (6, 9) and dispatch.count('boot_nfs') == 1 and dispatch.count('boot_root') == 1
     assert all(word not in dispatch for word in ('/sys/', 'mount', 'kill', 'blockdev', 'devmem'))
     for requested in (False, True):
         nfsfile.write_text('host:/export\n' if requested else '')

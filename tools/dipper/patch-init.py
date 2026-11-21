@@ -14,7 +14,7 @@ if [ -c /dev/watchdog0 ]; then
 fi
 hostname omamobile
 """, "hostname anchor"),
-    ('dropbear -R -E -p 22 2>/dev/null && say "ssh: root@172.16.42.1"\n',
+    ('dropbear -R -E -B -p 22 2>/dev/null && say "ssh: root@172.16.42.1"\n',
      """usb_addr=$(ip -o -4 addr show dev usb0 scope global | awk '{ sub(/\\/.*/, "", $4); print $4; exit }')
 if [ -n "$usb_addr" ]; then
   dropbear -E -s -p "$usb_addr:22" -r /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null && say "ssh: root@$usb_addr"

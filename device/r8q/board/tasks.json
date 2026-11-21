@@ -561,8 +561,8 @@
       "stage": "16",
       "track": "bringup",
       "title": "Fingerprint",
-      "milestone_status": "missing",
-      "plan": "CONTRIBUTING.md",
+      "milestone_status": "disabled",
+      "plan": "device/r8q/FINGERPRINT-PLAN.md",
       "tasks": [
         {
           "id": "fp-01",
@@ -574,11 +574,9 @@
         {
           "id": "fp-02",
           "title": "Evaluate mainline/chroot feasibility and add FINGERPRINT-PLAN if supported",
-          "done": false,
+          "done": true,
           "area": "docs",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "Written feasibility assessment in device/r8q/"
+          "evidence": "FINGERPRINT-PLAN.md: assessed & deferred — qupv3_se7 GPIO 20-23 XPU-locked, securefp QSEE TA closed, mainline lacks /dev/qseecom chardev (only internal qcom_qseecom + QTEE 0.0.0), panel HBM FOD, and stmfts fod_enable"
         }
       ]
     },

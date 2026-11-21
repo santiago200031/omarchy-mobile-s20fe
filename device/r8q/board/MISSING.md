@@ -4,9 +4,9 @@
 
 Source of truth: [`tasks.json`](tasks.json) — check live percentages and next steps anytime with `tools/r8q-progress` (`--live`), or run `tools/r8q-check-all --quick` for a single read-only repo + worktree + phone health pass. Stock hardware findings live in [HARDWARE-DISCOVERY.md](../HARDWARE-DISCOVERY.md).
 
-As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-g802d3d3bc512`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.34-1`):
-- **Overall (Hardware + Upstream):** `72.3%` (**47 / 65** atomic tasks)
-- **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `76.8%` (**43 / 56** atomic tasks)
+As of **`2026-11-22`** (`7.3.0-rc6-omamobile-push1-g802d3d3bc512`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.34-1`):
+- **Overall (Hardware + Upstream):** `73.8%` (**48 / 65** atomic tasks)
+- **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `78.6%` (**44 / 56** atomic tasks)
 - **Daily Core (Stages 1–8):** `95.5%` (**21 / 22** atomic tasks)
 - **Upstream & Docs (Stages U1–U2):** `44.4%` (**4 / 9** atomic tasks)
 
@@ -27,15 +27,14 @@ As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-g802d3d3bc512`, `omamobile-se
 | `14` | Remoteprocs, Sensors & Audio (`ADSP`/`SLPI`/`CS35L41`/`DMIC3`) | `6/6` | `100.0%` | ✅ Achieved | — (speaker + earpiece + `dmic-va.dtso` `DMIC3` `pw-record` verified) |
 | `15a` | Cameras (`CAMSS` / `libcamera`) | `4/5` | `80.0%` | ⚠️ Partial | `[cam-05]` IMX555 (rear 1x) + IMX616 (front) drivers (`omacam` `0.5x <-> 3x` verified) |
 | `15b` | Modem (`SDX55M`), GNSS & NFC | `3/6` | `50.0%` | ⚠️ Partial | `[mdm-03..05]` native `sda36` `modem.dtso` boot test, NV re-check, opt-in SIM/QMI/MBIM |
-| `16` | Fingerprint | `1/2` | `50.0%` | ⚠️ Blocked by TZ | `[fp-02]` document `goodix,gw9558x` SPI/TZ feasibility |
+| `16` | Fingerprint | `2/2` | `100.0%` | ⏸️ Deferred (TZ/QSEE) | — ([FINGERPRINT-PLAN.md](../FINGERPRINT-PLAN.md): assessed; XPU SPI + QSEE `securefp` + `/dev/qseecom` + HBM FOD not viable in mainline) |
 | `U1` | Kernel Branch Hygiene & Upstream DCO (`wt-r8q`) | `1/5` | `20.0%` | 🔧 Open | `[krn-02..05]` human `Signed-off-by:` on 38 commits, split topic branches, `kernel-pr-check`, upstream PRs |
 | `U2` | Repo Registry & Stable Pin | `3/4` | `75.0%` | 🔧 Open | `[doc-04]` re-pin `stable-image.conf` after base-DTS fold |
 
-## Complete Step-by-Step Queue (`18` Remaining Atomic Tasks)
+## Complete Step-by-Step Queue (`17` Remaining Atomic Tasks)
 
 ### Track A — Local Userspace / Offline Tasks (No Reboot Required)
 1. `[net-03]` Pair a BT audio sink and verify A2DP playback alongside `wlp1s0` Wi-Fi traffic.
-2. `[fp-02]` Write `goodix,gw9558x` TrustZone/SPI feasibility assessment in `device/r8q/`.
 
 ### Track B — Next Kernel DT Fixes (`AGENTS.md` §1–2)
 3. `[hap-02]` *(human-gate)* Add `disabled` `LINEAR_0832RC` (`gpio137`/`L10C`) / `max77705-haptic` DT node + overlay and test single click via `feedbackd`.

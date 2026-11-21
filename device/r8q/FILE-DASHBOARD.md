@@ -2,46 +2,54 @@
 
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
+**Updated:** `2026-11-21` (`main` `8c95bd95`)
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (`camera-uw-wip` — display, GPU, BT, Wi-Fi, remoteprocs, audio, `cs35l41` `r8q`, SLPI sensors, VolUp, pseudo-NMI, HI-847 tele, and S5K3L6 ultrawide verified on hardware; restored 2026-11-17 after the SDX55M Stage 3A experiment and pinned in `stable-image.conf`)
-**Kernel Branch:** `camera-uw-wip` (`3667ab368` on `omamobile-r8q-signed`; booted & verified on `sda24` with `--overlay camera-uw`)
-**Device Package:** `omamobile-device-r8q` `0.1.25` in the repo (adds the `omamobile-ai` drop-in, `zram-generator` and the parked `modem.dtso`); `0.1.24` on the phone, with the same AI listener set by hand in `/etc/omamobile-ai.conf.d/20-usb.conf`. `omamobile-ai` `0.1.0-1` + `libcamera 0.7.2-4.25` installed & verified
-**Boot Method:** Samsung `recovery` (`sda24`); a plain power-on boots it (no key combo; [NOTES §24](NOTES.md) — there is no dual-boot fallback)
-**Safety:** All 77 UFS partitions read-only (`ro=1`), LineageOS contents untouched (but not reachable by a plain boot)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-gae195e6deaac` (`r8q-gpu-fault-quiesce` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + Vulkan, Wi-Fi, BT, remoteprocs, `SamsungGalaxyS2` audio + `-9.5 dB` UCM2, SLPI sensors, pseudo-NMI)
+**Live Packages:** `omamobile-device-r8q 0.1.29-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.2-1` on phone (`0.1.3` in repo), `libcamera 0.7.2-4.25`
+**Boot Method:** Samsung `recovery` (`sda24`) → native `/dev/sda36` (`LABEL=omamobile-root`); a plain power-on boots it ([NOTES §24](NOTES.md))
+**Safety:** `77/77` UFS partitions read-only (`ro=1`), `userdata` (`sda36`) `rw`; NV partitions untouched
+**Live CLI Progress:** run [`tools/r8q-progress`](../../tools/r8q-progress) (`--live`, `--next N`, `--json`) backed by [`board/tasks.json`](board/tasks.json)
 
 ---
 
 ## Stable Baseline (Rollback Target)
 
-`device/r8q/stable-image.conf` records the last image verified end-to-end on the phone. Every modem experiment is packed from its own output tree; afterwards the phone goes back to these exact bytes, never to a rebuild.
+[`device/r8q/stable-image.conf`](stable-image.conf) records the verified native-root image on `sda24`:
 
 | Fact | Value |
 | --- | --- |
-| Release | `7.3.0-rc6-omamobile-push1-g3667ab368ef9` |
-| Image | `~/omamobile-kernel/out-r8q-uw/recovery-cam-uw.img` |
-| sha256 | `66fe127ffd9345e7913aec5eac8a02de0da44bfdbe15987abff1cb61b26d8503` |
-| Packed with | `tools/r8q-boot pack --dual-boot --overlay camera-uw` |
+| Release | `7.3.0-rc6-omamobile-push1-gae195e6deaac` |
+| Image | `~/omamobile-kernel/out-r8q/recovery-fault-quiesce.img` |
+| sha256 | `adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a6` |
+| Packed with | `tools/r8q-boot pack` (native `userdata` `sda36`, no `--dual-boot`) |
 | Partition | `sda24` (`recovery`) |
-| Modem | PCIe2 and its PHY `disabled` in the packed DTB, no `modem` overlay, no Sahara loader or blacklist |
+| Modem | PCIe2 and its PHY `disabled` in the packed DTB, no `modem` overlay, no Sahara loader |
 
 ```sh
 tools/r8q-stable-check --image      # the recorded image still hashes
-tools/r8q-stable-check --phone      # the phone runs it, PCIe2 off, no bring-up leftovers
-tools/r8q-flash-recovery --stable --dry-run
-tools/r8q-flash-recovery --stable   # write it; the human's go
+tools/r8q-stable-check --phone      # the phone runs it, PCIe2 off, 77/77 UFS guarded
+tools/phone-smoke                   # read-only full system smoke check
+tools/r8q-progress --live           # compute completion % + check wt-r8q & phone
 ```
 
-Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matched the record, `sda24` read back the same sha256, 77/77 UFS partitions `ro=1`, root `rw`, PCIe2 and its PHY `disabled`, no SDX55M on `mhi_pci_generic`, and the modules for the release present. `tools/phone-smoke` reports only the two r8q differences a generic test cannot know: the root is on `/dev/loop0` (the SD-card image, not `userdata`), and boot-time messages (`ufshcd` WriteBooster query, DSI PLL retries) with the storage mounted and the display working.
+Verified on `2026-11-21` (`NOTES §51`): `tools/phone-smoke` reports `0 new` dmesg errors, `sound cards ok (SamsungGalaxyS2)`, `battery ok (100%, 27 °C)`, `USB gadget ok`, `sensors ok (Accelerometer AmbientLight)`, with `cameras not ok` as the sole open smoke check (regressed `port@1` `s5k3l6_out` endpoint blocking `camss`).
 
 ---
 
-## Status Overview
+## Progress & Status Overview (`2026-11-21`)
+
+| Metric | Progress | Notes |
+| --- | --- | --- |
+| **Overall (Hardware + Upstream)** | **43.1% (28/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
+| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **46.4% (26/56)** | Stages 1–3, 5, 6, 7–8 achieved; 4, 10–12, 14–15b partial; 9, 13, 16 open |
+| **Daily Core (Stages 1–8 + UI)** | **77.3% (17/22)** | Usable daily phone on desk (`120 Hz`, audio, Wi-Fi, BT, sensors, `LFM3` AI) |
+| **Upstream & Docs (U1–U2)** | **22.2% (2/9)** | Repo CI gates pass; 38/83 kernel commits need human `Signed-off-by:` |
 
 | Column | Count | Last Updated |
 | --- | --- | --- |
-| ✅ SUCCESS | 7 | 2026-11-17 |
-| ❌ FAILED (known, mitigated) | 7 | 2026-11-17 |
-| 🔲 MISSING | 3 open (main/front cameras; modem userspace SIM/QMI; Freedreno/Vulkan optional) + kernel sign-offs upstream | 2026-11-18 |
+| ✅ SUCCESS | 7 cards ([board/SUCCESS.md](board/SUCCESS.md)) | `2026-11-21` |
+| ❌ FAILED (permanent rules) | 8 cards ([board/FAILED.md](board/FAILED.md)) | `2026-11-20` |
+| 🔲 MISSING / STEP QUEUE | 16-stage breakdown ([board/MISSING.md](board/MISSING.md) · [`board/tasks.json`](board/tasks.json)) | `2026-11-21` |
 
 ---
 
@@ -49,112 +57,39 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 
 | # | Card | What Works | Evidence |
 |---|------|-----------|----------|
-| 01 | [Dual-Boot & UFS RO Guard](board/success/01-dual-boot-ufs-ro-guard.md) | `sda24` recovery boot + microSD rootfs; 77/77 UFS `ro=1` | `r8q-preflight --json` ufs_guard ok |
-| 02 | [RPMh TCS Reclaim & Liveness Net](board/success/02-rpmh-rsc-and-liveness-net.md) | `rpmh-rsc.c` TCS timeout reclaim; XPU page guard; per-CPU liveness watchdog | No RPMh/RCU freezes; `HardwareCorrupted: 23520 kB` |
-| 03 | [Display: simpledrm → MSM & S6E3FC3](board/success/03-display-mdss-s6e3fc3.md) | Zero white flash; `modprobe msm = 0`; `DSI-1 1080x2400@60`; backlight | `/dev/dri/card1`, `/dev/dri/renderD128` |
-| 04 | [Adreno 650, Freedreno & Hyprland Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) | GPU at 305 MHz; Hyprland + quickshell + squeekboard + Xwayland; touch + keys | `3d00000.gpu` pinned; `stmfts-r8q.ko` live |
-| 05 | [USB Gadget, Power/Battery & ZRAM](board/success/05-usb-power-battery-zram.md) | USB NCM `172.16.42.1` — **gadget missing on the new image (investigating, see [USB-GADGET-PLAN.md](USB-GADGET-PLAN.md) + NOTES §25)**; battery telemetry `99%`; zram + swapfile + MGLRU | `max77705`/`max17042` as modules |
-| 06 | [Wi-Fi, Bluetooth, Clock Sync & Boot GUI](board/success/06-wifi-bluetooth-and-clock.md) | `wlp1s0` UP; `hci0` Powered (BR/EDR+LE); RTC sync; `sddm` auto-start | `ath11k` + `qca6390` firmware ok |
-| 07 | [Stability Soak, Pseudo-NMI & On-Device AI](board/success/07-stability-soak-nmi-and-ai.md) | `1800 s` soak `failures=0`; `NMI watchdog: Enabled`; `omamobile-ai` + `LFM3-1.7B` on `:8080`; `omamobile-llama` packaged | 15.3 generation tok/s / 35.2 pp512 tok/s (2026-11-18), old 10.6-11.0 generation |
+| 01 | [Dual-Boot & UFS RO Guard](board/success/01-dual-boot-ufs-ro-guard.md) | `sda24` recovery boot -> native `/dev/sda36`; 77/77 UFS `ro=1` | `phone-smoke`: `77/77` UFS guarded, `/dev/sda36` rw |
+| 02 | [RPMh TCS Reclaim & Liveness Net](board/success/02-rpmh-rsc-and-liveness-net.md) | `rpmh-rsc.c` TCS timeout reclaim; XPU `no-map` DT (`1324fe066`) | No RPMh/RCU freezes; `HardwareCorrupted: 0 kB` |
+| 03 | [Display: simpledrm → MSM & S6E3FC3](board/success/03-display-mdss-s6e3fc3.md) | Zero white flash; native `1080x2400@120`; DPMS + lock wake | Zero DSI/TE errors under GPU load (`NOTES §49`) |
+| 04 | [Adreno 650, Freedreno & Hyprland Desktop](board/success/04-gpu-adreno650-hyprland-desktop.md) | GPU `305–587 MHz` (`ae195e6de` fault quiesce); Turnip Vulkan; `stmfts` + keys | `pp64 30.23 / tg16 1.37 t/s`; desktop survives recovery |
+| 05 | [USB Gadget, Power/Battery & ZRAM](board/success/05-usb-power-battery-zram.md) | USB NCM `172.16.42.1`; battery `100%`; `2.7G` zram + `4G` swapfile + MGLRU | `max77705`/`max17042` live; `6.8 G` tiered swap |
+| 06 | [Wi-Fi, Bluetooth, Clock Sync & Boot GUI](board/success/06-wifi-bluetooth-and-clock.md) | `wlp1s0` UP; `hci0` Powered (`BR/EDR`+`LE`); RTC `sysinit`; `sddm` | `ath11k` + `qca6390` + `caa385175` native UART |
+| 07 | [Stability Soak, Pseudo-NMI & On-Device AI](board/success/07-stability-soak-nmi-and-ai.md) | `1800 s` soak (`failures=0`); NMI watchdog; pi-tuned `LFM3` (`10.5 tok/s`); `SamsungGalaxyS2` audio + SLPI sensors | `pd-mapper 1.1-2` + `0.1.29-1` `pw-play rc=0`, 0 dmesg errors (`NOTES §51`) |
 
 ---
 
-## ❌ FAILED (7 cards — root causes known, permanent rules in place)
+## ❌ FAILED (8 cards — root causes known, permanent rules in place)
 
 | # | Card | Failure | Permanent Rule |
 |---|------|---------|---------------|
 | 01 | [Unreserved XPU/TZ/Knox DRAM](board/failed/01-unreserved-xpu-tz-knox-dram.md) | T+12s freeze from XPU violation | DT fix `1324fe066` + `offline_unreserved_xpu_pages()` fallback |
 | 02 | [Suspend/cpuidle/DVFS/UFS PM](board/failed/02-suspend-cpuidle-dvfs-ufspm.md) | RPMh -110 timeouts, RCU stalls | `SUSPEND` off, `WFI`-only cpuidle, CPU `performance`, UFS PM disabled |
 | 03 | [max77705 built-in & unbind](board/failed/03-max77705-builtin-and-unbind.md) | `=y` freezes boot; `rmmod` kills battery | Keep `=m`, load post-boot, pin I2C `power/control="on"` |
-| 04 | [Protected DISPCC clocks & white flash](board/failed/04-display-protected-clocks-and-white-flash.md) | `ESC0_CLK=0` → `-22`; unclocked FB flash | Use `display.dtso` (not `display-mdss.dtso`); clear `protected-clocks` in DT |
-| 05 | `[omamobile]/mesa, misc.vfr, @120` | Mali Mesa lacks `msm_dri.so`; `vfr` error | Use `extra/mesa` + `vulkan-freedreno`; `vrr=0`; `@60` |
+| 04 | [Protected DISPCC clocks & white flash](board/failed/04-display-protected-clocks-and-white-flash.md) | `ESC0_CLK=0` → `-22`; unclocked FB flash | Use `display.dtso`; clear `protected-clocks` in DT |
+| 05 | `[omamobile]/mesa, misc.vfr, @120` | Mali Mesa lacked `msm_dri.so`; `vfr` error | Use `extra/mesa` + `vulkan-freedreno`; `vrr=0`; native `@120` verified `2026-11-20` |
 | 06 | [Boot & session hazards](board/failed/06-boot-and-session-hazards.md) | Serial alias `-19`, `btmgmt` hang, RTC `1975`, `SIGPIPE` loop | `caa385175` (kernel), `--timeout` on btmgmt, `sysinit.target` RTC, direct sysfs |
 | 07 | [stmfts5 8-byte vs 16-byte](board/failed/07-stmfts5-8byte-vs-samsung-16byte-events.md) | `unknown FTS5 event` errors | 16-byte parser `5866f774c`; pin `994000.i2c` `on` |
+| 08 | [Vulkan `llama.cpp` Adreno GPU Wedge](board/failed/08-vulkan-llm-adreno-gpu-wedge.md) | Vulkan LLM load wedges GPU -> `cx gdsc` collapse failure | Fixed `cx collapse` quiesce (`ae195e6de`); `-p 512` stall open -> keep `GPU_LAYERS=0` |
 
 ---
 
-## 🔲 MISSING (5 cards — next work queue)
+## 🔲 MISSING — Atomic Queue ([board/MISSING.md](board/MISSING.md) · `tools/r8q-progress`)
 
-### P1: Flash Native DT + Touch + BT Recovery (VERIFIED ON HARDWARE; SIGNOFF PENDING)
+> **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **38 of 83** commits in `~/omamobile-kernel/wt-r8q` (`omamobile..HEAD`) await Santiago's sign-off (`git -C ~/omamobile-kernel/wt-r8q rebase --signoff ...`).
 
-| Item | Status | Details |
-|------|--------|---------|
-| Kernel sign-offs | 🔴 | All 20 commits on `omamobile-r8q-p1-signoff` (`caa385175`) need human `Signed-off-by:` before upstream PRs (`tools/kernel-pr-check`) |
-| Rebuild recovery image | ✅ | Built `~/omamobile-kernel/out-r8q-p1` (`7.3.0-rc6-omamobile-push1-gcaa38517520a`, 1821 modules) |
-| Flash to `sda24` | ✅ | Flashed & verified over USB SSH (`tools/r8q-flash-recovery`) |
-| Verify `uname -r` | ✅ | Verified `7.3.0-rc6-omamobile-push1-gcaa38517520a`, `HardwareCorrupted: 0 kB`, 37/37 `ro=1` |
-| Verify native drivers | ✅ | Native `stmfts` + `qcom_geni_serial` + `hci0` working without `stmfts-r8q.ko`/`r8q-bt-uart.ko` |
-
-**Files involved:**
-- `~/omamobile-kernel/wt-r8q` (branch `omamobile-r8q-p1-signoff`, HEAD `caa385175`)
-- `tools/r8q-boot pack` → `out-r8q-p1/recovery-omamobile.img`
-- `tools/r8q-flash-recovery` → `sda24`
-- `tools/r8q-push` → modules tarball
-
-### P2: Gate C — Remoteprocs & Audio (VERIFIED END-TO-END ON HARDWARE)
-
-| Item | Status | Details |
-|------|--------|---------|
-| `remoteprocs.dtso` | ✅ | `slpi`, `cdsp`, `adsp` all `running` |
-| `audio-amps.dtso` | ✅ | `gpi_dma1` (`a00000.dma-controller`) + `i2c11` (`a8c000.i2c`) probed dual `cs35l41` (`11-0040`, `11-0041`, Rev A0) |
-| `audio-sound.dtso` | ✅ | Routed `PRIMARY_TDM_RX_0` (`0x18`) on `MI2S0` (`gpio138..141`), `4x32-bit` slots (`6.144 MHz` BCLK); PipeWire → `MultiMedia1` → `cs35l41` `PUP_DONE=1`, `PLL_LOCK=1` |
-| Firmware staging | ✅ | `adsp.mbn`, `cdsp.mbn`, `slpi.mbn` loaded cleanly |
-| Audible playback | ✅ | Verified on bottom speaker (`Analog=18`, `Digital=817`); quieter than full stock (CS35L41 tuning/boost follow-up) |
-
-**Files involved:**
-- `device/r8q/overlays/remoteprocs.dtso` (verified)
-- `device/r8q/overlays/audio-amps.dtso` (verified)
-- `device/r8q/overlays/audio-sound.dtso` (verified with `PRIMARY_TDM_RX_0`)
-- `packages/omamobile-device-r8q/ucm2/` (verified `HiFi.conf`)
-- `tools/r8q-boot --dual-boot --overlay display,remoteprocs,audio-amps,audio-sound`
-
-### P3: Cellular/Modem & Wireless Soak (IN PROGRESS — Wireless Concurrency, NV RO Backup & Modem Plan DONE)
-
-| Item | Status | Details |
-|------|--------|---------|
-| Wi-Fi+BT concurrency check | ✅ | `wlp1s0` (`15/15` ping 0% loss, HTTPS `200`, `576–720 MBit/s`) + concurrent `btmgmt find -l` LE discovery + USB NCM; 0 dmesg errors (BT A2DP audio still to test) |
-| Modem/cellular | ✅ AMSS reached | **The modem boots to AMSS on mainline (2026-11-18)**: full 14-image SAHARA set over one open MHI channel, modem jumps to mission mode itself (`CHDBOFF=0x300 ERDBOFF=0x700`, `EE: MISSION MODE`), `mhi0_QMI/MBIM/IPCR/IP_HW0/IP_SW0` and `/dev/wwan0{qmi,mbim,qcdm,at}0` present. Fixes: `qcom,pci-msi` doorbell (GIC hwirq data), ported MHI SBL/AMSS support, AP2MDM_STATUS high + single-channel serving. **Normal boot (2026-11-18):** the modem reaches SBL, but its power-on removes the SD card (the root goes `emergency_ro`; `vddpe-3v3` dummy / shared 3.3 V), so the rescue image is the only working modem configuration. Next: move the root to `userdata` or model the modem 3.3 V rail, then the userspace (ModemManager installed; `qrtr`, read-only `rmtfs`, `pd-mapper`, `tqftpserv`) and SIM/QMI. Kernel commits still need the human Signed-off-by. `MODEM-PLAN.md` §12. |
-
-**Files involved:**
-- `tools/r8q-stabilize` (exists)
-- `device/r8q/kernel.config` (`CONFIG_BT_LE=y` already set)
-- `device/r8q/MODEM-PLAN.md` (exists)
-
-### P4: Sensors, Cameras & DPMS (IN PROGRESS — SLPI Sensors, VolUp & DPMS DONE)
-
-| Item | Status | Details |
-|------|--------|---------|
-| DPMS & Lock Screen | ✅ | `hl.dsp.dpms` enable/disable, physical Power-key wake, and `secure: true` lock screen verified on hardware (`gf3a5609d121b`, 0 dmesg errors) |
-| SLPI sensors | ✅ | `slpi-sensors.dtso` (`L8C` `1.8 V`) + `hexagonrpc 0.5.0-2` + `iio-sensor-proxy` (`accel`, `light`, `compass` live; `proximity` `UNKNOWN`) |
-| Volume Up key (`vol-up.dtso`) | ✅ | Wired to `&pm8150l_gpios 3 GPIO_ACTIVE_LOW` (IRQ `179`); tested working on hardware |
-| Camera: HI-847 tele & S5K3L6 uw | ✅ | Both back cameras live in `libcamera 0.7.2-4.25` (`hi847` `0058` + `s5k3l6xx` `0059`): `cam -l` lists both; raw + JPEG capture verified |
-| Camera: IMX555 (wide), IMX616 (front) & FD650 EGL | ⏳ | Main wide & front need drivers/tuning; `70-r8q-libcamera.conf` pins `LIBCAMERA_SOFTISP_MODE=cpu` for desktop sessions |
-| `tools/r8q-install` alignment | ✅ | `monitors.lua` @60, `vrr=0`, scale 2.25 |
-
-**Files involved:**
-- `device/r8q/CAMERA-PLAN.md` (exists)
-- `device/r8q/overlays/camera.dtso` (exists)
-- `device/r8q/board/missing/r8q-camera-upstream-reference.dtsi` (exists)
-- `device/r8q/board/missing/r8q-aperture-config.xml` (exists)
-- `packages/omamobile-device-r8q/ucm2/` (exists)
-
-### P5: Stability Soak, Pseudo-NMI & AI (DONE — soak, pseudo-NMI and AI verified)
-
-| Item | Status | Details |
-|------|--------|---------|
-| 30-min GUI + writeback soak | ✅ | `tools/r8q-stability-soak` passed live on `gf3a5609d121b` (`1800s`, 6 iterations, `failures=0`) |
-| `CONFIG_ARM64_PSEUDO_NMI` | ✅ | Verified live with `irqchip.gicv3_pseudo_nmi=1` and `NMI watchdog: Enabled` (0 regressions) |
-| `omamobile-ai` supervisor | ✅ | `omamobile-ai.service` live on `:8080`: lazy `llama-server`, OpenAI + llama.cpp router surfaces, `IDLE_TIMEOUT=180`, pinned to cores 4-6; `tools/r8q-ai` drives it (SSH fallback) |
-| On-device AI benchmarks | ✅ | `AI-BENCHMARKS.md` §2: `omamobile-llama` `98d67c8` (packaged), **15.26-15.29 generation tok/s / pp512 35.18 tok/s** on 2026-11-18; old hand-built baseline 10.6-11.0 generation; 47.5 → 68.7 °C |
-| Freedreno perf tuning | 🔴 | GPU devfreq above 305 MHz once stable; 587 MHz measured 1.92× at 74 °C, still opt-in |
-
-**Files involved:**
-- `packages/omamobile-ai/` (supervisor package; replaces the removed BSP `rust/ai-server/` stub)
-- `packages/omamobile-device-r8q/etc/omamobile-ai.conf.d/10-sm8250.conf` (core pinning)
-- `tools/r8q-ai` (API client, SSH fallback)
-- `tools/r8q-optimize` (exists)
-- `tools/r8q-stability-soak` (exists)
-- `device/r8q/AI-BENCHMARKS.md` (verified numbers and reproduction)
+1. **Immediate Software / Package Tasks (no reboot):** `[dsp-04]` deploy `omamobile-settings 0.1.3` (phone has `0.1.2-1`), `[aud-05..06]` mic record + earpiece UCM2 + L/R speaker balance, `[net-03]` BT A2DP + Wi-Fi concurrency, `[gpu-03]` bisect `-p 512` compute stall, `[pwr-02]` WFI power baseline, `[doc-02..03]` `CONTRIBUTING.md` §3.1 + `docs/DEVICES.md` sync.
+2. **Kernel DT Fixes (`human-gate` reboot):** `[cam-03]` fix `camss` `port@1` (`s5k3l6_out`) async deadlock -> `[cam-04]` re-verify `cam -l`/`omacam`, `[aud-04]` add `qcom,dmic-sample-rate` DT property, `[gpu-04]` DPU scanout recovery restore, `[doc-04]` re-pin `stable-image.conf`.
+3. **Remaining Hardware Milestones (Stages 9–16):** `[hap-01..04]` Haptics & Torch, `[usb-02..04]` USB-C TCPC/replug/OTG, `[mdm-03..06]` test `modem.dtso` on native `sda36` + NV verify + SIM/QMI/MBIM + GNSS/NFC, `[pwr-03..04]` / `[slp-01..03]` DVFS/`cpuidle`/`s2idle`, `[cam-05]` IMX555/IMX616 drivers, `[fp-01..02]` Fingerprint audit.
+4. **Upstream Kernel & PR Hygiene (`U1`):** `[krn-02..05]` Human `Signed-off-by:` on 38 commits -> split topic branches -> `tools/kernel-pr-check --build --merge origin/omamobile` -> fork PRs.
 
 ---
 
@@ -165,12 +100,12 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | File | Status | Notes |
 |------|--------|-------|
 | `PKGBUILD` | ✅ | Builds `reboot-to`, `r8q-liveness-heartbeat`, preflight |
-| `version` | ✅ | `0.1.25` in the repo; `0.1.24` on the phone (`0.1.25` adds the AI drop-in, `zram-generator` and the parked `modem.dtso`) |
+| `version` | ✅ | `0.1.29` in repo and live (`0.1.29-1` adds `pd-mapper.service` and `-9.5 dB` `HiFi.conf` safe gains; `pd-mapper 1.1-2` fixes `modemr.jsn` empty array crash) |
 | `70-omamobile-dma-heap.rules` | ✅ | Grants `video` / `uaccess` access to `/dev/dma_heap` |
 | `70-r8q-libcamera.conf` | ✅ | Defaults `LIBCAMERA_SOFTISP_MODE=cpu` to avoid `FD650` EGL hang |
 | `test/all` | ✅ | Comprehensive config tests |
-| `hyprland-r8q.conf` | ✅ | `DSI-1,1080x2400@60,0x0,2.25`; `vrr=0`; no blur/shadow/animations |
-| `ucm2/` | ✅ | HiFi.conf, Samsung-Galaxy-S20-FE.conf, kona-mtp-snd-card.conf |
+| `hyprland-r8q.conf` | ✅ | `DSI-1,1080x2400@120,0x0,2.25`; `vrr=0` |
+| `ucm2/` | ✅ | `HiFi.conf` (`-9.5 dB` safe gains `Analog 10` / `Digital 657`), `Samsung-Galaxy-S20-FE.conf`, `SamsungGalaxyS2.conf` |
 | `80-r8q-gpu.rules` | ✅ | Pins GPU, I2C, serial, touch `power/control="on"` |
 | `79-r8q-iio-sensor-proxy.rules` | ✅ | Tags `fastrpc-sdsp*` with `ssc-accel ssc-light ssc-compass` and `ACCEL_MOUNT_MATRIX="-1, 0, 0; 0, -1, 0; 0, 0, 1"` |
 | `10-r8q-hexagonrpcd.conf` | ✅ | Drop-in for `hexagonrpcd-sdsp.service` (`-R .../r8q` + `ConditionPathExists`) |
@@ -232,6 +167,7 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | `r8q-push` | ✅ | Push modules + verify |
 | `r8q-audio-bringup` | ✅ | 9-step gated audio bring-up sequence |
 | `r8q-camera-bringup` | ⏳ | 5-step gated camera bring-up sequence |
+| `r8q-progress` | ✅ | Computes overall / per-stage completion % & step queue from `board/tasks.json` (`--live`, `--next`, `--json`) |
 | `r8q-install` | ✅ | Full installer (swap, repos, packages, UI) |
 | `r8q-rescue` | ✅ | Rescue operations |
 | `r8q-stabilize` | ✅ | Stability testing |
@@ -257,13 +193,14 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 | `DPMS-PLAN.md` | ✅ | DPMS & physical Power-key wake plan (verified) |
 | `MODEM-PLAN.md` | ⏳ | Modem & cellular plan: Stage 1 PASS, Stage 2/3A results (§8), and the offline design (§9: stock `qcom,pci-msi` memory doorbell, `msi-parent` on `&pcie2`) |
 | `AI-BENCHMARKS.md` | ✅ | Supervisor design, packaged `omamobile-llama` `98d67c8` (15.3 generation / 35.2 pp512 tok/s), old baseline and reproduction |
-| `board/README.md` | ✅ | Board overview |
-| `board/SUCCESS.md` | ✅ | 6 success cards |
-| `board/FAILED.md` | ✅ | 7 failed cards |
-| `board/MISSING.md` | ✅ | 5 missing cards |
-| `board/success/01-06.md` | ✅ | All 6 success detail files |
-| `board/failed/01-07.md` | ✅ | All 7 failed detail files |
-| `board/missing/01-05.md` | ✅ | All 5 missing detail files |
+| `board/README.md` | ✅ | Board overview & progress % metrics |
+| `board/tasks.json` | ✅ | Single-source-of-truth atomic task tracker (`tools/r8q-progress`) |
+| `board/SUCCESS.md` | ✅ | 7 success cards (synced `2026-11-21`) |
+| `board/FAILED.md` | ✅ | 8 failed cards / permanent avoidance rules |
+| `board/MISSING.md` | ✅ | 16-stage milestone % table + step-by-step atomic backlog |
+| `board/success/01-07.md` | ✅ | All 7 success detail files |
+| `board/failed/01-08.md` | ✅ | All 8 failed detail files |
+| `board/missing/01-05.md` | ✅ | Archived gate logs |
 | `board/missing/r8q-camera-upstream-reference.dtsi` | ✅ | Vendor DT reference |
 | `board/missing/r8q-aperture-config.xml` | ✅ | Camera aperture config |
 
@@ -280,30 +217,23 @@ Verified on 2026-11-17 after restoring from the Stage 3A kernel: `uname -r` matc
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Worktree | ✅ | `~/omamobile-kernel/wt-r8q`, branch `omamobile-r8q-signed` (37 commits cleanly signed off on top of `2db2bc35b`) |
-| Output | ✅ | `~/omamobile-kernel/out-r8q-uw` (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`, 1822 modules) |
-| HEAD | ✅ | `3667ab368` (S5K3L6 ultrawide driver, binding, and disabled DT node) |
-| Upstream prep | ✅ | `tools/kernel-pr-check 2db2bc35b omamobile-r8q-signed` passes (37 author sign-offs, 0 errors); push target needs a user kernel fork remote (`origin` is `derekross/linux-omarchy-mobile`) |
+| Worktree | ⚠️ | `~/omamobile-kernel/wt-r8q`, branch `r8q-gpu-fault-quiesce` (`83` commits ahead of `omamobile`; `38` missing human `Signed-off-by:`) |
+| Output | ✅ | `~/omamobile-kernel/out-r8q` (`7.3.0-rc6-omamobile-push1-gae195e6deaac`) |
+| HEAD | ✅ | `ae195e6de` (`drm/msm/a6xx: quiesce the adreno smmu across the CX collapse window`) |
+| Upstream prep | 🔴 | Run human `git rebase --signoff`, split topic branches, then pass `tools/kernel-pr-check --build --merge origin/omamobile` |
 
 ---
 
 ## 🔑 Critical Path
 
 ```
-P1 (Native DT ✅) → P2 (Audio/DSP ✅) → Sensors/VolUp/DPMS/Pseudo-NMI/S5K3L6/AI (✅) → Modem (parked) & Main/Front Cameras → Upstream PRs
+Native root sda36 + 120 Hz + GPU quiesce + Audio playback (✅) → Camera port@1 + DMIC DT + Settings 0.1.3 → Kernel DCO Sign-off & Upstream PRs → Stages 9–16 polish
 ```
 
-**Remaining open items:**
-1. **Cameras (`IMX555` rear wide & `IMX616` front):** Stock topology (`live.dts`), drivers, bindings, and `libcamera` helpers; plus Adreno `FD650` `debayer_egl` hangcheck follow-up so `LIBCAMERA_SOFTISP_MODE=cpu` can be lifted if safe.
-2. **Modem ([MODEM-PLAN.md](MODEM-PLAN.md) §10, §12):** **AMSS reached.** The full Sahara set over one MHI channel, mission mode, QMI/MBIM/DIAG/AT ports. The first normal boot (2026-11-18) reached SBL but the modem power-on removed the SD card (root `emergency_ro`, `wwan.ko` EIO; `sdhc_2` cd is gpio77, no 3.3 V rail; `vddpe-3v3` dummy). The rescue image (no SD root) is the only working config. Next: a `userdata` root or a modem 3.3 V rail, then the userspace (ModemManager installed; `qrtr`, read-only `rmtfs`, `pd-mapper`, `tqftpserv`) and SIM/QMI.
-3. **Optional perf / UX / polish:** `omacam` live visual test switching tele ↔ ultrawide (verify `s5k3l6xx` orientation/rotation in preview), `cs35l41` speaker protection tuning (louder/balanced top+bottom speakers), Vulkan `llama.cpp` on the 587 MHz GPU (CPU baseline is verified; CDSP needs a Hexagon v66 userspace runtime), and setting up user fork remote for `linux-omarchy-mobile` push.
-
-**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g3667ab368ef9`):**
-- Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `Xwayland` on `DSI-1 1080x2400@60`), DPMS & Power-key wake + lock screen
-- Touch (`stmfts`, 16-byte Type-B), Volume Up (`pm8150l_gpios 3`) & Volume Down keys
-- Wi-Fi (`wlp1s0` UP via `ath11k_pci`) & Bluetooth (`hci0` Powered via `qcom_geni_serial`)
-- GPU (`3d00000.gpu`, `renderD128`, Turnip Vulkan `1.3.354`) & M2.8 pseudo-NMI hardlockup watchdog (`irqchip.gicv3_pseudo_nmi=1`)
-- Remoteprocs (`slpi`, `cdsp`, `adsp` running) & Audio (`PRIMARY_TDM_RX_0` → dual `cs35l41` + `r8q` `spk-prot` fw + PipeWire)
-- SLPI Sensors (`hexagonrpc 0.5.0-2` + `iio-sensor-proxy`: accelerometer, ambient light, magnetometer, compass)
-- Rear Cameras (`hi847` telephoto + `s5k3l6xx` ultrawide in `libcamera 0.7.2-4.25`: `cam -l` lists both, raw CSI-2 + JPEG capture verified)
-- USB gadget (`172.16.42.1`) — **on the new image the gadget is missing (investigating — see [USB-GADGET-PLAN.md](USB-GADGET-PLAN.md), NOTES §25)**; stable escape: flash the baseline image (66fe127f…); Battery telemetry (`max77705`/`max17042`), `zram0` (`2.7G zstd`), Liveness watchdog, Dual-boot UFS RO guard (`ro=1`)
+**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-gae195e6deaac`):**
+- Native UFS root `/dev/sda36` (`77/77` UFS partitions locked `ro=1`), USB CDC NCM + ACM gadget (`172.16.42.1`), `0 new` dmesg errors in `tools/phone-smoke`
+- Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `1080x2400@120`), DPMS & Power-key wake + lock screen, `stmfts` 16-byte Type-B touch, Volume Up/Down/Power
+- Wi-Fi (`wlp1s0` UP via `ath11k_pci`) & Bluetooth (`hci0` Powered via `998000.serial`)
+- Adreno 650 GPU (`3d00000.gpu`, `renderD128`, `305–587 MHz`, Turnip Vulkan `1.3.354`, fault quiesce recovery) + pseudo-NMI watchdog
+- Remoteprocs (`slpi`, `cdsp`, `adsp` via `pd-mapper 1.1-2`), SLPI Sensors (`Accelerometer`, `AmbientLight`), & Audio (`SamsungGalaxyS2` -> dual `cs35l41` at safe `-9.5 dB` UCM2 + PipeWire)
+- Battery telemetry (`max77705`/`max17042`, `100%`, `27 °C`, `health Good`), `6.8G` tiered swap (`2.7G` zram + `4G` swapfile + MGLRU), & pi-tuned `LFM3-1.7B` AI (`10.5 tok/s`)

@@ -9,7 +9,7 @@
     "image": "out-r8q/recovery-fault-quiesce.img",
     "image_sha256": "adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a6",
     "repo_main": "aec750d1",
-    "device_pkg": "0.1.31-1",
+    "device_pkg": "0.1.33-1",
     "pd_mapper_pkg": "1.1-2",
     "settings_pkg_phone": "0.1.3-1",
     "settings_pkg_repo": "0.1.3"
@@ -271,11 +271,9 @@
         {
           "id": "hap-04",
           "title": "Add disabled torch DT node + overlay, test low-current strobe, and wire shell tile",
-          "done": false,
+          "done": true,
           "area": "kernel",
-          "risk": "medium",
-          "requires_human": true,
-          "verify": "User observed white:torch tile toggles without LED lighting (PM8150L @d300 unwired); torch.dtso updated to kinetic,ktd2692 (TLMM GPIO 126 ctrl / 117 aux) + CONFIG_LEDS_KTD2692=m — needs module build, sda24 flash & human visual check"
+          "evidence": "device/r8q/overlays/torch.dtso drives RT8547 via gpio-leds (gpio117 FLEN enable + rt8547_flset_default gpio126 output-high) + 20-r8q-torch.rules (664 root:video, max=1); human confirmed Flashlight quick-settings tile toggles LED physically ON/OFF on recovery-rt8547-torch.img (04e252eb)"
         }
       ]
     },
@@ -482,11 +480,9 @@
         {
           "id": "cam-04",
           "title": "Run libcamera + omacam live preview and lens-switch test (tele <-> ultrawide)",
-          "done": false,
+          "done": true,
           "area": "userspace",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "cam -c 1/2 frame captures passed (52.7 MB / 32.0 MB) and omamobile-device-r8q 0.1.31-1 installs omacam-lenses.toml (ultrawide 0.50x s5k3l6xx + tele 3.00x hi847); confirm lens switch in omacam UI"
+          "evidence": "omamobile-device-r8q 0.1.33-1 ships omacam-lenses.toml (4200x3120 Ultrawide 0.5x s5k3l6xx + 3256x2448 Telephoto 3x hi847); cam -c 1/2 frame captures passed and human confirmed clean preview & 0.5x <-> 3x lens switch in omacam"
         },
         {
           "id": "cam-05",

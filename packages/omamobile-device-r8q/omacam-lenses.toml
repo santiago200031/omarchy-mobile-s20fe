@@ -15,7 +15,8 @@ f_number = 2.2
 focal_length_35mm = 13
 focal_length_mm = 1.97
 base_iso = 50
-preview = [2048, 1536]
+# 2104x1560 has a CSI2P line stride skew; use the verified 4200x3120 full mode.
+preview = [4200, 3120]
 still = [4200, 3120]
 autofocus = false
 
@@ -28,6 +29,7 @@ f_number = 2.4
 focal_length_35mm = 76
 focal_length_mm = 5.95
 base_iso = 50
-preview = [1600, 1200]
+# Use the verified 3256x2448 full mode matching CAMERA-PLAN §6.4.
+preview = [3256, 2448]
 still = [3256, 2448]
 autofocus = false

@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay: enable PM8150L SPMI flash LED controller in torch mode
+ * (300 mA cap, white:torch) on PMIC5 SID 5 (@d300) for leds-qcom-flash.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/spmi@c440000/pmic@5/led-controller@d300} {
+	status = "okay";
+
+	led-0 {
+		function = "torch";
+		color = <0>;
+		led-sources = <1>;
+		led-max-microamp = <300000>;
+	};
+};

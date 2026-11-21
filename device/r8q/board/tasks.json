@@ -96,7 +96,7 @@
       "stage": "4",
       "track": "bringup",
       "title": "GPU (Adreno 650 / Vulkan & Recovery)",
-      "milestone_status": "achieved_open",
+      "milestone_status": "achieved",
       "plan": "device/r8q/NOTES.md",
       "tasks": [
         {
@@ -116,29 +116,32 @@
         {
           "id": "gpu-03",
           "title": "Bisect -p 512 Vulkan compute stall (chunk size vs shader/ring timeout)",
-          "done": false,
+          "done": true,
           "area": "kernel",
           "risk": "medium",
           "requires_human": false,
-          "verify": "llama-bench -ngl 99 -p 64/128/256/512 passes without GMU fault or hangcheck"
+          "verify": "llama-bench -ngl 99 -p 64/128/256/512 passes without GMU fault or hangcheck",
+          "evidence": "Bisected to msm_gpu 250 ms x 4 (1000 ms) active-progress cap while 100-node -p 512 submits take ~2.5-3.5 s (MAX_NODES=10 passed at HC=250; HC=500 failed; HC=1000 passed). Fixed in wt-r8q 802d3d3bc (DRM_MSM_HANGCHECK_PROGRESS_RETRIES 3->31, 8000 ms active cap); recovery-gpu-hangcheck.img (e186c371) verified bare llama-bench -ngl 99 -p 64,128,256,512 at HC=250: 30.26/30.17/27.24/23.39 t/s, tg16 1.37 t/s, 0 GPU errors"
         },
         {
           "id": "gpu-04",
           "title": "Restore DPU scanout state cleanly after GPU fault recovery if display stalls",
-          "done": false,
+          "done": true,
           "area": "kernel",
           "risk": "medium",
           "requires_human": true,
-          "verify": "Display continues scanning at 120 Hz with zero black-screen freeze after induced GPU fault"
+          "verify": "Display continues scanning at 120 Hz with zero black-screen freeze after induced GPU fault",
+          "evidence": "Verified across 3 induced rb 0 hangcheck recoveries (idle + static + active 120 Hz vkcube compositing): DSI-1 stays dpms=On, enabled=enabled, bl=0, crtc=crtc-0 with total_framecount advancing at 120 Hz and human-confirmed live touchscreen response; when idle dpms=Off, hl.dsp.dpms enable restores scanout cleanly"
         },
         {
           "id": "gpu-05",
           "title": "Benchmark Vulkan GPU_LAYERS > 0 vs CPU LFM3 baseline once -p 512 stall is fixed",
-          "done": false,
+          "done": true,
           "area": "userspace",
           "risk": "low",
           "requires_human": false,
-          "verify": "Compare tok/s against CPU baseline (10.5 tok/s pi-tuned); keep faster path default"
+          "verify": "Compare tok/s against CPU baseline (10.5 tok/s pi-tuned); keep faster path default",
+          "evidence": "CPU stays 2.4x-3.2x faster on pp512 and 9.2x-11.6x faster on tg128: Q8_0 CPU 4-7 performance (2.42/2.84 GHz) 75.84 pp512 / 12.46 tg128 (4-6: 70.18 pp512 / 12.48 tg128); Q4_K_M CPU 4-6 performance 43.69 pp512 / 16.73 tg128; Vulkan Q4_K_M -ngl 99 23.39 pp512 / 1.36 tg128. Device 0.1.34 configures CPU_AFFINITY=4-7, THREADS=4, IDLE_TIMEOUT=180 (lazy spawn + 3-min TTL) with GPU_LAYERS=0 default"
         }
       ]
     },

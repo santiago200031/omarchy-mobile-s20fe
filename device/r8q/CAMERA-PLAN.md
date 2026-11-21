@@ -283,3 +283,12 @@ AGENTS forbids decompiling it. The main/front drivers therefore need **public
 register sequences/datasheets** (Sony) or a mainline/postmarketOS driver. The
 tele (`hi847`, in-tree) and ultrawide (`s5k3l6xx`) are not blocked because
 their drivers already exist.
+
+### 6.5 Regression on `gae195e6deaac`: disabled `port@1` blocks `camss_subdev_notifier_complete()` (2026-11-21)
+
+- **Observed live on `7.3.0-rc6-omamobile-push1-gae195e6deaac`:** `cam -l` reports `No sensor found for /dev/media0`, even though `hi847 10-0021` is bound (entity 329 in `media-ctl -p -d /dev/media0`) and `port@2` (`[102]`) ↔ `camera@21` (`[229]`) phandles match.
+- **Root cause:** `/sys/kernel/debug/v4l2-async/pending_async_subdevices` shows `qcom-camss ac6a000.camss` permanently waiting for `/soc@0/geniqup@9c0000/i2c@988000/camera@2d/port/endpoint` (`s5k3l6_out`). Kernel commit `3667ab368` added `port@1 { status = "disabled"; csiphy1_ep: endpoint { remote-endpoint = <&s5k3l6_out>; }; };` in `sm8250-samsung-r8q.dts`, but `fwnode_graph_for_each_endpoint()` in `camss_parse_ports()` (`drivers/media/platform/qcom/camss/camss.c`) does not check `fwnode_device_is_available()` on `port` or the remote device, so `camss->notifier` never completes and `hi847` receives 0 pad links.
+- **Next gated kernel step (requires human approval before flashing `sda24`):**
+  1. Either move `csiphy1_ep` out of disabled `port@1` into `camera-uw.dtso` or skip unavailable ports/endpoints in `camss_parse_ports()`.
+  2. Build kernel + `W=1` + `dt-validate` offline, then flash `sda24` with human approval and verify `cam -l` lists `hi847` and `omacam` streams.
+  3. **Stop condition:** if `pending_async_subdevices` still shows `qcom-camss` waiting, inspect `camss_parse_ports()` endpoints; **Rollback:** restore `stable-image.conf` (`adeddb31…660a6`) via `tools/r8q-flash-recovery`.

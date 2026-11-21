@@ -3,6 +3,13 @@
     "title": "Settings",
     "rows": [
       {
+        "id": "display",
+        "title": "Display",
+        "detail": "Brightness and refresh rate",
+        "icon": "display",
+        "page": "display"
+      },
+      {
         "id": "about",
         "title": "About this device",
         "detail": "System, software and storage",
@@ -20,6 +27,10 @@
   },
   "about": {
     "title": "About this device",
+    "rows": []
+  },
+  "display": {
+    "title": "Display",
     "rows": []
   },
   "ai": {

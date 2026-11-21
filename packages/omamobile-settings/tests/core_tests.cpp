@@ -18,9 +18,13 @@ private slots:
     void navigationRejectsUnknownAndHiddenActions() {
         Backend backend;
         QVERIFY(backend.catalogProblems().isEmpty());
-        QCOMPARE(backend.rows().size(), 2);
+        QCOMPARE(backend.rows().size(), 3);
         QVERIFY(!backend.navigate("recording"));
         backend.activate("arbitrary-command");
+        QCOMPARE(backend.page(), QString("root"));
+        backend.activate("display");
+        QCOMPARE(backend.page(), QString("display"));
+        backend.back();
         QCOMPARE(backend.page(), QString("root"));
         backend.activate("about");
         QCOMPARE(backend.page(), QString("about"));

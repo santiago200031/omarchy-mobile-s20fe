@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""r8q-progress: show Samsung Galaxy S20 FE (r8q) port progress and atomic tasks.
+
+Reads device/r8q/board/tasks.json (covering CONTRIBUTING.md §5.4 Stages 1–16
+plus upstream/release readiness) and computes completion percentages, per-stage
+breakdowns, and numbered step-by-step remaining atomic tasks.
+
+Optional --live mode runs strictly read-only checks against the local kernel
+worktree (~/omamobile-kernel/wt-r8q) and/or connected phone via tools/phone-ssh.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_TASKS = REPO_ROOT / "device" / "r8q" / "board" / "tasks.json"
+DEFAULT_WT = Path(os.environ.get("R8Q_KERNEL_DIR", Path.home() / "omamobile-kernel" / "wt-r8q"))
+
+STATUS_BADGE = {
+    "achieved": "DONE",
+    "achieved_open": "PARTIAL",
+    "partial": "PARTIAL",
+    "mitigated": "MITIGATED",
+    "in_progress": "IN_PROGRESS",
+    "regressed": "REGRESSED",
+    "disabled": "DISABLED",
+    "missing": "MISSING",
+}
+
+
+def load_tasks(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if "stages" not in data or not isinstance(data["stages"], list):
+        raise ValueError(f"{path}: missing 'stages' list")
+    return data
+
+
+def compute_stats(data: dict[str, Any]) -> dict[str, Any]:
+    stages_out = []
+    totals: dict[str, dict[str, int]] = {
+        "all": {"done": 0, "total": 0},
+        "bringup": {"done": 0, "total": 0},
+        "release": {"done": 0, "total": 0},
+        "core_daily": {"done": 0, "total": 0},
+    }
+    core_stages = {"stage-01-02", "stage-03", "stage-04", "stage-05", "stage-06", "stage-07-08"}
+
+    for st in data["stages"]:
+        tasks = st.get("tasks", [])
+        done = sum(1 for t in tasks if t.get("done"))
+        total = len(tasks)
+        pct = round((done / total) * 100, 1) if total else 0.0
+        track = st.get("track", "bringup")
+
+        totals["all"]["done"] += done
+        totals["all"]["total"] += total
+        if track in totals:
+            totals[track]["done"] += done
+            totals[track]["total"] += total
+        if st["id"] in core_stages:
+            totals["core_daily"]["done"] += done
+            totals["core_daily"]["total"] += total
+
+        stages_out.append(
+            {
+                "id": st["id"],
+                "stage": st["stage"],
+                "track": track,
+                "title": st["title"],
+                "milestone_status": st.get("milestone_status", "unknown"),
+                "plan": st.get("plan", ""),
+                "done": done,
+                "total": total,
+                "percent": pct,
+                "remaining": [t for t in tasks if not t.get("done")],
+                "completed": [t for t in tasks if t.get("done")],
+            }
+        )
+
+    summary = {}
+    for k, v in totals.items():
+        pct = round((v["done"] / v["total"]) * 100, 1) if v["total"] else 0.0
+        summary[k] = {"done": v["done"], "total": v["total"], "percent": pct}
+
+    return {
+        "device": data.get("device", "r8q"),
+        "model": data.get("model", ""),
+        "updated": data.get("updated", ""),
+        "baseline": data.get("baseline", {}),
+        "summary": summary,
+        "stages": stages_out,
+    }
+
+
+def bar(percent: float, width: int = 20) -> str:
+    filled = int(round((percent / 100.0) * width))
+    filled = max(0, min(width, filled))
+    return "[" + ("#" * filled) + ("-" * (width - filled)) + "]"
+
+
+def gather_live_checks() -> dict[str, Any]:
+    """Run strictly read-only probes on local kernel worktree and phone (if reachable)."""
+    out: dict[str, Any] = {}
+
+    if (DEFAULT_WT / ".git").exists():
+        res = subprocess.run(
+            ["git", "-C", str(DEFAULT_WT), "log", "--format=%h %s", "omamobile..HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        unsigned: list[str] = []
+        total_commits = 0
+        if res.returncode == 0:
+            lines = [ln for ln in res.stdout.splitlines() if ln.strip()]
+            total_commits = len(lines)
+            for ln in lines:
+                sha = ln.split()[0]
+                body = subprocess.run(
+                    ["git", "-C", str(DEFAULT_WT), "show", "-s", "--format=%b", sha],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                ).stdout
+                if not any(b.startswith("Signed-off-by:") for b in body.splitlines()):
+                    unsigned.append(ln)
+        out["kernel_worktree"] = {
+            "path": str(DEFAULT_WT),
+            "commits_ahead": total_commits,
+            "unsigned_count": len(unsigned),
+            "unsigned_head": unsigned[:5],
+        }
+    else:
+        out["kernel_worktree"] = {"present": False, "path": str(DEFAULT_WT)}
+
+    phone_ssh = REPO_ROOT / "tools" / "phone-ssh"
+    if phone_ssh.exists():
+        probe = subprocess.run(
+            [
+                str(phone_ssh),
+                "uname -r; findmnt -n -o SOURCE /; "
+                "pacman -Q pd-mapper omamobile-device-r8q omamobile-settings 2>/dev/null || true; "
+                "aplay -l 2>/dev/null | grep -E '^card ' || true; "
+                "cat /sys/class/power_supply/*battery*/capacity 2>/dev/null | head -n 1 || true",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        out["phone"] = {
+            "reachable": probe.returncode == 0,
+            "output": probe.stdout.strip().splitlines() if probe.returncode == 0 else [],
+        }
+    return out
+
+
+def render_text(
+    stats: dict[str, Any],
+    *,
+    stage_filter: str | None = None,
+    next_limit: int | None = None,
+    show_all: bool = False,
+    live: dict[str, Any] | None = None,
+) -> str:
+    lines: list[str] = []
+    s = stats["summary"]
+    b = stats["baseline"]
+
+    lines.append(f"=== {stats['device']} ({stats['model']}) Port Progress ({stats['updated']}) ===")
+    if b:
+        lines.append(
+            f"Baseline: {b.get('kernel_release', '?')} | main {b.get('repo_main', '?')} | "
+            f"device-r8q {b.get('device_pkg', '?')}"
+        )
+    lines.append("")
+    lines.append(
+        f"Overall (Hardware + Upstream): {s['all']['percent']:5.1f}%  {bar(s['all']['percent'])}  "
+        f"({s['all']['done']}/{s['all']['total']} atomic tasks)"
+    )
+    lines.append(
+        f"Bring-Up (Stages 1-16):        {s['bringup']['percent']:5.1f}%  {bar(s['bringup']['percent'])}  "
+        f"({s['bringup']['done']}/{s['bringup']['total']})"
+    )
+    lines.append(
+        f"Daily Core (Stages 1-8):       {s['core_daily']['percent']:5.1f}%  {bar(s['core_daily']['percent'])}  "
+        f"({s['core_daily']['done']}/{s['core_daily']['total']})"
+    )
+    lines.append(
+        f"Upstream & Docs (U1-U2):       {s['release']['percent']:5.1f}%  {bar(s['release']['percent'])}  "
+        f"({s['release']['done']}/{s['release']['total']})"
+    )
+    lines.append("")
+
+    stages = stats["stages"]
+    if stage_filter:
+        sf = stage_filter.lower()
+        stages = [
+            st
+            for st in stages
+            if st["id"].lower() == sf or st["stage"].lower() == sf or sf in st["title"].lower()
+        ]
+        if not stages:
+            lines.append(f"No stage matched filter '{stage_filter}'.")
+            return "\n".join(lines)
+
+    lines.append("Stage Breakdown:")
+    for st in stages:
+        badge = STATUS_BADGE.get(st["milestone_status"], st["milestone_status"].upper())
+        lines.append(
+            f"  [{st['stage']:>5}] {st['percent']:5.1f}% {bar(st['percent'], 12)} "
+            f"({st['done']:>2}/{st['total']:<2}) [{badge:<11}] {st['title']}"
+        )
+
+    lines.append("")
+    lines.append("Step-by-Step Remaining Atomic Tasks:")
+    step_no = 0
+    total_remaining = sum(len(st["remaining"]) for st in stages)
+    for st in stages:
+        if show_all:
+            for t in st["completed"]:
+                lines.append(f"  [DONE] ({st['stage']}:{t['id']}) {t['title']}")
+                if t.get("evidence"):
+                    lines.append(f"         evidence: {t['evidence']}")
+        if not st["remaining"]:
+            continue
+        if next_limit is not None and step_no >= next_limit:
+            continue
+        lines.append(f"\n  -- Stage {st['stage']}: {st['title']} ({st['done']}/{st['total']}) --")
+        for t in st["remaining"]:
+            if next_limit is not None and step_no >= next_limit:
+                break
+            step_no += 1
+            tags = [t.get("area", "misc"), f"risk:{t.get('risk', '?')}"]
+            if t.get("requires_human"):
+                tags.append("human-gate")
+            lines.append(f"  {step_no:>2}. [{t['id']}] {t['title']}  ({', '.join(tags)})")
+            if t.get("verify"):
+                lines.append(f"      verify: {t['verify']}")
+
+    if next_limit is not None and total_remaining > step_no:
+        lines.append(
+            f"\n  ... ({total_remaining - step_no} more remaining tasks; omit --next to list all)"
+        )
+
+    if live is not None:
+        lines.append("\nLive Read-Only Checks:")
+        kw = live.get("kernel_worktree", {})
+        if kw.get("unsigned_count") is not None:
+            lines.append(
+                f"  - Kernel worktree ({kw['path']}): {kw['commits_ahead']} ahead, "
+                f"{kw['unsigned_count']} missing Signed-off-by"
+            )
+        ph = live.get("phone", {})
+        if ph.get("reachable"):
+            lines.append(f"  - Phone live: {' | '.join(ph['output'])}")
+        elif ph:
+            lines.append("  - Phone live: unreachable via tools/phone-ssh")
+
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="r8q-progress",
+        description="Compute and display r8q port progress percentages and remaining atomic tasks.",
+    )
+    parser.add_argument(
+        "--file",
+        type=Path,
+        default=DEFAULT_TASKS,
+        help=f"Path to tasks.json (default: {DEFAULT_TASKS})",
+    )
+    parser.add_argument("--stage", help="Filter output to a matching stage number, id, or title substring")
+    parser.add_argument("--next", type=int, metavar="N", help="Show only the next N remaining atomic tasks")
+    parser.add_argument("--all", action="store_true", help="Include completed tasks with evidence")
+    parser.add_argument("--json", action="store_true", help="Emit computed stats and tasks as JSON")
+    parser.add_argument("--live", action="store_true", help="Also run read-only live checks on phone & wt-r8q")
+    args = parser.parse_args(argv)
+
+    data = load_tasks(args.file)
+    stats = compute_stats(data)
+    live = gather_live_checks() if args.live else None
+
+    if args.json:
+        payload = dict(stats)
+        if live is not None:
+            payload["live"] = live
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    print(
+        render_text(
+            stats,
+            stage_filter=args.stage,
+            next_limit=args.next,
+            show_all=args.all,
+            live=live,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

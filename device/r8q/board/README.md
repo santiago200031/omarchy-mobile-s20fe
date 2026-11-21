@@ -1,22 +1,26 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# Samsung Galaxy S20 FE (`r8q`, SM-G780G) Porting Board
+# SM-G780G (`r8q`) Porting Board & Progress Dashboard
 
-- **Hardware / Kernel:** Qualcomm Snapdragon 865 (`SM8250`), stable kernel `7.3.0-rc6-omamobile-push1-g3667ab368ef9` (pinned in [`stable-image.conf`](../stable-image.conf)) with native DT + touch, `CONFIG_BT_LE=y` modules, `omamobile-device-r8q` `0.1.24` on the phone (`0.1.26` in the repo), `omamobile-ai` `0.1.0-1` and the packaged `omamobile-llama` `1.0.0.20261118.98d67c8-1` serving `LFM3-1.7B`.
-- **Boot & Safety Model:** `recovery` (`sda24`) is the phone's power-on default — a plain power-on boots it, there is no dual-boot fallback ([NOTES §24](../NOTES.md)). All `77/77` `/dev/sda*` UFS partitions remain read-only (`ro=1`).
-- **Detailed Archive & Runbooks:** [PORT-PLAN.md](../PORT-PLAN.md) · [NOTES.md](../NOTES.md) · [RUNBOOK-DISPLAY-GPU.md](../RUNBOOK-DISPLAY-GPU.md) · [CRASH-DOSSIER.md](../CRASH-DOSSIER.md)
+This board tracks the hardware bring-up and upstreaming state of the **Samsung Galaxy S20 FE (`r8q`, SM8250)**.
 
----
+- **Live Machine Baseline (`2026-11-21`):** kernel `7.3.0-rc6-omamobile-push1-gae195e6deaac` (`r8q-gpu-fault-quiesce`), native UFS root on `/dev/sda36` (`LABEL=omamobile-root`, `77/77` UFS partitions `ro=1`), repo `main` `8c95bd95`, `omamobile-device-r8q 0.1.29-1`, `pd-mapper 1.1-2`.
+- **Stable Pin ([`../stable-image.conf`](../stable-image.conf)):** `out-r8q/recovery-fault-quiesce.img` (`adeddb31…660a6`, flashed to `sda24`).
+- **Live CLI Progress Tracker:** run [`tools/r8q-progress`](../../../tools/r8q-progress) (`--live` for read-only worktree + USB phone checks; `--next N` for next atomic tasks; `--json` for machine output), backed by [`tasks.json`](tasks.json).
+
+| Track / Metric | Progress | Notes |
+| --- | --- | --- |
+| **Overall (Hardware + Upstream)** | **43.1% (28/65)** | Full SM8250 hardware bring-up + kernel DCO/PR readiness |
+| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **46.4% (26/56)** | Native root, 120 Hz display, Vulkan GPU, Wi-Fi/BT, audio playback, sensors |
+| **Daily Core (Stages 1–8 + UI)** | **77.3% (17/22)** | Usable daily palmtop on desk with pi-tuned `LFM3-1.7B` AI (`10.5 tok/s`) |
+| **Upstream & Docs (U1–U2)** | **22.2% (2/9)** | Repo CI gates pass; 38 kernel commits awaiting human `Signed-off-by:` |
 
 ## Board Columns
 
-| [Success (`SUCCESS.md`)](SUCCESS.md) | [Failed / Do Not Repeat (`FAILED.md`)](FAILED.md) | [Missing / Next (`MISSING.md`)](MISSING.md) |
+| Column | Summary File | Scope |
 | --- | --- | --- |
-| [01 Dual-Boot & UFS RO Guard](success/01-dual-boot-ufs-ro-guard.md) | [01 Unreserved XPU/TZ/Knox DRAM](failed/01-unreserved-xpu-tz-knox-dram.md) | [01 Flash Native DT `1324fe066` Recovery](missing/01-flash-native-dt-recovery-1324fe066.md) |
-| [02 RPMh TCS Reclaim & Liveness Net](success/02-rpmh-rsc-and-liveness-net.md) | [02 Suspend, `cpuidle`, `schedutil` & UFS PM](failed/02-suspend-cpuidle-dvfs-ufspm.md) | [02 Gate C: Remoteprocs & Audio](missing/02-gate-c-remoteprocs-and-audio.md) |
-| [03 Display: `simpledrm` -> MSM & S6E3FC3](success/03-display-mdss-s6e3fc3.md) | [03 `max77705` Built-in & Unbind](failed/03-max77705-builtin-and-unbind.md) | [03 Cellular / Modem & Wireless Soak](missing/03-wifi-bluetooth-and-modem.md) |
-| [04 Adreno 650, Freedreno & Hyprland Desktop](success/04-gpu-adreno650-hyprland-desktop.md) | [04 Protected DISPCC Clocks & White Flash](failed/04-display-protected-clocks-and-white-flash.md) | [04 Sensors, Cameras & DPMS Wake](missing/04-sensors-cameras-dpms-and-installer.md) |
-| [05 USB Gadget, Power/Battery & Memory/ZRAM](success/05-usb-power-battery-zram.md) | [05 `[omamobile]/mesa`, `misc.vfr` & `@120`](failed/05-omamobile-mesa-and-hyprland-vfr.md) | [05 Stability Soak, Pseudo-NMI & AI Bench](missing/05-soak-pseudonmi-and-ai-benchmarks.md) |
-| [06 Wi-Fi, Bluetooth, Clock Sync & Boot GUI](success/06-wifi-bluetooth-and-clock.md) | [06 Boot & Session Hazards](failed/06-boot-and-session-hazards.md) | |
-| [07 Stability Soak, Pseudo-NMI & On-Device AI](success/07-stability-soak-nmi-and-ai.md) | [07 `stmfts5` 8-Byte vs `fts5cu56a` 16-Byte Events](failed/07-stmfts5-8byte-vs-samsung-16byte-events.md) | |
-| [08 Vulkan `llama.cpp` Adreno GPU Wedge](failed/08-vulkan-llm-adreno-gpu-wedge.md) | |
+| **Success / Hardware-Verified** | [SUCCESS.md](SUCCESS.md) | 7 verified cards (`01`–`07`), native `sda36`, `120 Hz`, `SamsungGalaxyS2` audio |
+| **Failed / Permanent Rules** | [FAILED.md](FAILED.md) | 8 permanent avoidance rules (`01`–`08`, incl. `s2idle`/DVFS, `max77705 =y`, Vulkan LLM wedge) |
+| **Missing / Atomic Queue** | [MISSING.md](MISSING.md) | Full stage-by-stage completion %, remaining step-by-step atomic tasks, and `tasks.json` map |
+
+See also: [Master File Dashboard](../FILE-DASHBOARD.md) · [Port Plan](../PORT-PLAN.md) · [Chronological Notes](../NOTES.md).

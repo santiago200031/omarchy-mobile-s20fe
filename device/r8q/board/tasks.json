@@ -1,0 +1,708 @@
+{
+  "spdx": "MIT",
+  "device": "r8q",
+  "model": "Samsung Galaxy S20 FE (SM-G780G)",
+  "soc": "SM8250 (Snapdragon 865)",
+  "updated": "2026-11-21",
+  "baseline": {
+    "kernel_release": "7.3.0-rc6-omamobile-push1-gae195e6deaac",
+    "image": "out-r8q/recovery-fault-quiesce.img",
+    "image_sha256": "adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a6",
+    "repo_main": "8c95bd95",
+    "device_pkg": "0.1.29-1",
+    "pd_mapper_pkg": "1.1-2",
+    "settings_pkg_phone": "0.1.2-1",
+    "settings_pkg_repo": "0.1.3"
+  },
+  "stages": [
+    {
+      "id": "stage-01-02",
+      "stage": "1-2",
+      "track": "bringup",
+      "title": "Boot, USB Gadget, SSH, Native Root & Storage Guard",
+      "milestone_status": "achieved",
+      "plan": "device/r8q/PORT-PLAN.md",
+      "tasks": [
+        {
+          "id": "boot-01",
+          "title": "Boot recovery image (sda24) to native UFS userdata root (sda36)",
+          "done": true,
+          "area": "boot",
+          "evidence": "LABEL=omamobile-root mounted rw on /dev/sda36 (83G free); sdcard removed from boot path (NOTES §40-43)"
+        },
+        {
+          "id": "boot-02",
+          "title": "Enforce initramfs storage guard locking all UFS partitions except userdata ro=1",
+          "done": true,
+          "area": "boot",
+          "evidence": "tools/phone-smoke: 77/77 UFS partitions read-only"
+        },
+        {
+          "id": "boot-03",
+          "title": "Expose CDC NCM + ACM USB gadget (172.16.42.1) and SSH access",
+          "done": true,
+          "area": "usb",
+          "evidence": "tools/phone-ssh root@172.16.42.1 and tools/phone-smoke USB gadget ok"
+        },
+        {
+          "id": "boot-04",
+          "title": "Reserve 10 Samsung XPU/TZ/Knox DRAM regions and RPMh TCS reclaim",
+          "done": true,
+          "area": "kernel",
+          "evidence": "1324fe066 (DT no-map) + e96cf40a1 (rpmh-rsc TCS reclaim); HardwareCorrupted: 0 kB"
+        },
+        {
+          "id": "boot-05",
+          "title": "Fix shared initramfs/init inline root handover and boot_loop dispatch",
+          "done": true,
+          "area": "boot",
+          "evidence": "0439a22a on main; tests/all persistent-root-boot.py + initramfs-root-policy.py pass"
+        }
+      ]
+    },
+    {
+      "id": "stage-03",
+      "stage": "3",
+      "track": "bringup",
+      "title": "Touch & Buttons",
+      "milestone_status": "achieved",
+      "plan": "device/r8q/NOTES.md",
+      "tasks": [
+        {
+          "id": "inp-01",
+          "title": "Parse ST FTS5CU56A 16-byte Type-B touch events in native stmfts driver",
+          "done": true,
+          "area": "kernel",
+          "evidence": "5866f774c native stmfts probe on 5-0049; phone-smoke touch ok"
+        },
+        {
+          "id": "inp-02",
+          "title": "Pin 994000.i2c runtime PM control=on so touch IRQ stays awake",
+          "done": true,
+          "area": "package",
+          "evidence": "omamobile-device-r8q udev rule live"
+        },
+        {
+          "id": "inp-03",
+          "title": "Map Power, Volume Down, and Volume Up keys (pm8150l_gpios 3)",
+          "done": true,
+          "area": "kernel",
+          "evidence": "vol-up.dtso folded into base DTS; phone-smoke buttons ok"
+        }
+      ]
+    },
+    {
+      "id": "stage-04",
+      "stage": "4",
+      "track": "bringup",
+      "title": "GPU (Adreno 650 / Vulkan & Recovery)",
+      "milestone_status": "achieved_open",
+      "plan": "device/r8q/NOTES.md",
+      "tasks": [
+        {
+          "id": "gpu-01",
+          "title": "Enable 3d00000.gpu (renderD128), SQE/GMU firmware, and Freedreno/Turnip Vulkan",
+          "done": true,
+          "area": "kernel",
+          "evidence": "Turnip Adreno 650 Vulkan 1.3.354 + OpenGL 4.6 via extra/mesa; phone-smoke GPU ok"
+        },
+        {
+          "id": "gpu-02",
+          "title": "Quiesce Adreno SMMU fault path across CX GDSC collapse on recovery",
+          "done": true,
+          "area": "kernel",
+          "evidence": "ae195e6de + 0.1.28 unpin: pp64 30.23 t/s, tg16 1.37 t/s, exit 0; Hyprland survives recovery"
+        },
+        {
+          "id": "gpu-03",
+          "title": "Bisect -p 512 Vulkan compute stall (chunk size vs shader/ring timeout)",
+          "done": false,
+          "area": "kernel",
+          "risk": "medium",
+          "requires_human": false,
+          "verify": "llama-bench -ngl 99 -p 64/128/256/512 passes without GMU fault or hangcheck"
+        },
+        {
+          "id": "gpu-04",
+          "title": "Restore DPU scanout state cleanly after GPU fault recovery if display stalls",
+          "done": false,
+          "area": "kernel",
+          "risk": "medium",
+          "requires_human": true,
+          "verify": "Display continues scanning at 120 Hz with zero black-screen freeze after induced GPU fault"
+        },
+        {
+          "id": "gpu-05",
+          "title": "Benchmark Vulkan GPU_LAYERS > 0 vs CPU LFM3 baseline once -p 512 stall is fixed",
+          "done": false,
+          "area": "userspace",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Compare tok/s against CPU baseline (10.5 tok/s pi-tuned); keep faster path default"
+        }
+      ]
+    },
+    {
+      "id": "stage-05",
+      "stage": "5",
+      "track": "bringup",
+      "title": "Display (S6E3FC3 120 Hz) & Shell UI",
+      "milestone_status": "achieved",
+      "plan": "device/r8q/RUNBOOK-DISPLAY-GPU.md",
+      "tasks": [
+        {
+          "id": "dsp-01",
+          "title": "Bring up msm_dpu + DSI0 + S6E3FC3 at 1080x2400 @ 120 Hz without white flash",
+          "done": true,
+          "area": "kernel",
+          "evidence": "NOTES §49: native 1080x2400@120, zero DSI/TE errors under GPU load"
+        },
+        {
+          "id": "dsp-02",
+          "title": "Verify backlight slider, DPMS off/on, and Power-key lock-screen wake",
+          "done": true,
+          "area": "userspace",
+          "evidence": "DPMS-PLAN.md verified; phone-smoke display ok & lock ok"
+        },
+        {
+          "id": "dsp-03",
+          "title": "Run sddm, Hyprland, quickshell, squeekboard & pi-tuned LFM3-1.7B on 6 GB RAM",
+          "done": true,
+          "area": "userspace",
+          "evidence": "2.7G zram + MGLRU + 4G swapfile = 6.8G; LFM3 10.5 tok/s; phone-smoke session ok"
+        },
+        {
+          "id": "dsp-04",
+          "title": "Build and deploy omamobile-settings 0.1.3 to phone (adds Battery + Display pages)",
+          "done": false,
+          "area": "package",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "tools/phone-ssh 'pacman -Q omamobile-settings' reports 0.1.3-1 and tests/all passes"
+        }
+      ]
+    },
+    {
+      "id": "stage-06",
+      "stage": "6",
+      "track": "bringup",
+      "title": "Battery & Fuel Gauge",
+      "milestone_status": "achieved",
+      "plan": "device/r8q/NOTES.md",
+      "tasks": [
+        {
+          "id": "bat-01",
+          "title": "Load max77705/max17042 as post-boot modules and pin 9c0000.geniqup / 980000.i2c on",
+          "done": true,
+          "area": "package",
+          "evidence": "Avoids 0.95s =y freeze and unbind cascade (FAILED card 03)"
+        },
+        {
+          "id": "bat-02",
+          "title": "Verify battery capacity, voltage, temperature, and health telemetry in UPower",
+          "done": true,
+          "area": "kernel",
+          "evidence": "NOTES §44 + phone-smoke: battery ok (100%, 27 C, health Good)"
+        }
+      ]
+    },
+    {
+      "id": "stage-07-08",
+      "stage": "7-8",
+      "track": "bringup",
+      "title": "Wi-Fi & Bluetooth (QCA6390)",
+      "milestone_status": "achieved",
+      "plan": "device/r8q/NOTES.md",
+      "tasks": [
+        {
+          "id": "net-01",
+          "title": "Bring up QCA6390 Wi-Fi (ath11k_pci wlp1s0 + r8q-wifi-aspm) and sysinit RTC sync",
+          "done": true,
+          "area": "kernel",
+          "evidence": "wlp1s0 link up, HTTPS verified, clock >= 2026 before TLS"
+        },
+        {
+          "id": "net-02",
+          "title": "Bring up QCA6390 Bluetooth (998000.serial hci0, caa385175) BR/EDR + LE",
+          "done": true,
+          "area": "kernel",
+          "evidence": "hci0 Powered: yes in phone-smoke"
+        },
+        {
+          "id": "net-03",
+          "title": "Verify Bluetooth A2DP audio playback under concurrent Wi-Fi transfer",
+          "done": false,
+          "area": "userspace",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Pair BT headset, stream audio via PipeWire while transferring over wlp1s0 with zero dropouts"
+        }
+      ]
+    },
+    {
+      "id": "stage-09",
+      "stage": "9",
+      "track": "bringup",
+      "title": "Haptics & Torch",
+      "milestone_status": "missing",
+      "plan": "CONTRIBUTING.md",
+      "tasks": [
+        {
+          "id": "hap-01",
+          "title": "Identify haptics actuator IC, I2C/PWM bus, and regulator rails in stock live.dts",
+          "done": false,
+          "area": "dts",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Document compatible string, I2C address/PWM channel, and GPIOs in PORT-PLAN / HAPTICS plan"
+        },
+        {
+          "id": "hap-02",
+          "title": "Add disabled haptics DT node + bring-up overlay and test feedbackd click",
+          "done": false,
+          "area": "kernel",
+          "risk": "medium",
+          "requires_human": true,
+          "verify": "Single short haptic pulse verified with zero PMIC brownout or I2C errors"
+        },
+        {
+          "id": "hap-03",
+          "title": "Identify rear flash/torch LED controller and current caps in stock live.dts",
+          "done": false,
+          "area": "dts",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Document LED node, safe mA limit, and regulator/GPIO in plan"
+        },
+        {
+          "id": "hap-04",
+          "title": "Add disabled torch DT node + overlay, test low-current strobe, and wire shell tile",
+          "done": false,
+          "area": "kernel",
+          "risk": "medium",
+          "requires_human": true,
+          "verify": "/sys/class/leds/* torch toggles on/off cleanly and quick-settings tile drives it"
+        }
+      ]
+    },
+    {
+      "id": "stage-10-11",
+      "stage": "10-11",
+      "track": "bringup",
+      "title": "Power, Idle, Thermal & DVFS",
+      "milestone_status": "mitigated",
+      "plan": "device/r8q/board/failed/02-suspend-cpuidle-dvfs-ufspm.md",
+      "tasks": [
+        {
+          "id": "pwr-01",
+          "title": "Enable GPU devfreq scaling 305-587 MHz (80-r8q-gpu.rules simple_ondemand)",
+          "done": true,
+          "area": "package",
+          "evidence": "33-min sustained 587 MHz vkcube soak passed cleanly at 44-49 C"
+        },
+        {
+          "id": "pwr-02",
+          "title": "Record baseline screen-on/screen-off battery current with CPU WFI baseline",
+          "done": false,
+          "area": "userspace",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Logged mA/W baseline from max170xx_battery sysfs on battery"
+        },
+        {
+          "id": "pwr-03",
+          "title": "Profile scoped schedutil CPUfreq scaling with watchdog + kmsg capture",
+          "done": false,
+          "area": "kernel",
+          "risk": "high",
+          "requires_human": true,
+          "verify": "Isolate which cluster/OPP triggers RPMh -110 timeout or pass 15-min soak"
+        },
+        {
+          "id": "pwr-04",
+          "title": "Investigate deeper cpuidle PC states (PSCI error -3) and UFS auto-hibern8 on sda36",
+          "done": false,
+          "area": "kernel",
+          "risk": "high",
+          "requires_human": true,
+          "verify": "No RCU stalls or UFS timeouts across idle transitions"
+        }
+      ]
+    },
+    {
+      "id": "stage-12",
+      "stage": "12",
+      "track": "bringup",
+      "title": "USB-C Role Switch & Charging Control",
+      "milestone_status": "partial",
+      "plan": "device/r8q/USB-GADGET-PLAN.md",
+      "tasks": [
+        {
+          "id": "usb-01",
+          "title": "Verify passive USB-C sink charging telemetry and CDC NCM gadget stability",
+          "done": true,
+          "area": "kernel",
+          "evidence": "max77705_charger reports online/charging; NCM gadget survives idle sessions"
+        },
+        {
+          "id": "usb-02",
+          "title": "Audit stock live.dts MAX77705 MUIC / Type-C PD connector and EXTCON wiring",
+          "done": false,
+          "area": "dts",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "DT connector node and role-switch graph documented from live.dts"
+        },
+        {
+          "id": "usb-03",
+          "title": "Test USB-C cable unplug/replug gadget recovery using tools/usbc-deadman",
+          "done": false,
+          "area": "kernel",
+          "risk": "high",
+          "requires_human": true,
+          "verify": "Fresh SSH login succeeds within 10s after physical cable replug"
+        },
+        {
+          "id": "usb-04",
+          "title": "Test USB host (OTG) role switch with external USB peripheral",
+          "done": false,
+          "area": "kernel",
+          "risk": "high",
+          "requires_human": true,
+          "verify": "OTG device enumerates in dmesg and peripheral role restores cleanly on unplug"
+        }
+      ]
+    },
+    {
+      "id": "stage-13",
+      "stage": "13",
+      "track": "bringup",
+      "title": "Suspend (s2idle)",
+      "milestone_status": "disabled",
+      "plan": "device/r8q/board/failed/02-suspend-cpuidle-dvfs-ufspm.md",
+      "tasks": [
+        {
+          "id": "slp-01",
+          "title": "Audit wake-capable IRQs (Power key, RTC alarm, touch) in stock live.dts",
+          "done": false,
+          "area": "dts",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "List exact wakeup-source nodes and IRQ numbers missing in sm8250-samsung-r8q.dts"
+        },
+        {
+          "id": "slp-02",
+          "title": "Run attended single s2idle test with RTC wake + watchdog safety net",
+          "done": false,
+          "area": "kernel",
+          "risk": "high",
+          "requires_human": true,
+          "verify": "Device enters freeze and wakes cleanly on Power button or RTC without hardlockup"
+        },
+        {
+          "id": "slp-03",
+          "title": "Verify Wi-Fi/USB/UFS resume + standby drain across 10 sleep cycles before unmasking sleep.target",
+          "done": false,
+          "area": "package",
+          "risk": "high",
+          "requires_human": true,
+          "verify": "10/10 s2idle cycles resume SSH, DSI-1, touch, and Wi-Fi cleanly; remove 10-r8q-no-suspend.conf"
+        }
+      ]
+    },
+    {
+      "id": "stage-14",
+      "stage": "14",
+      "track": "bringup",
+      "title": "Remoteprocs, Sensors & Audio",
+      "milestone_status": "partial",
+      "plan": "device/r8q/NOTES.md",
+      "tasks": [
+        {
+          "id": "aud-01",
+          "title": "Start ADSP, CDSP, and SLPI remoteprocs cleanly (pd-mapper 1.1-2 empty-array fix)",
+          "done": true,
+          "area": "package",
+          "evidence": "pd-mapper active; /sys/kernel/debug/devices_deferred empty (NOTES §51)"
+        },
+        {
+          "id": "aud-02",
+          "title": "Verify SLPI sensors (hexagonrpc + iio-sensor-proxy: Accelerometer, AmbientLight)",
+          "done": true,
+          "area": "userspace",
+          "evidence": "phone-smoke sensors ok (Accelerometer AmbientLight)"
+        },
+        {
+          "id": "aud-03",
+          "title": "Bring up SamsungGalaxyS2 card + dual CS35L41 (-9.5 dB HiFi.conf) + PipeWire playback",
+          "done": true,
+          "area": "package",
+          "evidence": "omamobile-device-r8q 0.1.29-1 live; aplay -l card 0; pw-play Front_Center.wav rc=0, 0 dmesg errors"
+        },
+        {
+          "id": "aud-04",
+          "title": "Add qcom,dmic-sample-rate (and VA macro DT clocks) in sm8250-samsung-r8q.dts",
+          "done": false,
+          "area": "dts",
+          "risk": "low",
+          "requires_human": true,
+          "verify": "va_macro probes cleanly with zero missing-property dmesg warnings"
+        },
+        {
+          "id": "aud-05",
+          "title": "Verify internal microphone recording and add earpiece/headset UCM2 profiles",
+          "done": false,
+          "area": "package",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "pw-record / arecord captures clean non-silent audio on built-in mics"
+        },
+        {
+          "id": "aud-06",
+          "title": "Verify stereo top+bottom CS35L41 speaker balance and comfortable evening volume curve",
+          "done": false,
+          "area": "package",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Left/Right stereo speaker-test at low volume confirms both top and bottom speakers sound balanced"
+        }
+      ]
+    },
+    {
+      "id": "stage-15-cam",
+      "stage": "15a",
+      "track": "bringup",
+      "title": "Cameras (CAMSS / libcamera)",
+      "milestone_status": "regressed",
+      "plan": "device/r8q/CAMERA-PLAN.md",
+      "tasks": [
+        {
+          "id": "cam-01",
+          "title": "Load camcc-sm8250, qcom-camss, i2c-qcom-cci, hi847, and s5k3l6xx (14 /dev/video*)",
+          "done": true,
+          "area": "kernel",
+          "evidence": "All 9 camera modules loaded and 14 /dev/video* nodes present on gae195e6deaac"
+        },
+        {
+          "id": "cam-02",
+          "title": "Prove HI-847 telephoto and S5K3L6 ultrawide raw CSI-2 + JPEG capture (g3667ab368ef9)",
+          "done": true,
+          "area": "userspace",
+          "evidence": "CAMERA-UW-PLAN.md verified both rear sensors in libcamera 0.7.2-4.25"
+        },
+        {
+          "id": "cam-03",
+          "title": "Fix camss v4l2-async notifier deadlock (remove disabled port@1 s5k3l6_out or enable ultrawide DT)",
+          "done": false,
+          "area": "dts",
+          "risk": "medium",
+          "requires_human": true,
+          "verify": "/sys/kernel/debug/v4l2-async/pending_async_subdevices clears and cam -l detects sensors"
+        },
+        {
+          "id": "cam-04",
+          "title": "Run libcamera + omacam live preview and lens-switch test (tele <-> ultrawide)",
+          "done": false,
+          "area": "userspace",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "phone-smoke cameras ok and omacam captures viewable PNG/JPEG from each sensor"
+        },
+        {
+          "id": "cam-05",
+          "title": "Implement V4L2 drivers & DT nodes for IMX555 (rear wide) and IMX616 (front)",
+          "done": false,
+          "area": "kernel",
+          "risk": "medium",
+          "requires_human": true,
+          "verify": "Both sensors register with media-ctl and stream frames through libcamera SoftISP"
+        }
+      ]
+    },
+    {
+      "id": "stage-15-modem",
+      "stage": "15b",
+      "track": "bringup",
+      "title": "Modem (SDX55M), GNSS & NFC",
+      "milestone_status": "partial",
+      "plan": "device/r8q/MODEM-PLAN.md",
+      "tasks": [
+        {
+          "id": "mdm-01",
+          "title": "Verify read-only NV backup of 15/15 modem calibration/EFS partitions",
+          "done": true,
+          "area": "safety",
+          "evidence": "tools/nv-backup -d r8q --check: 15/15 SAME; all NV partitions ro=1"
+        },
+        {
+          "id": "mdm-02",
+          "title": "Boot SDX55M over PCIe2 + MHI (qcom,pci-msi + 14 SAHARA images) to MISSION MODE",
+          "done": true,
+          "area": "kernel",
+          "evidence": "MODEM-PLAN §10: EE MISSION MODE, mhi0_QMI/MBIM/IPCR + /dev/wwan0* exposed in rescue boot"
+        },
+        {
+          "id": "mdm-03",
+          "title": "Test modem.dtso boot on native userdata root (sda36) without SD card removal hang",
+          "done": false,
+          "area": "kernel",
+          "risk": "high",
+          "requires_human": true,
+          "verify": "System stays rw on /dev/sda36 after SDX55M power-on and /dev/wwan0* enumerates"
+        },
+        {
+          "id": "mdm-04",
+          "title": "Re-verify 15/15 NV partition checksums after modem boot before userspace bring-up",
+          "done": false,
+          "area": "safety",
+          "risk": "low",
+          "requires_human": true,
+          "verify": "tools/nv-backup -d r8q --check reports 15/15 SAME"
+        },
+        {
+          "id": "mdm-05",
+          "title": "Wire opt-in modem service + NV overlay rules and test SIM detect, QMI/MBIM data & calls",
+          "done": false,
+          "area": "package",
+          "risk": "high",
+          "requires_human": true,
+          "verify": "mmcli -m 0 detects SIM state, mobile data connects over wwan0mbim0, NV remains untouched"
+        },
+        {
+          "id": "mdm-06",
+          "title": "Audit GNSS (modem PDS/QMI) and NFC controller nodes in stock live.dts",
+          "done": false,
+          "area": "dts",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Document GNSS/NFC hardware chips and mainline feasibility in PORT-PLAN"
+        }
+      ]
+    },
+    {
+      "id": "stage-16",
+      "stage": "16",
+      "track": "bringup",
+      "title": "Fingerprint",
+      "milestone_status": "missing",
+      "plan": "CONTRIBUTING.md",
+      "tasks": [
+        {
+          "id": "fp-01",
+          "title": "Identify optical/ultrasonic fingerprint SPI device and TZ TA in stock live.dts",
+          "done": false,
+          "area": "dts",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Document sensor model, bus, and vendor TA dependency"
+        },
+        {
+          "id": "fp-02",
+          "title": "Evaluate mainline/chroot feasibility and add FINGERPRINT-PLAN if supported",
+          "done": false,
+          "area": "docs",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Written feasibility assessment in device/r8q/"
+        }
+      ]
+    },
+    {
+      "id": "rel-kernel",
+      "stage": "U1",
+      "track": "release",
+      "title": "Kernel Branch Hygiene, DCO Sign-off & Upstream PRs",
+      "milestone_status": "in_progress",
+      "plan": "CONTRIBUTING.md",
+      "tasks": [
+        {
+          "id": "krn-01",
+          "title": "Pass tools/pr-check, tests/all, tests/packages (41 suites), and baseline phone-smoke",
+          "done": true,
+          "area": "ci",
+          "evidence": "Verified on main 8c95bd95 after upstream merge + pd-mapper/audio fixes"
+        },
+        {
+          "id": "krn-02",
+          "title": "Human maintainer adds Signed-off-by: Santiago Villavicencio to 38 unsigned commits in wt-r8q",
+          "done": false,
+          "area": "upstream",
+          "risk": "low",
+          "requires_human": true,
+          "verify": "git -C ~/omamobile-kernel/wt-r8q log omamobile..HEAD has 0 commits missing Signed-off-by:"
+        },
+        {
+          "id": "krn-03",
+          "title": "Split ~/omamobile-kernel/wt-r8q into clean per-subsystem topic branches",
+          "done": false,
+          "area": "upstream",
+          "risk": "low",
+          "requires_human": true,
+          "verify": "Separate branches (dts-native, touch, gpu-quiesce, modem-mhi, cameras) with no revert noise"
+        },
+        {
+          "id": "krn-04",
+          "title": "Pass tools/kernel-pr-check --build --merge origin/omamobile on each topic branch",
+          "done": false,
+          "area": "ci",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "Zero W=1 C errors, zero checkpatch errors, zero new dt-validate / dt_binding_check warnings"
+        },
+        {
+          "id": "krn-05",
+          "title": "Push signed topic branches to user fork and open upstream kernel PRs",
+          "done": false,
+          "area": "upstream",
+          "risk": "low",
+          "requires_human": true,
+          "verify": "PRs open against derekross/linux-omarchy-mobile omamobile branch"
+        }
+      ]
+    },
+    {
+      "id": "rel-docs",
+      "stage": "U2",
+      "track": "release",
+      "title": "Repo Registry, Docs & Stable Image Re-pin",
+      "milestone_status": "in_progress",
+      "plan": "CONTRIBUTING.md",
+      "tasks": [
+        {
+          "id": "doc-01",
+          "title": "Refactor device/r8q/ board docs and add atomic tasks.json + tools/r8q-progress",
+          "done": true,
+          "area": "docs",
+          "evidence": "tests/r8q-progress.py and dashboard markdown files synchronized on main"
+        },
+        {
+          "id": "doc-02",
+          "title": "Add r8q single-slot entry (sda24, Download Mode, forced restart) to CONTRIBUTING.md §3.1",
+          "done": false,
+          "area": "docs",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "r8q row present in CONTRIBUTING.md §3.1 and verified against real handset button timings"
+        },
+        {
+          "id": "doc-03",
+          "title": "Update docs/DEVICES.md r8q row to match native sda36, 120 Hz, GPU quiesce, and live audio",
+          "done": false,
+          "area": "docs",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "docs/DEVICES.md links verified NOTES sections matching phone-smoke evidence"
+        },
+        {
+          "id": "doc-04",
+          "title": "Pack and pin new device/r8q/stable-image.conf once camera port@1 + DMIC DT fixes land",
+          "done": false,
+          "area": "release",
+          "risk": "medium",
+          "requires_human": true,
+          "verify": "tools/r8q-stable-check and full tools/phone-smoke pass 100% green"
+        }
+      ]
+    }
+  ]
+}

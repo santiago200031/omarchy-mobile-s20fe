@@ -126,6 +126,19 @@ has 'of them ASoC no backend DAIs (PipeWire probe) x1, UFS dme-set 0x4021 (s2idl
   && has 'new dmesg errors|some driver: something new broke x1' || fail "counted and new lines together"
 pass "counted and new lines together"
 
+run '[    5.257840] DSI PLL(0) lock failed, status=0x00000000' \
+    '[    5.257846] PLL(0) lock failed' \
+    '[   20.076571] ufshcd-qcom 1d84000.ufshc: ufshcd_dev_cmd_completion: unexpected response in Query RSP: fd' \
+    '[   20.076616] ufshcd-qcom 1d84000.ufshc: ufshcd_query_attr: opcode 0x03 for idn 31 failed, index 0, err = -22' \
+    '[   20.076782] ufshcd-qcom 1d84000.ufshc: ufshcd_query_attr_retry: query attribute, idn 31, failed with error -22 after 3 retries' \
+    '[ 5875.501671]  MultiMedia1: ASoC: no backend DAIs enabled for MultiMedia1, possibly missing ALSA mixer-based routing or UCM profile' \
+    '[    5.744679] Bluetooth: Received HCI_IBS_WAKE_ACK in tx state 0' \
+    '[ 5875.297553] va_macro 3370000.codec: qcom,dmic-sample-rate dt entry missing' \
+    '[ 5875.426979] qcom-q6afe aprsvc:service:4:4: cmd = 0x100f6 returned error = 0x1'
+has 'ok|1|kernel health|' && has '9 known' && has '0 new)' && ! has 'new dmesg errors' \
+  || fail "r8q known boot and audio-probe errors stay known under ceiling"
+pass "r8q known boot and audio-probe errors stay known under ceiling"
+
 # The boot and storage guard rows (--slot-from: a fake root). The boot row
 # wants the slot boot-update.conf names (b when absent); the guard row
 # allows userdata and the running slot's five boot images.

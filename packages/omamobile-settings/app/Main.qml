@@ -24,11 +24,13 @@ ApplicationWindow {
         if (backend.searching) search.clear()
         backend.back()
     }
+    readonly property var customPages: ({ display: "DisplayPage.qml", battery: "BatteryPage.qml" })
+    readonly property string customSource: backend.searching ? "" : (customPages[backend.page] || "")
     readonly property bool showingAbout: backend.page === "about" && !backend.searching
     readonly property bool showingAiServer: backend.page === "ai-server" && !backend.searching
     readonly property bool showingAiMcp: backend.page === "ai-mcps" && !backend.searching
     readonly property bool showingModelDetail: (backend.page.startsWith("text-") || backend.page.startsWith("vision-") || backend.page.startsWith("omni-") || backend.page.startsWith("video-")) && !backend.searching
-    readonly property bool showingCustomPage: showingAbout || showingAiServer || showingAiMcp || showingModelDetail
+    readonly property bool showingCustomPage: showingAbout || (customSource !== "") || showingAiServer || showingAiMcp || showingModelDetail
     Connections {
         target: backend
         function onRaiseRequested() { window.show(); window.raise(); window.requestActivate() }
@@ -63,6 +65,7 @@ ApplicationWindow {
             background: Rectangle { radius: Math.min(backend.radius, width / 2, height / 2); color: SettingsStyle.fill("normal") }
         }
         AboutPage { visible: window.showingAbout; Layout.fillWidth: true; Layout.fillHeight: true; controller: deviceInfo; colors: backend }
+        Loader { id: pageLoader; active: window.customSource !== ""; source: window.customSource; visible: active; Layout.fillWidth: true; Layout.fillHeight: true }
         AiServerPage { visible: window.showingAiServer; Layout.fillWidth: true; Layout.fillHeight: true; colors: backend }
         AiMcpPage { visible: window.showingAiMcp; Layout.fillWidth: true; Layout.fillHeight: true; colors: backend }
         AiModelDetailPage {

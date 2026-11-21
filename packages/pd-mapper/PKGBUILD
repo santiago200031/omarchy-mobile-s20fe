@@ -7,7 +7,7 @@
 
 pkgname=pd-mapper
 pkgver=1.1
-pkgrel=1
+pkgrel=2
 pkgdesc='Qualcomm protection-domain mapper service over QRTR'
 arch=(aarch64)
 url='https://github.com/linux-msm/pd-mapper'
@@ -15,9 +15,16 @@ license=(BSD-3-Clause)
 depends=(glibc qrtr xz)
 makedepends=(make)
 source=("$pkgname-$pkgver.tar.gz::https://github.com/linux-msm/pd-mapper/archive/refs/tags/v$pkgver.tar.gz"
-        pd-mapper.service)
+        pd-mapper.service
+        0001-json-support-empty-arrays.patch)
 sha256sums=('7654a7fb8b70b0c7670f98ad9313649abc48eabcef84dad086ed01408fd538a2'
-            'SKIP')
+            'SKIP'
+            '71f74f62a9b60dc333223d904a6ad2e18a5cdd3e69b02eebae1553cf55b43c59')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  patch -Np1 -F0 -i ../0001-json-support-empty-arrays.patch
+}
 
 build() {
   make -C "$pkgname-$pkgver" prefix=/usr

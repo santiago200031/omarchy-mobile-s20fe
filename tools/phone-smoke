@@ -177,6 +177,12 @@ known_errors=(
   # ABL appends console=null; no GPT auto-mounting on these phones
   'Warning: unable to open an initial console'
   "systemd-gpt-auto-generator' failed"
+  # r8q: QCA6390 UART HCI IBS wake ack during Bluetooth init
+  '^Bluetooth: Received HCI_IBS_WAKE_ACK in tx state 0$'
+  # r8q: va_macro optional DMIC sample rate DT property not yet set; fix: TX mic bring-up
+  '^va_macro 3370000\.codec: qcom,dmic-sample-rate dt entry missing$'
+  # r8q: Samsung ADSP firmware does not implement Q6AFE LPASS core devote (0x100f6)
+  '^qcom-q6afe aprsvc:service:4:4: (cmd = 0x100f6 returned error = 0x1|Unknown cmd 0x100f6)$'
 )
 # Known lines that stay visible: "ceiling|label|regex". Each is counted and
 # named in the kernel health row; with a ceiling, the lines beyond it count as
@@ -189,7 +195,11 @@ counted_errors=(
   # PipeWire opens every PCM while it probes the card, before the UCM verb has
   # set the routes: once per boot. The same line is a broken UCM route's own
   # message, which repeats at every playback, so a second one is new.
-  '1|ASoC no backend DAIs (PipeWire probe)|audio_playback[0-9]+: ASoC: no backend DAIs enabled for audio_playback[0-9]+'
+  '1|ASoC no backend DAIs (PipeWire probe)|(audio_playback[0-9]+|^[[:space:]]*MultiMedia[0-9]+): ASoC: no backend DAIs enabled for (audio_playback|MultiMedia)[0-9]+'
+  # r8q: Samsung UFS fails attribute query idn 31 (3 retries = 7 error lines) once at boot.
+  '7|r8q UFS query attr idn 31 (boot)|^ufshcd-qcom 1d84000\.ufshc: (ufshcd_dev_cmd_completion: unexpected response in Query RSP: fd|ufshcd_query_attr: opcode 0x03 for idn 31 failed, index 0, err = -22|ufshcd_query_attr_retry: query attribute, idn 31, failed with error -22 after 3 retries)$'
+  # r8q: DSI PHY PLL(0) retries lock 3 times (6 lines) at initial display probe before settling.
+  '6|r8q DSI PLL(0) probe|^(DSI )?PLL\(0\) lock failed'
   # A UFS DME set that fails around s2idle and recovers, with no I/O errors
   # (on every 7 Pro boot in the 2026-11-02 phone-smoke reports; the same set
   # shows in the 9a's resumes, device/tegu/SLEEP-PLAN.md S1). Storage that

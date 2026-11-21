@@ -106,7 +106,7 @@ check_remoteprocs() {
   ' 2>&1) || true
   echo "$result"
   for target in adsp cdsp slpi; do
-    if ! echo "$result" | grep -q "($target): running"; then
+    if ! echo "$result" | grep -c "($target): running" >/dev/null; then
       say "WARNING: remoteproc $target is not running"
       return 1
     fi

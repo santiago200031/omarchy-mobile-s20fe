@@ -86,7 +86,7 @@ say "Starting the loader (dump module armed, listening on the port)"
 ph 'systemctl stop sahara-dump r8q-sahara-memdump 2>/dev/null; true' >/dev/null 2>&1 || true
 ph 'systemd-run --unit=r8q-sahara-memdump --collect /bin/sh -c "R8Q_MEMDUMP_MODULE=/tmp/run17_diag.py python3 /tmp/r8q-sahara.py -d /dev/wwan0sahara0 --wait 600 --idle 60 --dump-dir /tmp/sdx55-crash > /tmp/sahara-memdump.log 2>&1" >/dev/null 2>&1 || die "the loader unit did not start"'
 sleep 5
-ph 'systemctl is-active r8q-sahara-memdump' | grep -q active || die "the loader is not running"
+ph 'systemctl is-active r8q-sahara-memdump' | grep -c active >/dev/null || die "the loader is not running"
 ok "loader running (log: /tmp/sahara-memdump.log)"
 
 say "The modem chain is armed. mhi1 state:"

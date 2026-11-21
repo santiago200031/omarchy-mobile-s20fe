@@ -102,7 +102,11 @@ ufs_slot_suffix() {
 }
 ufs_rw_load() {
   local list p slot mapped
-  if is_non_ufs_root; then
+  if [ -s /etc/omamobile-nfsroot ]; then
+    ufs_ro_log "NFS root requested: every UFS partition read-only"
+    return 0
+  fi
+  if grep -qE '(^| )omamobile\.loop=' /proc/cmdline; then
     ufs_ro_log "non-UFS root requested (NFS or an image loop): every UFS partition read-only"
     return 0
   fi
@@ -182,7 +186,19 @@ ufs_ro_pass() {
     [ -e "/run/ufs-ro/$name" ] && continue
     [ -b "/dev/$name" ] || continue  # devtmpfs node not there yet: next pass
     if ufs_rw_disk "$name"; then
-      if is_non_ufs_root; then
+      if [ -s /etc/omamobile-nfsroot ]; then
+        blockdev --setro "/dev/$name"
+        read -r ro < "$s/ro"
+        if [ "$ro" = 1 ]; then
+          : > "/run/ufs-ro/$name"
+          ufs_ro_log "/dev/$name set read-only for NFS root"
+          continue
+        fi
+        ufs_ro_log "FAILED to set /dev/$name read-only for NFS root"
+        echo "omamobile: WARNING: /dev/$name is NOT read-only" > /dev/tty0 2>/dev/null
+        continue
+      fi
+      if grep -qE '(^| )omamobile\.loop=' /proc/cmdline; then
         blockdev --setro "/dev/$name"
         read -r ro < "$s/ro"
         if [ "$ro" = 1 ]; then
@@ -530,6 +546,14 @@ switch_to_arch() {
     umount /newroot
     return 1
   fi
+  if [ "$(cat /etc/omamobile-root-mode 2>/dev/null)" = persistent-development ]; then
+    # Record an attempted handover only after the final guard passes. A guard
+    # refusal must not be reported as a root that failed to reach SSH next boot.
+    local pending=/newroot/var/lib/omamobile/root-boot-pending
+    mkdir -p /newroot/var/lib/omamobile || { umount /newroot; return 1; }
+    cat /proc/sys/kernel/random/boot_id > "$pending" || { umount /newroot; return 1; }
+    sync
+  fi
   say "$label: switching to Arch Linux"
   kill -9 -1 2>/dev/null
   sleep 1
@@ -564,7 +588,22 @@ boot_nfs() {
   if [ ! -x /newroot/usr/lib/systemd/systemd ]; then
     say "nfsroot: no systemd on $spec"; umount /newroot; return 1
   fi
-  switch_to_arch "nfsroot ($spec)"
+  # The first guard pass already used an empty allowlist in NFS mode.
+  local open
+  open=$(ufs_unguarded)
+  if [ -n "$open" ]; then
+    say "nfsroot: UFS remains writable: $(echo "$open" | tr "\n" " " ); staying in the initramfs"
+    umount /newroot
+    return 1
+  fi
+  say "nfsroot: switching to Arch Linux on $spec"
+  # kill -9 -1 also stops the feeder; systemd takes over if the new root enables its watchdog.
+  kill -9 -1 2>/dev/null
+  sleep 1
+  for m in /dev /proc /sys /run; do
+    mkdir -p "/newroot$m" && mount --move "$m" "/newroot$m"
+  done
+  exec switch_root /newroot /usr/lib/systemd/systemd
 }
 
 # Boot an Arch root image stored on unencrypted removable media (e.g. microSD
@@ -645,7 +684,49 @@ boot_arch() {
   if [ ! -x /newroot/usr/lib/systemd/systemd ]; then
     say "arch: no systemd on $dev"; umount /newroot; return 1
   fi
-  switch_to_arch "arch ($dev)"
+  if [ "$(cat /etc/omamobile-root-mode 2>/dev/null)" = persistent-development ]; then
+    # A failed development boot returns to the USB rescue environment after
+    # reset. The installed SSH-ready service clears this marker on success.
+    local pending=/newroot/var/lib/omamobile/root-boot-pending
+    if [ -e "$pending" ]; then
+      say "arch: previous development boot did not reach SSH; holding in RAM"
+      umount /newroot
+      return 1
+    fi
+  fi
+  # The guard loop dies below and nothing in Arch sets a partition read-only,
+  # so make one last pass and check, while SSH still runs: anything outside
+  # the allowlist still writable (a late partition, a failed setro) keeps
+  # the phone here.
+  local open
+  ufs_ro_pass
+  open=$(ufs_unguarded)
+  if [ -n "$open" ]; then
+    say "arch: writable outside the allowlist: $(echo "$open" | tr "\n" " ")(staying in the initramfs)"
+    [ -d /mnt-host ] && mountpoint -q /mnt-host && umount /mnt-host 2>/dev/null
+    umount /newroot
+    return 1
+  fi
+  if [ "$(cat /etc/omamobile-root-mode 2>/dev/null)" = persistent-development ]; then
+    # Record an attempted handover only after the final guard passes. A guard
+    # refusal must not be reported as a root that failed to reach SSH next boot.
+    mkdir -p /newroot/var/lib/omamobile || { umount /newroot; return 1; }
+    cat /proc/sys/kernel/random/boot_id > "$pending" || { umount /newroot; return 1; }
+    sync
+  fi
+  say "arch: switching to Arch Linux on $dev"
+  # Stop the initramfs helpers (dropbear, getty, guards); the kernel keeps
+  # the USB gadget and the partition read-only flags across the switch
+  # systemd takes over the hardware watchdog here if the new root enables it.
+  kill -9 -1 2>/dev/null
+  sleep 1
+  for m in /dev /proc /sys /run; do
+    mkdir -p "/newroot$m" && mount --move "$m" "/newroot$m"
+  done
+  if [ -d /mnt-host ] && mountpoint -q /mnt-host; then
+    mkdir -p /newroot/.omamobile-host && mount --move /mnt-host /newroot/.omamobile-host
+  fi
+  exec switch_root /newroot /usr/lib/systemd/systemd
 }
 # A descriptor selects development handover explicitly. An unknown mode never
 # falls through into userdata. No mode file preserves the existing boot path.
@@ -660,6 +741,7 @@ boot_root() {
     *) say "arch: unknown root mode; holding in RAM"; return 1 ;;
   esac
 }
+# A requested NFS root must not silently fall through to a writable UFS root.
 if [ -s /etc/omamobile-nfsroot ]; then
   boot_nfs
   say "nfsroot: requested root unavailable (staying in the initramfs)"

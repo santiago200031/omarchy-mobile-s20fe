@@ -12,14 +12,15 @@ pass() { echo "ok: $*"; }
   source ./PKGBUILD
   [[ $pkgname == pd-mapper ]] || exit 1
   [[ $pkgver == "$(tr -d ' \n' < version)" ]] || exit 2
-  [[ ${#source[@]} == "${#sha256sums[@]}" ]] || exit 3
+  [[ $pkgrel -ge 2 ]] || exit 3
+  [[ ${#source[@]} == "${#sha256sums[@]}" ]] || exit 4
   for i in "${!sha256sums[@]}"; do
-    [[ ${sha256sums[$i]} =~ ^([0-9a-f]{64}|SKIP)$ ]] || exit 4
+    [[ ${sha256sums[$i]} =~ ^([0-9a-f]{64}|SKIP)$ ]] || exit 5
     if [[ ${sha256sums[$i]} != SKIP && $i -gt 0 ]]; then
-      [[ ${sha256sums[$i]} == "$(sha256sum "${source[$i]}" | cut -d' ' -f1)" ]] || exit 5
+      [[ ${sha256sums[$i]} == "$(sha256sum "${source[$i]}" | cut -d' ' -f1)" ]] || exit 6
     fi
   done
-  [[ ${source[0]} == *"linux-msm/pd-mapper/archive/refs/tags/v$pkgver.tar.gz" ]] || exit 6
+  [[ ${source[0]} == *"linux-msm/pd-mapper/archive/refs/tags/v$pkgver.tar.gz" ]] || exit 7
 ) && pass "PKGBUILD pins the upstream tag tarball and vendored checksums" \
   || fail "PKGBUILD pin check failed (exit $?)"
 
@@ -33,5 +34,14 @@ grep -qE '^ExecStart=/usr/bin/pd-mapper' pd-mapper.service \
 grep -q 'remoteproc' pd-mapper.service \
   && fail "unit references remoteproc" \
   || pass "unit has no remoteproc dependency"
+
+grep -q '^--- a/json.c' 0001-json-support-empty-arrays.patch \
+  && grep -q '\bjson_skip_whitespace' 0001-json-support-empty-arrays.patch \
+  && pass "patch handles empty arrays in json.c" \
+  || fail "patch missing json.c empty array handling"
+
+grep -q 'patch -Np1' PKGBUILD \
+  && pass "PKGBUILD applies empty-array patch in prepare()" \
+  || fail "PKGBUILD does not apply patch in prepare()"
 
 test "$fails" -eq 0

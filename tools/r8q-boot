@@ -202,7 +202,7 @@ cmd_pack() {
     find . -mindepth 1 -print0 | cpio -H newc -o --null 2>"$stage/cpio-errors.log" | gzip -9 -n > "$ramdisk"
   )
   set +o pipefail
-  if grep -vE '^[0-9]+ blocks?$' "$stage/cpio-errors.log" | grep -q .; then
+  if grep -vE '^[0-9]+ blocks?$' "$stage/cpio-errors.log" | grep -c . >/dev/null; then
     grep -vE '^[0-9]+ blocks?$' "$stage/cpio-errors.log" | head -5
     die "cpio reported errors building the initramfs"
   fi

@@ -67,7 +67,7 @@ fi
 # ---- 3. wait for the gadget on the bus ----
 found=""
 for _ in $(seq 1 "$TIMEOUT"); do
-  if lsusb 2>/dev/null | grep -q "1d6b:0104"; then found=gadget; break; fi
+  if lsusb 2>/dev/null | grep -c "1d6b:0104" >/dev/null; then found=gadget; break; fi
   sleep 1
 done
 [[ -n $found ]] || die "gadget 1d6b:0104 never appeared on the bus in ${TIMEOUT}s
@@ -79,13 +79,13 @@ done
 # ---- 4. host end of the NCM link (a replug re-enumerates it with no IPv4) ----
 ncm_if=""
 for d in /sys/class/net/*; do
-  if [[ -L "$d/device" ]] && readlink "$d/device" | grep -q "/usb"; then
+  if [[ -L "$d/device" ]] && readlink "$d/device" | grep -c "/usb" >/dev/null; then
     if [[ "$(basename "$(readlink -f "$d/device/driver")" 2>/dev/null)" == cdc_ncm ]]; then
       ncm_if="${d##*/}"
     fi
   fi
 done
-if [[ -n $ncm_if ]] && ! ip -4 addr show "$ncm_if" | grep -q "inet "; then
+if [[ -n $ncm_if ]] && ! ip -4 addr show "$ncm_if" | grep -c "inet " >/dev/null; then
   say "Host NCM interface $ncm_if has no IPv4: setting 172.16.42.2/24"
   con=$(nmcli -g NAME,DEVICE connection show --active 2>/dev/null \
         | grep ":$ncm_if\$" | cut -d: -f1 || true)
@@ -116,7 +116,7 @@ for attempt in $(seq 1 6); do
   if [[ -n $line ]]; then VERIFIED="$line"; break; fi
   say "  link dropped at verify (attempt $attempt/6) — waiting for gadget+SSH again"
   for _ in $(seq 1 120); do
-    lsusb 2>/dev/null | grep -q "1d6b:0104" && SSH_OK && break
+    lsusb 2>/dev/null | grep -c "1d6b:0104" >/dev/null && SSH_OK && break
     sleep 2
   done
 done

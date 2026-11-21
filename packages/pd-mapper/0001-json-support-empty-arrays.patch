@@ -1,0 +1,32 @@
+From: Santiago <villavicencioandrs@gmail.com>
+Subject: [PATCH] json: support empty arrays
+
+Upstream json_parse_array() enters the value parsing loop immediately
+after matching '[', without checking whether the array is empty. This
+fails on empty arrays such as "sr_service": [] found in modemr.jsn,
+causing pd-mapper to exit with code 1 before registering QRTR services.
+
+Skip whitespace and check for ']' before entering the value loop,
+returning success with an empty array if matched.
+---
+ json.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/json.c b/json.c
+index 28834d8..e3e1174 100644
+--- a/json.c
++++ b/json.c
+@@ -196,6 +196,12 @@ static int json_parse_array(struct json_value *array)
+ 	}
+ 
+ 	array->type = JSON_TYPE_ARRAY;
++	json_skip_whitespace();
++	ch = input();
++	if (ch == ']')
++		return 1;
++	unput();
++
+ 	do {
+ 		value = calloc(1, sizeof(*value));
+ 		if (!value)
+-- 

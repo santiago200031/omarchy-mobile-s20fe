@@ -79,6 +79,7 @@ Phones with an entry:
 | Device | Boot partition the installer may write | Fastboot by buttons | Forced restart |
 | --- | --- | --- | --- |
 | Xiaomi Mi 8 (`dipper`) | `boot` only; stock `dtbo` stays untouched | Power off, then hold Volume Down + Power until FASTBOOT appears. | Hold Power alone for 10 seconds; confirmed to restart into Android under the Omarchy Mobile kernel. |
+| Samsung Galaxy S20 FE (`r8q`) | `recovery` (`sda24` only via `tools/r8q-flash-recovery` or Heimdall in Download Mode; `device.conf` sets `BOOT_METHOD=ram-only`) | No fastboot; power off, then hold Volume Up + Volume Down and plug the USB cable for Download Mode. | Hold Power + Volume Down until the phone restarts (boots `sda24`). |
 
 ### 3.2 The read-only storage guard
 

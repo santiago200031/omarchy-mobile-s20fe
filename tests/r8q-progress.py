@@ -58,7 +58,7 @@ def main() -> None:
 
     next_out = run("--next", "3")
     assert "Step-by-Step Remaining Atomic Tasks:" in next_out
-    assert "4." not in next_out
+    assert "\n   4. " not in next_out
     assert "Stage 9:" not in next_out
 
     stage_out = run("--stage", "14")

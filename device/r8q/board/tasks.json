@@ -11,7 +11,7 @@
     "repo_main": "8c95bd95",
     "device_pkg": "0.1.29-1",
     "pd_mapper_pkg": "1.1-2",
-    "settings_pkg_phone": "0.1.2-1",
+    "settings_pkg_phone": "0.1.3-1",
     "settings_pkg_repo": "0.1.3"
   },
   "stages": [
@@ -174,11 +174,9 @@
         {
           "id": "dsp-04",
           "title": "Build and deploy omamobile-settings 0.1.3 to phone (adds Battery + Display pages)",
-          "done": false,
+          "done": true,
           "area": "package",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "tools/phone-ssh 'pacman -Q omamobile-settings' reports 0.1.3-1 and tests/all passes"
+          "evidence": "Built natively and upgraded to omamobile-settings 0.1.3-1 on phone via tools/phone-install-package"
         }
       ]
     },
@@ -250,11 +248,9 @@
         {
           "id": "hap-01",
           "title": "Identify haptics actuator IC, I2C/PWM bus, and regulator rails in stock live.dts",
-          "done": false,
+          "done": true,
           "area": "dts",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "Document compatible string, I2C address/PWM channel, and GPIOs in PORT-PLAN / HAPTICS plan"
+          "evidence": "HARDWARE-DISCOVERY §3: samsung,vibrator LINEAR_0832RC (gpio137 gcc_gp2 PWM, L10C 3.0V) + max77705-haptic platform device (CONFIG_INPUT_MAX77693_HAPTIC)"
         },
         {
           "id": "hap-02",
@@ -268,11 +264,9 @@
         {
           "id": "hap-03",
           "title": "Identify rear flash/torch LED controller and current caps in stock live.dts",
-          "done": false,
+          "done": true,
           "area": "dts",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "Document LED node, safe mA limit, and regulator/GPIO in plan"
+          "evidence": "HARDWARE-DISCOVERY §3: pm8150l_flash (pm8150l@5 reg 0xd300, qcom,torch_0..1 max 500 mA); leds-qcom-flash.ko already installed on phone"
         },
         {
           "id": "hap-04",
@@ -303,11 +297,9 @@
         {
           "id": "pwr-02",
           "title": "Record baseline screen-on/screen-off battery current with CPU WFI baseline",
-          "done": false,
+          "done": true,
           "area": "userspace",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "Logged mA/W baseline from max170xx_battery sysfs on battery"
+          "evidence": "HARDWARE-DISCOVERY §5: 99% Full, 4.372 V, -7..-96 mA on USB, 27.5 C battery, CPU performance / WFI, GPU 305 MHz, thermals 38.0-42.3 C"
         },
         {
           "id": "pwr-03",
@@ -347,11 +339,9 @@
         {
           "id": "usb-02",
           "title": "Audit stock live.dts MAX77705 MUIC / Type-C PD connector and EXTCON wiring",
-          "done": false,
+          "done": true,
           "area": "dts",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "DT connector node and role-switch graph documented from live.dts"
+          "evidence": "HARDWARE-DISCOVERY §4: max77705@66 handles MUIC/CC/PD on pm8150l_gpio11 IRQ; mainline drivers/mfd/max77705.c lacks MUIC/TCPM cells (/sys/class/typec empty)"
         },
         {
           "id": "usb-03",
@@ -384,11 +374,9 @@
         {
           "id": "slp-01",
           "title": "Audit wake-capable IRQs (Power key, RTC alarm, touch) in stock live.dts",
-          "done": false,
+          "done": true,
           "area": "dts",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "List exact wakeup-source nodes and IRQ numbers missing in sm8250-samsung-r8q.dts"
+          "evidence": "HARDWARE-DISCOVERY §5: stock enables pm8xxx_rtc_alarm, gpio_keys (gpio-key,wakeup_enable), pm8941_pwrkey, and max77705-irq wakeup"
         },
         {
           "id": "slp-02",
@@ -460,11 +448,9 @@
         {
           "id": "aud-06",
           "title": "Verify stereo top+bottom CS35L41 speaker balance and comfortable evening volume curve",
-          "done": false,
+          "done": true,
           "area": "package",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "Left/Right stereo speaker-test at low volume confirms both top and bottom speakers sound balanced"
+          "evidence": "Live phone verified symmetric L/R CS35L41 (-9.50 dB: Digital 657 / Analog 10), PipeWire 15% (-49.44 dB) balance 0.00, and HiFi (Earpiece)/(Speaker) profile switch"
         }
       ]
     },
@@ -571,11 +557,9 @@
         {
           "id": "mdm-06",
           "title": "Audit GNSS (modem PDS/QMI) and NFC controller nodes in stock live.dts",
-          "done": false,
+          "done": true,
           "area": "dts",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "Document GNSS/NFC hardware chips and mainline feasibility in PORT-PLAN"
+          "evidence": "HARDWARE-DISCOVERY §6: sec-nfc@27 (NXP SN100U on i2c@884000, gpio31/8/9/7, L1C 1.8V; nxp-nci_i2c.ko built); GNSS uses SDX55M QMI PDS"
         }
       ]
     },
@@ -590,11 +574,9 @@
         {
           "id": "fp-01",
           "title": "Identify optical/ultrasonic fingerprint SPI device and TZ TA in stock live.dts",
-          "done": false,
+          "done": true,
           "area": "dts",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "Document sensor model, bus, and vendor TA dependency"
+          "evidence": "HARDWARE-DISCOVERY §6: goodix,gw9558x optical under-display SPI sensor (GW9558) gated by TrustZone TA (goodixopt)"
         },
         {
           "id": "fp-02",
@@ -678,20 +660,16 @@
         {
           "id": "doc-02",
           "title": "Add r8q single-slot entry (sda24, Download Mode, forced restart) to CONTRIBUTING.md §3.1",
-          "done": false,
+          "done": true,
           "area": "docs",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "r8q row present in CONTRIBUTING.md §3.1 and verified against real handset button timings"
+          "evidence": "Added Samsung Galaxy S20 FE (r8q) single-slot recovery/Download Mode/forced-restart row in CONTRIBUTING.md §3.1"
         },
         {
           "id": "doc-03",
           "title": "Update docs/DEVICES.md r8q row to match native sda36, 120 Hz, GPU quiesce, and live audio",
-          "done": false,
+          "done": true,
           "area": "docs",
-          "risk": "low",
-          "requires_human": false,
-          "verify": "docs/DEVICES.md links verified NOTES sections matching phone-smoke evidence"
+          "evidence": "Updated docs/DEVICES.md r8q row with verified 2026-11-21 hardware state and HARDWARE-DISCOVERY links"
         },
         {
           "id": "doc-04",

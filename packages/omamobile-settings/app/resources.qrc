@@ -4,12 +4,14 @@
     <file>Main.qml</file>
     <file>AboutPage.qml</file>
     <file>DisplayPage.qml</file>
+    <file>BatteryPage.qml</file>
     <file>AiServerPage.qml</file>
     <file>AiModelDetailPage.qml</file>
     <file>AiMcpPage.qml</file>
     <file>catalog.json</file>
     <file>icons/system.svg</file>
     <file>icons/display.svg</file>
+    <file>icons/battery.svg</file>
     <file>icons/ai.svg</file>
     <file>icons/models.svg</file>
     <file>icons/mcp.svg</file>

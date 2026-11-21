@@ -2,7 +2,7 @@
 
 # Column: Success / Hardware-Verified on SM-G780G (`r8q`)
 
-Subsystems verified working on real hardware as of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, native root `/dev/sda36`, `omamobile-device-r8q 0.1.30-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`). Run `tools/r8q-progress --all` to inspect every completed atomic task with verification evidence.
+Subsystems verified working on real hardware as of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, native root `/dev/sda36`, `omamobile-device-r8q 0.1.31-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`). Run `tools/r8q-progress --all` to inspect every completed atomic task with verification evidence.
 
 | Card | Scope | Verified Hardware Proof (`2026-11-21`) |
 | --- | --- | --- |

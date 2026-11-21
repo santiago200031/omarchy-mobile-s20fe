@@ -2,7 +2,7 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`, SM-G780G) Port Plan
 
-- **Status (`2026-11-21`):** the phone runs the native UFS root on `/dev/sda36` cleanly (`omamobile-device-r8q 0.1.30-1`, `recovery-cam-torch-dmic.img` verified live over `stable-image.conf`); run `tools/r8q-progress` for live % & atomic tasks ([`board/tasks.json`](board/tasks.json)). Details: [NOTES §40–§52](NOTES.md).
+- **Status (`2026-11-21`):** the phone runs the native UFS root on `/dev/sda36` cleanly (`omamobile-device-r8q 0.1.31-1`, `recovery-cam-torch-dmic.img` live; `recovery-ktd2692-torch.img` packed offline for `ktd2692` torch test); run `tools/r8q-progress` for live % & atomic tasks ([`board/tasks.json`](board/tasks.json)). Details: [NOTES §40–§53](NOTES.md).
 
 | Subsystem | State |
 | --- | --- |
@@ -14,8 +14,8 @@
 | Display | **`1080x2400@120` achieved** (NOTES §49): zero DSI/TE errors, compute under load clean at the doubled refresh |
 | GPU | **Vulkan compute demonstrated** (NOTES §48): `pp64 30.23 t/s`, `tg16 1.37 t/s`, clean exit; a fault-induced recovery ran once and **the desktop survived it**. Serving stays on CPU; the `-p 512` stall bisect & DPU post-recovery restore remain |
 | Audio & Sensors | **Stage 14 achieved (speakers + earpiece + DMIC3 mic)** (`2026-11-21`, NOTES §51–§52): `pd-mapper 1.1-2` + `omamobile-device-r8q 0.1.30-1` (`-9.5 dB` L/R CS35L41 + `Earpiece`), `dmic-va.dtso` (`vreg_l4c_1p8` + `dmic23_active` + `2.4 MHz`) + `50-r8q-audio.conf` (`S16LE`/`48k`), full-duplex + `pw-record` clean (`rms=10.29`), SLPI accel/light live |
-| Cameras | **ultrawide & telephoto restored via `camera-uw.dtso`** (`NOTES §52`): `cam -l` lists `s5k3l6xx` + `hi847`, WirePlumber exposes both sources, `phone-smoke cameras ok (2 listed by libcamera)`; interactive `omacam` check & IMX555/IMX616 drivers open (base DTS fold tracked in `krn-03`) |
-| Torch & Haptics | **Torch node ready (`white:torch` `664 root:video`)** via `torch.dtso` + `20-r8q-torch.rules` (`NOTES §52`); human strobe check & shell tile toggle pending; haptics (`LINEAR_0832RC`) offline-researched in [HARDWARE-DISCOVERY.md](HARDWARE-DISCOVERY.md) |
+| Cameras | **ultrawide & telephoto restored + `omacam` lens table live (`0.1.31-1`)** (`NOTES §52–§53`): `cam -l` lists `s5k3l6xx` + `hi847`, `cam -c 1`/`2` frames verified, `omacam --list` exposes `ultrawide 0.50x` + `tele 3.00x`; interactive `omacam` zoom switch & IMX555/IMX616 drivers open (base DTS fold tracked in `krn-03`) |
+| Torch & Haptics | **PM8150L `@d300` unwired on `r8q` -> switched `torch.dtso` to `kinetic,ktd2692` (`GPIO 126`/`117`) + `CONFIG_LEDS_KTD2692=m`** (`NOTES §53`): `recovery-ktd2692-torch.img` (`3d1853f4…`) packed offline, awaiting human-approved flash/reboot; haptics (`LINEAR_0832RC`) offline-researched in [HARDWARE-DISCOVERY.md](HARDWARE-DISCOVERY.md) |
 | Kernel | `r8q-gpu-fault-quiesce` (`7.3.0-rc6-omamobile-push1-gae195e6deaac`) **running, pinned** in `stable-image.conf` (`adeddb31…660a6`); **38 of 83** commits ahead of `omamobile` still need human `Signed-off-by:` |
 | Modem | SDX55M reached `AMSS` (`EE: MISSION MODE`, `MODEM-PLAN` §10) in rescue boot; parked in daily boot (`pcie2` disabled); next: test `modem.dtso` on native `sda36` + opt-in SIM/QMI/MBIM |
 | Way back | [`stable-image.conf`](stable-image.conf) pins `out-r8q/recovery-fault-quiesce.img` (`gae195e6deaac`, `adeddb31…660a6`): `tools/r8q-flash-recovery --stable` |

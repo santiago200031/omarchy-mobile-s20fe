@@ -4,7 +4,7 @@
 
 Source of truth: [`tasks.json`](tasks.json) — check live percentages and next steps anytime with `tools/r8q-progress` (`--live`), or run `tools/r8q-check-all --quick` for a single read-only repo + worktree + phone health pass. Stock hardware findings live in [HARDWARE-DISCOVERY.md](../HARDWARE-DISCOVERY.md).
 
-As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.30-1`):
+As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.31-1`):
 - **Overall (Hardware + Upstream):** `64.6%` (**42 / 65** atomic tasks)
 - **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `67.9%` (**38 / 56** atomic tasks)
 - **Daily Core (Stages 1–8):** `81.8%` (**18 / 22** atomic tasks)
@@ -20,7 +20,7 @@ As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-se
 | `5` | Display (`S6E3FC3 120 Hz`) & Shell UI | `4/4` | `100.0%` | ✅ Achieved | — (`omamobile-settings 0.1.3-1` live) |
 | `6` | Battery & Fuel Gauge (`max77705` / `max17042`) | `2/2` | `100.0%` | ✅ Achieved | — |
 | `7–8` | Wi-Fi & Bluetooth (`QCA6390`) | `2/3` | `66.7%` | ✅ Achieved | `[net-03]` BT A2DP audio + Wi-Fi concurrency test |
-| `9` | Haptics & Torch | `2/4` | `50.0%` | ⚠️ DT/udev ready | `[hap-02]` haptics DT + overlay test; `[hap-04]` visual strobe & shell tile (`white:torch` `664 root:video` live) |
+| `9` | Haptics & Torch | `2/4` | `50.0%` | ⚠️ `ktd2692` packed | `[hap-02]` haptics DT + overlay test; `[hap-04]` flash `recovery-ktd2692-torch.img` (`GPIO 126/117`) & verify physical LED |
 | `10–11` | Power, Idle, Thermal & DVFS | `2/4` | `50.0%` | ⚠️ Mitigated | `[pwr-03]` scoped CPUfreq `schedutil` trace; `[pwr-04]` deeper `cpuidle` / UFS PM |
 | `12` | USB-C Role Switch & Charging Control | `2/4` | `50.0%` | ⚠️ Partial | `[usb-03]` replug recovery & PD sink + `[usb-04]` OTG host under `usbc-deadman` |
 | `13` | Suspend (`s2idle`) | `1/3` | `33.3%` | ❌ Disabled | `[slp-02]` attended single `s2idle` w/ watchdog; `[slp-03]` 10-cycle soak |

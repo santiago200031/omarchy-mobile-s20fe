@@ -2,10 +2,10 @@
 
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
-**Updated:** `2026-11-21` (`r8q/overlays-cam-torch-dmic`)
+**Updated:** `2026-11-21` (`main` `aec750d1` + `0.1.31-1`)
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-gae195e6deaac` (`recovery-cam-torch-dmic.img` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + Vulkan, Wi-Fi, BT, remoteprocs, `SamsungGalaxyS2` playback + `DMIC3` capture via `dmic-va.dtso`, `camera-uw.dtso` `2` sensors, `white:torch` node via `torch.dtso`, SLPI sensors)
-**Live Packages:** `omamobile-device-r8q 0.1.30-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.3-1` (upgraded natively via `tools/phone-install-package`), `libcamera 0.7.2-4.25`
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-gae195e6deaac` (`recovery-cam-torch-dmic.img` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + Vulkan, Wi-Fi, BT, remoteprocs, `SamsungGalaxyS2` playback + `DMIC3` capture via `dmic-va.dtso`, `camera-uw.dtso` `2` sensors + `omacam-lenses.toml`, SLPI sensors)
+**Live Packages:** `omamobile-device-r8q 0.1.31-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.3-1` (upgraded natively via `tools/phone-install-package`), `libcamera 0.7.2-4.25`
 **Boot Method:** Samsung `recovery` (`sda24`) → native `/dev/sda36` (`LABEL=omamobile-root`); a plain power-on boots it ([NOTES §24](NOTES.md))
 **Safety:** `77/77` UFS partitions read-only (`ro=1`), `userdata` (`sda36`) `rw`; NV partitions untouched
 **Helper Scripts:** [`tools/r8q-progress`](../../tools/r8q-progress) (`--live`, `--next N`, `--json`) + [`tools/r8q-check-all`](../../tools/r8q-check-all) (`--quick`) backed by [`board/tasks.json`](board/tasks.json); hardware map in [`HARDWARE-DISCOVERY.md`](HARDWARE-DISCOVERY.md)

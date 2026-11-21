@@ -1,18 +1,38 @@
 // SPDX-License-Identifier: MIT
 /*
- * Bring-up overlay: enable PM8150L SPMI flash LED controller in torch mode
- * (300 mA cap, white:torch) on PMIC5 SID 5 (@d300) for leds-qcom-flash.
+ * Bring-up overlay: enable external ExpressWire flash/torch LED controller
+ * (KTD2692 / RT8547 compatible) on TLMM GPIO 126 (flash_control) and
+ * GPIO 117 (flash_en), exposing white:torch for leds-ktd2692 + omamobile-shell.
+ * Requires CONFIG_LEDS_KTD2692=m (plus leds-expresswire.ko).
  */
 /dts-v1/;
 /plugin/;
 
-&{/soc@0/spmi@c440000/pmic@5/led-controller@d300} {
-	status = "okay";
+&tlmm {
+	ktd2692_ctrl_default: ktd2692-ctrl-state {
+		pins = "gpio126";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		output-low;
+	};
+};
 
-	led-0 {
-		function = "torch";
-		color = <0>;
-		led-sources = <1>;
-		led-max-microamp = <300000>;
+&{/} {
+	ktd2692 {
+		compatible = "kinetic,ktd2692";
+		pinctrl-names = "default";
+		pinctrl-0 = <&ktd2692_ctrl_default>;
+		ctrl-gpios = <&tlmm 126 0>;
+		aux-gpios = <&tlmm 117 0>;
+
+		led {
+			label = "white:torch";
+			function = "torch";
+			color = <0>;
+			flash-max-timeout-us = <250000>;
+			flash-max-microamp = <300000>;
+			led-max-microamp = <300000>;
+		};
 	};
 };

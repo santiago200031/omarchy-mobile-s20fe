@@ -181,6 +181,10 @@ grep -q '20-r8q-torch.rules' PKGBUILD
 grep -q 'white:torch' 20-r8q-torch.rules
 grep -q '70-r8q-libcamera.conf' PKGBUILD
 grep -qx 'LIBCAMERA_SOFTISP_MODE=cpu' 70-r8q-libcamera.conf
+grep -q 'omacam-lenses.toml' PKGBUILD
+grep -q 'omacam-lenses.toml' omamobile-device-r8q.install
+grep -q 'camera@2d' omacam-lenses.toml
+grep -q 'camera@21' omacam-lenses.toml
 grep -q 'ConditionPathExists=/usr/share/qcom/sm8250/samsung/r8q/sensors/sns_reg.conf' 10-r8q-hexagonrpcd.conf
 grep -q 'ssc-accel' 79-r8q-iio-sensor-proxy.rules
 grep -q 'ACCEL_MOUNT_MATRIX' 79-r8q-iio-sensor-proxy.rules

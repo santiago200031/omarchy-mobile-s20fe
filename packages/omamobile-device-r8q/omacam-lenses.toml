@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+# Lens table for Samsung Galaxy S20 FE (r8q, SM-G780G) running Omarchy Mobile.
+# IMX555 (rear wide 1x) and IMX616 (front) do not yet have mainline drivers,
+# so S5K3L6 (rear ultrawide) and HI-847 (rear telephoto) are configured here.
+
+device = "r8q"
+max_zoom = 10.0
+
+[[lens]]
+role = "ultrawide"
+name = "Ultrawide"
+id = "/base/soc@0/geniqup@9c0000/i2c@988000/camera@2d" # Samsung S5K3L6
+zoom = 0.5
+f_number = 2.2
+focal_length_35mm = 13
+focal_length_mm = 1.97
+base_iso = 50
+preview = [2048, 1536]
+still = [4200, 3120]
+autofocus = false
+
+[[lens]]
+role = "tele"
+name = "Telephoto"
+id = "/base/soc@0/geniqup@ac0000/i2c@a88000/camera@21" # SK Hynix HI-847
+zoom = 3.0
+f_number = 2.4
+focal_length_35mm = 76
+focal_length_mm = 5.95
+base_iso = 50
+preview = [1600, 1200]
+still = [3256, 2448]
+autofocus = false

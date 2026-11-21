@@ -1,18 +1,35 @@
 // SPDX-License-Identifier: MIT
 /*
- * Bring-up overlay: enable PM8150L SPMI flash LED controller in torch mode
- * (300 mA cap, white:torch) on PMIC5 SID 5 (@d300) for leds-qcom-flash.
+ * Bring-up overlay: enable Richtek RT8547 rear torch LED via mainline gpio-leds
+ * (CONFIG_LEDS_GPIO=y): FLSET (TLMM GPIO 126) held output-high puts RT8547 in
+ * Movie/Torch mode when FLEN (TLMM GPIO 117) is driven HIGH, while FLEN LOW
+ * holds the IC in <2 uA shutdown. Exposes /sys/class/leds/white:torch.
  */
 /dts-v1/;
 /plugin/;
 
-&{/soc@0/spmi@c440000/pmic@5/led-controller@d300} {
-	status = "okay";
+&tlmm {
+	rt8547_flset_default: rt8547-flset-state {
+		pins = "gpio126";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		output-high;
+	};
+};
 
-	led-0 {
-		function = "torch";
-		color = <0>;
-		led-sources = <1>;
-		led-max-microamp = <300000>;
+&{/} {
+	gpio-leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&rt8547_flset_default>;
+
+		led-torch {
+			label = "white:torch";
+			function = "torch";
+			color = <0>;
+			gpios = <&tlmm 117 0>;
+			default-state = "off";
+		};
 	};
 };

@@ -12,6 +12,12 @@ _cleanup_stale_usb_network() {
 post_install() {
   _cleanup_stale_usb_network
   rm -f /etc/systemd/system/multi-user.target.wants/omamobile-r8q-rtc.service
+  local src="/usr/share/omamobile/device/r8q/omacam-lenses.toml"
+  local dst="/home/alarm/.config/omacam/lenses.toml"
+  if id alarm >/dev/null 2>&1 && [[ -f $src && ! -e $dst ]]; then
+    install -d -o alarm -g alarm -m 755 /home/alarm/.config /home/alarm/.config/omacam
+    install -o alarm -g alarm -m 644 "$src" "$dst"
+  fi
   if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
     systemctl daemon-reload || true
   fi

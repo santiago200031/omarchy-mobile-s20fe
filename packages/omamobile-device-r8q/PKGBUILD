@@ -151,6 +151,10 @@ package() {
     "$pkgdir/usr/lib/udev/rules.d/20-r8q-torch.rules"
   install -Dm644 "$startdir/70-r8q-libcamera.conf" \
     "$pkgdir/usr/lib/environment.d/70-r8q-libcamera.conf"
+  install -Dm644 "$startdir/omacam-lenses.toml" \
+    "$pkgdir/usr/share/omamobile/device/r8q/omacam-lenses.toml"
+  install -Dm644 "$startdir/omacam-lenses.toml" \
+    "$pkgdir/etc/skel/.config/omacam/lenses.toml"
   # Bring-up overlays (device/r8q/overlays/): enable nodes disabled in the
   # base DTB one boot at a time. Each overlay is self-contained and can be
   # tested independently via tools/r8q-boot --overlay NAME.

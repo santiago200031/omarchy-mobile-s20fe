@@ -23,7 +23,7 @@ build=$phone_home/build/pkgs
 
 "$ssh" "rm -rf $build/$name && mkdir -p $build && chown '$phone_user': $build"
 # makepkg's own work dirs (pkg/, src/ at the top) and old packages stay home.
-tar cf - --exclude="./$name/pkg" --exclude="./$name/src/build" --exclude="*.pkg.tar.*" \
+tar cf - --exclude="./$name/pkg" --exclude="./$name/build" --exclude="./$name/src/build" --exclude="*.pkg.tar.*" \
   -C "$(dirname "$dir")" "./$name" | "$ssh" "tar xf - -C $build --no-same-owner && chown -R '$phone_user': $build/$name"
 # Build-only dependencies (makedepends, checkdepends) that aren't installed
 # yet go in for the build and out again afterwards, like makepkg -s -r

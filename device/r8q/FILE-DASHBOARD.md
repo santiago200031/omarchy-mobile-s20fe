@@ -2,13 +2,13 @@
 
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
-**Updated:** `2026-11-21` (`main` `8c95bd95`)
+**Updated:** `2026-11-21` (`r8q/no-flash-autonomous-wave`)
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-gae195e6deaac` (`r8q-gpu-fault-quiesce` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + Vulkan, Wi-Fi, BT, remoteprocs, `SamsungGalaxyS2` audio + `-9.5 dB` UCM2, SLPI sensors, pseudo-NMI)
-**Live Packages:** `omamobile-device-r8q 0.1.29-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.2-1` on phone (`0.1.3` in repo), `libcamera 0.7.2-4.25`
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-gae195e6deaac` (`r8q-gpu-fault-quiesce` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + Vulkan, Wi-Fi, BT, remoteprocs, `SamsungGalaxyS2` audio + `-9.5 dB` UCM2 + Earpiece, SLPI sensors, pseudo-NMI)
+**Live Packages:** `omamobile-device-r8q 0.1.29-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.3-1` (upgraded natively via `tools/phone-install-package`), `libcamera 0.7.2-4.25`
 **Boot Method:** Samsung `recovery` (`sda24`) → native `/dev/sda36` (`LABEL=omamobile-root`); a plain power-on boots it ([NOTES §24](NOTES.md))
 **Safety:** `77/77` UFS partitions read-only (`ro=1`), `userdata` (`sda36`) `rw`; NV partitions untouched
-**Live CLI Progress:** run [`tools/r8q-progress`](../../tools/r8q-progress) (`--live`, `--next N`, `--json`) backed by [`board/tasks.json`](board/tasks.json)
+**Helper Scripts:** [`tools/r8q-progress`](../../tools/r8q-progress) (`--live`, `--next N`, `--json`) + [`tools/r8q-check-all`](../../tools/r8q-check-all) (`--quick`) backed by [`board/tasks.json`](board/tasks.json); hardware map in [`HARDWARE-DISCOVERY.md`](HARDWARE-DISCOVERY.md)
 
 ---
 
@@ -26,13 +26,14 @@
 | Modem | PCIe2 and its PHY `disabled` in the packed DTB, no `modem` overlay, no Sahara loader |
 
 ```sh
+tools/r8q-check-all --quick         # fast one-shot pass: pr-check, r8q-progress, stable-check, phone-smoke, extras
 tools/r8q-stable-check --image      # the recorded image still hashes
 tools/r8q-stable-check --phone      # the phone runs it, PCIe2 off, 77/77 UFS guarded
 tools/phone-smoke                   # read-only full system smoke check
 tools/r8q-progress --live           # compute completion % + check wt-r8q & phone
 ```
 
-Verified on `2026-11-21` (`NOTES §51`): `tools/phone-smoke` reports `0 new` dmesg errors, `sound cards ok (SamsungGalaxyS2)`, `battery ok (100%, 27 °C)`, `USB gadget ok`, `sensors ok (Accelerometer AmbientLight)`, with `cameras not ok` as the sole open smoke check (regressed `port@1` `s5k3l6_out` endpoint blocking `camss`).
+Verified on `2026-11-21` (`NOTES §51`): `tools/phone-smoke` reports `0 new` dmesg errors, `sound cards ok (SamsungGalaxyS2)`, `battery ok (99%, 27.5 °C)`, `USB gadget ok`, `sensors ok (Accelerometer AmbientLight)`, with `cameras not ok` as the sole open smoke check (regressed `port@1` `s5k3l6_out` endpoint blocking `camss`).
 
 ---
 
@@ -40,10 +41,10 @@ Verified on `2026-11-21` (`NOTES §51`): `tools/phone-smoke` reports `0 new` dme
 
 | Metric | Progress | Notes |
 | --- | --- | --- |
-| **Overall (Hardware + Upstream)** | **43.1% (28/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
-| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **46.4% (26/56)** | Stages 1–3, 5, 6, 7–8 achieved; 4, 10–12, 14–15b partial; 9, 13, 16 open |
-| **Daily Core (Stages 1–8 + UI)** | **77.3% (17/22)** | Usable daily phone on desk (`120 Hz`, audio, Wi-Fi, BT, sensors, `LFM3` AI) |
-| **Upstream & Docs (U1–U2)** | **22.2% (2/9)** | Repo CI gates pass; 38/83 kernel commits need human `Signed-off-by:` |
+| **Overall (Hardware + Upstream)** | **60.0% (39/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
+| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **62.5% (35/56)** | Stages 1–3, 5, 6, 7–8 achieved; 4, 9–16 partial/researched (`HARDWARE-DISCOVERY.md`) |
+| **Daily Core (Stages 1–8 + UI)** | **81.8% (18/22)** | Usable daily phone on desk (`120 Hz`, audio, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI) |
+| **Upstream & Docs (U1–U2)** | **44.4% (4/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` pass; 38/83 kernel commits need human `Signed-off-by:` |
 
 | Column | Count | Last Updated |
 | --- | --- | --- |
@@ -86,10 +87,10 @@ Verified on `2026-11-21` (`NOTES §51`): `tools/phone-smoke` reports `0 new` dme
 
 > **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **38 of 83** commits in `~/omamobile-kernel/wt-r8q` (`omamobile..HEAD`) await Santiago's sign-off (`git -C ~/omamobile-kernel/wt-r8q rebase --signoff ...`).
 
-1. **Immediate Software / Package Tasks (no reboot):** `[dsp-04]` deploy `omamobile-settings 0.1.3` (phone has `0.1.2-1`), `[aud-05..06]` mic record + earpiece UCM2 + L/R speaker balance, `[net-03]` BT A2DP + Wi-Fi concurrency, `[gpu-03]` bisect `-p 512` compute stall, `[pwr-02]` WFI power baseline, `[doc-02..03]` `CONTRIBUTING.md` §3.1 + `docs/DEVICES.md` sync.
-2. **Kernel DT Fixes (`human-gate` reboot):** `[cam-03]` fix `camss` `port@1` (`s5k3l6_out`) async deadlock -> `[cam-04]` re-verify `cam -l`/`omacam`, `[aud-04]` add `qcom,dmic-sample-rate` DT property, `[gpu-04]` DPU scanout recovery restore, `[doc-04]` re-pin `stable-image.conf`.
-3. **Remaining Hardware Milestones (Stages 9–16):** `[hap-01..04]` Haptics & Torch, `[usb-02..04]` USB-C TCPC/replug/OTG, `[mdm-03..06]` test `modem.dtso` on native `sda36` + NV verify + SIM/QMI/MBIM + GNSS/NFC, `[pwr-03..04]` / `[slp-01..03]` DVFS/`cpuidle`/`s2idle`, `[cam-05]` IMX555/IMX616 drivers, `[fp-01..02]` Fingerprint audit.
-4. **Upstream Kernel & PR Hygiene (`U1`):** `[krn-02..05]` Human `Signed-off-by:` on 38 commits -> split topic branches -> `tools/kernel-pr-check --build --merge origin/omamobile` -> fork PRs.
+1. **Immediate Software / Offline Tasks (`3` open):** `[net-03]` BT A2DP audio + Wi-Fi concurrency; `[gpu-03]` bisect `-p 512` compute stall (attended; triggers blanking recovery -> `[gpu-05]`); `[fp-02]` write `goodix,gw9558x` SPI/TZ feasibility note.
+2. **Kernel DT Fixes (`human-gate` reboot, `7` open):** `[cam-03..04]` fix `camss` `port@1` (`s5k3l6_out`) async deadlock -> `omacam` tele/uw verify; `[aud-04..05]` `va_macro` `qcom,dmic-sample-rate = <600000>` + LPI DMIC capture; `[hap-04]` `&pm8150l_flash` (`leds-qcom-flash.ko` ready); `[hap-02]` haptics DT (`LINEAR_0832RC` / `max77705`); `[gpu-04]` DPU scanout recovery restore; `[doc-04]` re-pin `stable-image.conf`.
+3. **High-Risk Hardware Bring-Up (`8` open):** `[usb-03..04]` Type-C replug/PD & OTG (`usbc-deadman`), `[mdm-03..05]` native `sda36` `modem.dtso` boot + NV verify + SIM/QMI/MBIM, `[pwr-03..04]` / `[slp-02..03]` `s2idle`/DVFS/`cpuidle`/UFS PM w/ watchdog, `[cam-05]` IMX555/IMX616 drivers.
+4. **Kernel Upstream (`4` open):** `[krn-02..05]` Human `Signed-off-by:` on 38 commits -> split topic branches -> `tools/kernel-pr-check --build --merge origin/omamobile` -> fork PRs.
 
 ---
 
@@ -168,6 +169,7 @@ Verified on `2026-11-21` (`NOTES §51`): `tools/phone-smoke` reports `0 new` dme
 | `r8q-audio-bringup` | ✅ | 9-step gated audio bring-up sequence |
 | `r8q-camera-bringup` | ⏳ | 5-step gated camera bring-up sequence |
 | `r8q-progress` | ✅ | Computes overall / per-stage completion % & step queue from `board/tasks.json` (`--live`, `--next`, `--json`) |
+| `r8q-check-all` | ✅ | One-shot read-only check of repo gates, `r8q-progress --live`, `r8q-stable-check --phone`, `phone-smoke`, & extras |
 | `r8q-install` | ✅ | Full installer (swap, repos, packages, UI) |
 | `r8q-rescue` | ✅ | Rescue operations |
 | `r8q-stabilize` | ✅ | Stability testing |

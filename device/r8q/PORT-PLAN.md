@@ -7,18 +7,18 @@
 | Subsystem | State |
 | --- | --- |
 | Boot | `sda24` (recovery) → **native root `sda36`** (LABEL `omamobile-root`, `77/77` UFS `ro=1`); the failing microSD is out of the path |
-| Session | `sddm` autologin → Hyprland + `quickshell` + `squeekboard` (`omamobile-settings 0.1.2-1` on phone; `0.1.3` ready in repo) |
+| Session | `sddm` autologin → Hyprland + `quickshell` + `squeekboard` (`omamobile-settings 0.1.3-1` built & installed natively on phone) |
 | AI | `omamobile-ai` serves the **pi-tuned LFM3-1.7B** — Q8_0 base + harbor-pi LoRA, `10.5 tok/s` out (§42); `pi` = the session user's `mise` install |
 | RAM | `zram` `2.7 G` + MGLRU (`ttl 1 s`) + `4 G` swapfile = **`6.8 G` tiered swap** (NOTES §46) |
-| Battery | **verified live**: `100 %`, `27 °C`, `4.35 V`, `health Good` (NOTES §44 + `phone-smoke`) |
+| Battery | **verified live**: `99–100 %`, `4.37 V`, `27.5 °C`, `health Good`, thermals `38.0–42.3 °C` (NOTES §44 + `phone-smoke`) |
 | Display | **`1080x2400@120` achieved** (NOTES §49): zero DSI/TE errors, compute under load clean at the doubled refresh |
 | GPU | **Vulkan compute demonstrated** (NOTES §48): `pp64 30.23 t/s`, `tg16 1.37 t/s`, clean exit; a fault-induced recovery ran once and **the desktop survived it**. Serving stays on CPU; the `-p 512` stall bisect & DPU post-recovery restore remain |
-| Audio & Sensors | **speaker playback live** (`2026-11-21`, NOTES §51): `pd-mapper 1.1-2` + `omamobile-device-r8q 0.1.29-1` (`-9.5 dB` UCM2 `HiFi.conf`), `SamsungGalaxyS2` card, `pw-play` clean (`0` dmesg errors); SLPI accel/light live; `qcom,dmic-sample-rate` DT prop & mic capture open |
-| Cameras | **regressed on `gae195e6deaac`** (CAMERA-PLAN §6.5): 9 kernel modules / `14 /dev/video*` load, but disabled `port@1` (`s5k3l6_out`) blocks `camss` notifier (`cam -l` = 0); HI-847 tele + S5K3L6 uw previously verified on `g3667ab368ef9`; IMX555/IMX616 need drivers |
+| Audio & Sensors | **speaker + earpiece UCM2 live** (`2026-11-21`, NOTES §51): `pd-mapper 1.1-2` + `omamobile-device-r8q 0.1.29-1` (`-9.5 dB` balanced L/R CS35L41 + silent `HiFi (Earpiece)` switch verified), `pw-play` clean (`0` dmesg errors); SLPI accel/light live; stock DMIC/VA macro pins documented in [HARDWARE-DISCOVERY.md](HARDWARE-DISCOVERY.md) |
+| Cameras | **regressed on `gae195e6deaac`** (CAMERA-PLAN §6.5): 9 kernel modules / `14 /dev/video*` load, but `camss_parse_ports()` registers disabled `port@1` (`s5k3l6_out`) without checking availability ([HARDWARE-DISCOVERY §1](HARDWARE-DISCOVERY.md)); HI-847 tele + S5K3L6 uw previously verified on `g3667ab368ef9`; IMX555/IMX616 need drivers |
 | Kernel | `r8q-gpu-fault-quiesce` (`7.3.0-rc6-omamobile-push1-gae195e6deaac`) **running, pinned** in `stable-image.conf` (`adeddb31…660a6`); **38 of 83** commits ahead of `omamobile` still need human `Signed-off-by:` |
 | Modem | SDX55M reached `AMSS` (`EE: MISSION MODE`, `MODEM-PLAN` §10) in rescue boot; parked in daily boot (`pcie2` disabled); next: test `modem.dtso` on native `sda36` + opt-in SIM/QMI/MBIM |
 | Way back | [`stable-image.conf`](stable-image.conf) pins `out-r8q/recovery-fault-quiesce.img` (`gae195e6deaac`, `adeddb31…660a6`): `tools/r8q-flash-recovery --stable` |
-- **Progress Snapshot (`2026-11-21`, `tools/r8q-progress`):** **43.1% overall (28/65 atomic tasks)** · **46.4% Hardware Stages 1–16 (26/56)** · **77.3% Daily Core Stages 1–8 (17/22)** · **22.2% Upstream & Docs (2/9)**. See [board/MISSING.md](board/MISSING.md) for the exact step-by-step atomic backlog.
+- **Progress Snapshot (`2026-11-21`, `tools/r8q-progress`):** **60.0% overall (39/65 atomic tasks)** · **62.5% Hardware Stages 1–16 (35/56)** · **81.8% Daily Core Stages 1–8 (18/22)** · **44.4% Upstream & Docs (4/9)**. Run `tools/r8q-check-all --quick` for a one-shot health pass; see [board/MISSING.md](board/MISSING.md) for the exact step-by-step atomic backlog.
 - **Boot model correction (2026-11-20, owner-observed):** `sda24` is this phone's **power-on default** — a plain power-on boots our kernel; there is **no automatic fallback to LineageOS** (`sda23` contents remain untouched but unreachable by an ordinary boot). `Volume Up + Power` is not needed to boot our image; Download Mode (Volume Up + Volume Down + cable from power-off) is the always-available recovery path. Details: [NOTES §24](NOTES.md).
 
 ---

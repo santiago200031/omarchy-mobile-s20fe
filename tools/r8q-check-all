@@ -1,0 +1,62 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# r8q-check-all: fast one-shot read-only check of the laptop repo, kernel
+# worktree sign-off state, and connected Galaxy S20 FE (r8q) phone.
+# Safe anytime: never flashes, reboots, changes mixers, or writes partitions.
+#
+# Usage:
+#   tools/r8q-check-all [--quick]
+#
+#   --quick   skip tests/all and run only pr-check + r8q checks + live probes
+set -euo pipefail
+
+SELF="$(readlink -f "$0")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+cd "$ROOT"
+
+QUICK=0
+for arg in "$@"; do
+  case "$arg" in
+    --quick) QUICK=1 ;;
+    -h|--help)
+      awk 'NR > 2 && !/^#/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$SELF"
+      exit 0
+      ;;
+    *)
+      echo "usage: tools/r8q-check-all [--quick]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+export OMAMOBILE_SSH_SHARE=1
+
+echo "==> 1. Repository checks"
+tools/pr-check origin/main
+python3 tests/r8q-progress.py
+if [[ $QUICK -eq 0 ]]; then
+  tests/all
+fi
+
+echo
+echo "==> 2. Progress & kernel worktree check"
+tools/r8q-progress --live --next 5
+
+echo
+echo "==> 3. Live phone read-only subsystem check"
+if tools/phone-ssh true >/dev/null 2>&1; then
+  tools/r8q-stable-check --phone
+  tools/phone-smoke
+  echo "--- Packages & hardware extras ---"
+  tools/phone-ssh '
+    echo "packages: $(pacman -Q omamobile-device-r8q pd-mapper omamobile-settings omamobile-ai 2>/dev/null | tr "\n" " ")"
+    echo "audio_cards: $(aplay -l 2>/dev/null | grep -E "^card " | tr "\n" ";" || true)"
+    echo "cs35l41_left_dig: $(amixer -c 0 sget "Left Digital PCM" 2>/dev/null | awk -F": " "/Mono:/{print \$2}")"
+    echo "cs35l41_right_dig: $(amixer -c 0 sget "Right Digital PCM" 2>/dev/null | awk -F": " "/Mono:/{print \$2}")"
+    echo "cam_pending: $(tr "\n" " " < /sys/kernel/debug/v4l2-async/pending_async_subdevices 2>/dev/null || true)"
+    echo "battery: status=$(cat /sys/class/power_supply/max170xx_battery/status 2>/dev/null) cap=$(cat /sys/class/power_supply/max170xx_battery/capacity 2>/dev/null)% curr=$(cat /sys/class/power_supply/max170xx_battery/current_now 2>/dev/null)uA volt=$(cat /sys/class/power_supply/max170xx_battery/voltage_now 2>/dev/null)uV"
+    echo "ai_health: $(curl -sf http://127.0.0.1:8080/health || echo unreachable)"
+  '
+else
+  echo "phone unreachable via tools/phone-ssh (skipped live phone checks)"
+fi

@@ -4,7 +4,7 @@
 
 Source of truth: [`tasks.json`](tasks.json) — check live percentages and next steps anytime with `tools/r8q-progress` (`--live`), or run `tools/r8q-check-all --quick` for a single read-only repo + worktree + phone health pass. Stock hardware findings live in [HARDWARE-DISCOVERY.md](../HARDWARE-DISCOVERY.md).
 
-As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-g802d3d3bc512`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.33-1`):
+As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-g802d3d3bc512`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.34-1`):
 - **Overall (Hardware + Upstream):** `72.3%` (**47 / 65** atomic tasks)
 - **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `76.8%` (**43 / 56** atomic tasks)
 - **Daily Core (Stages 1–8):** `95.5%` (**21 / 22** atomic tasks)

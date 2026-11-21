@@ -141,7 +141,7 @@
           "risk": "low",
           "requires_human": false,
           "verify": "Compare tok/s against CPU baseline (10.5 tok/s pi-tuned); keep faster path default",
-          "evidence": "CPU stays 2.4x faster on pp512 and 9.2x-11.6x faster on tg128: Q8_0 CPU 4-6 performance (2.42 GHz) 70.18 pp512 / 12.48 tg128 (4-7: 75.84 pp512); Q4_K_M CPU 4-6 performance 43.69 pp512 / 16.73 tg128; Vulkan Q4_K_M -ngl 99 23.39 pp512 / 1.36 tg128. GPU_LAYERS=0 remains default"
+          "evidence": "CPU stays 2.4x-3.2x faster on pp512 and 9.2x-11.6x faster on tg128: Q8_0 CPU 4-7 performance (2.42/2.84 GHz) 75.84 pp512 / 12.46 tg128 (4-6: 70.18 pp512 / 12.48 tg128); Q4_K_M CPU 4-6 performance 43.69 pp512 / 16.73 tg128; Vulkan Q4_K_M -ngl 99 23.39 pp512 / 1.36 tg128. Device 0.1.34 configures CPU_AFFINITY=4-7, THREADS=4, IDLE_TIMEOUT=180 (lazy spawn + 3-min TTL) with GPU_LAYERS=0 default"
         }
       ]
     },

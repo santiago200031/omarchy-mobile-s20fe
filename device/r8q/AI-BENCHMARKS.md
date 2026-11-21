@@ -113,13 +113,13 @@ pins inference to the three Gold cores.
 
 | Key | r8q value | Meaning |
 |---|---|---|
-| `MODEL_PATH` | `/usr/share/omamobile-ai/models/LFM3-1.7B-Q4_K_M.gguf` | GGUF to serve |
+| `MODEL_PATH` | `/usr/share/omamobile-ai/models/LFM3-1.7B-Q8_0.gguf` (`20-pi-tuned.conf`) | GGUF to serve (`Q4_K_M` base default) |
 | `MODEL_ID` | `LFM3-1.7B` | Name clients ask for |
-| `THREADS` | `3` | llama.cpp threads (one per pinned core) |
-| `CPU_AFFINITY` | `4-6` | Gold cores; 0-3 stay with the desktop, 7 is excluded |
+| `THREADS` | `4` | llama.cpp threads (`10-sm8250.conf`, one per Cortex-A77 core) |
+| `CPU_AFFINITY` | `4-7` | 3x Gold (`2.42 GHz`) + 1x Prime (`2.84 GHz`); 0-3 stay with desktop/system |
 | `CTX_SIZE` | `32768` | Context window |
-| `GPU_LAYERS` | `0` | CPU inference (CPU beats Adreno 650 on `LFM3-1.7B` by `2.4x` `pp512` and `9.2x-11.6x` `tg128`) |
-| `IDLE_TIMEOUT` | `180` | Seconds before the model is unloaded |
+| `GPU_LAYERS` | `0` | CPU inference (CPU beats Adreno 650 on `LFM3-1.7B` by `2.4x-3.2x` `pp512` and `9.2x-11.6x` `tg128`) |
+| `IDLE_TIMEOUT` | `180` | Seconds of inactivity (TTL) before `llama-server` is stopped and RAM freed |
 | `LISTEN_HOST` / `LISTEN_PORT` | `0.0.0.0` (drop-in) / `8080` | Supervisor on the USB link; the base config alone listens on loopback |
 | `LLAMA_PORT` | `18080` | Private loopback port for `llama-server` |
 

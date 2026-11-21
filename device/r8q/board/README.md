@@ -4,7 +4,7 @@
 
 This board tracks the hardware bring-up and upstreaming state of the **Samsung Galaxy S20 FE (`r8q`, SM8250)**.
 
-- **Live Machine Baseline (`2026-11-21`):** kernel `7.3.0-rc6-omamobile-push1-g802d3d3bc512` (`recovery-gpu-hangcheck.img`), native UFS root on `/dev/sda36` (`LABEL=omamobile-root`, `77/77` UFS partitions `ro=1`), `omamobile-device-r8q 0.1.33-1`, `pd-mapper 1.1-2`, `omamobile-settings 0.1.3-1`.
+- **Live Machine Baseline (`2026-11-21`):** kernel `7.3.0-rc6-omamobile-push1-g802d3d3bc512` (`recovery-gpu-hangcheck.img`), native UFS root on `/dev/sda36` (`LABEL=omamobile-root`, `77/77` UFS partitions `ro=1`), `omamobile-device-r8q 0.1.34-1`, `pd-mapper 1.1-2`, `omamobile-settings 0.1.3-1`.
 - **Stable Pin ([`../stable-image.conf`](../stable-image.conf)):** `out-r8q/recovery-fault-quiesce.img` (`adeddb31…660a6`, rollback pin kept until base-DTS fold `[doc-04]`).
 - **Helper Scripts:** [`tools/r8q-progress`](../../../tools/r8q-progress) (`--live`, `--next N`, `--json`) + [`tools/r8q-check-all`](../../../tools/r8q-check-all) (`--quick` for one-shot repo + worktree + phone health pass), backed by [`tasks.json`](tasks.json).
 

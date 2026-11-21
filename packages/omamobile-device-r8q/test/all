@@ -199,6 +199,7 @@ echo ok battery
 echo ok preflight
 # Device-specific omamobile-ai tuning for sm8250.
 test -f etc/omamobile-ai.conf.d/10-sm8250.conf
-grep -q 'CPU_AFFINITY=4-6' etc/omamobile-ai.conf.d/10-sm8250.conf
-grep -q 'THREADS=3' etc/omamobile-ai.conf.d/10-sm8250.conf
+grep -q 'CPU_AFFINITY=4-7' etc/omamobile-ai.conf.d/10-sm8250.conf
+grep -q 'THREADS=4' etc/omamobile-ai.conf.d/10-sm8250.conf
+grep -q 'IDLE_TIMEOUT=180' etc/omamobile-ai.conf.d/10-sm8250.conf
 echo ok ai-dropin

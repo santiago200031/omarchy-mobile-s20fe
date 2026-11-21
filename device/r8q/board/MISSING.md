@@ -4,9 +4,9 @@
 
 Source of truth: [`tasks.json`](tasks.json) — check live percentages and next steps anytime with `tools/r8q-progress` (`--live`), or run `tools/r8q-check-all --quick` for a single read-only repo + worktree + phone health pass. Stock hardware findings live in [HARDWARE-DISCOVERY.md](../HARDWARE-DISCOVERY.md).
 
-As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.29-1`):
-- **Overall (Hardware + Upstream):** `60.0%` (**39 / 65** atomic tasks)
-- **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `62.5%` (**35 / 56** atomic tasks)
+As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.30-1`):
+- **Overall (Hardware + Upstream):** `64.6%` (**42 / 65** atomic tasks)
+- **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `67.9%` (**38 / 56** atomic tasks)
 - **Daily Core (Stages 1–8):** `81.8%` (**18 / 22** atomic tasks)
 - **Upstream & Docs (Stages U1–U2):** `44.4%` (**4 / 9** atomic tasks)
 
@@ -20,31 +20,30 @@ As of **`2026-11-21`** (`7.3.0-rc6-omamobile-push1-gae195e6deaac`, `omamobile-se
 | `5` | Display (`S6E3FC3 120 Hz`) & Shell UI | `4/4` | `100.0%` | ✅ Achieved | — (`omamobile-settings 0.1.3-1` live) |
 | `6` | Battery & Fuel Gauge (`max77705` / `max17042`) | `2/2` | `100.0%` | ✅ Achieved | — |
 | `7–8` | Wi-Fi & Bluetooth (`QCA6390`) | `2/3` | `66.7%` | ✅ Achieved | `[net-03]` BT A2DP audio + Wi-Fi concurrency test |
-| `9` | Haptics & Torch | `2/4` | `50.0%` | ⚠️ DT ready to wire | `[hap-02]` haptics DT + overlay test; `[hap-04]` `pm8150l_flash` DT + tile (`leds-qcom-flash.ko` built) |
+| `9` | Haptics & Torch | `2/4` | `50.0%` | ⚠️ DT/udev ready | `[hap-02]` haptics DT + overlay test; `[hap-04]` visual strobe & shell tile (`white:torch` `664 root:video` live) |
 | `10–11` | Power, Idle, Thermal & DVFS | `2/4` | `50.0%` | ⚠️ Mitigated | `[pwr-03]` scoped CPUfreq `schedutil` trace; `[pwr-04]` deeper `cpuidle` / UFS PM |
 | `12` | USB-C Role Switch & Charging Control | `2/4` | `50.0%` | ⚠️ Partial | `[usb-03]` replug recovery & PD sink + `[usb-04]` OTG host under `usbc-deadman` |
 | `13` | Suspend (`s2idle`) | `1/3` | `33.3%` | ❌ Disabled | `[slp-02]` attended single `s2idle` w/ watchdog; `[slp-03]` 10-cycle soak |
-| `14` | Remoteprocs, Sensors & Audio (`ADSP`/`SLPI`/`CS35L41`) | `4/6` | `66.7%` | ⚠️ Partial (playback ✅) | `[aud-04]` `qcom,dmic-sample-rate` DT prop; `[aud-05]` DMIC internal mic capture |
-| `15a` | Cameras (`CAMSS` / `libcamera`) | `2/5` | `40.0%` | ❌ Regressed | `[cam-03..05]` fix `port@1` `s5k3l6_out` deadlock, `omacam` tele/uw verify, IMX555/IMX616 drivers |
+| `14` | Remoteprocs, Sensors & Audio (`ADSP`/`SLPI`/`CS35L41`/`DMIC3`) | `6/6` | `100.0%` | ✅ Achieved | — (speaker + earpiece + `dmic-va.dtso` `DMIC3` `pw-record` verified) |
+| `15a` | Cameras (`CAMSS` / `libcamera`) | `3/5` | `60.0%` | ⚠️ Partial | `[cam-04]` `omacam` live preview/lens-switch; `[cam-05]` IMX555/IMX616 drivers (`camera-uw.dtso` restores `s5k3l6xx`+`hi847`) |
 | `15b` | Modem (`SDX55M`), GNSS & NFC | `3/6` | `50.0%` | ⚠️ Partial | `[mdm-03..05]` native `sda36` `modem.dtso` boot test, NV re-check, opt-in SIM/QMI/MBIM |
 | `16` | Fingerprint | `1/2` | `50.0%` | ⚠️ Blocked by TZ | `[fp-02]` document `goodix,gw9558x` SPI/TZ feasibility |
 | `U1` | Kernel Branch Hygiene & Upstream DCO (`wt-r8q`) | `1/5` | `20.0%` | 🔧 Open | `[krn-02..05]` human `Signed-off-by:` on 38 commits, split topic branches, `kernel-pr-check`, upstream PRs |
-| `U2` | Repo Registry & Stable Pin | `3/4` | `75.0%` | 🔧 Open | `[doc-04]` re-pin `stable-image.conf` after camera/DMIC fix |
+| `U2` | Repo Registry & Stable Pin | `3/4` | `75.0%` | 🔧 Open | `[doc-04]` re-pin `stable-image.conf` after human checks & base-DTS fold |
 
-## Complete Step-by-Step Queue (`26` Remaining Atomic Tasks)
+## Complete Step-by-Step Queue (`23` Remaining Atomic Tasks)
 
 ### Track A — Local Userspace / Offline Tasks (No Reboot Required)
 1. `[net-03]` Pair a BT audio sink and verify A2DP playback alongside `wlp1s0` Wi-Fi traffic.
 2. `[gpu-03]` *(caution: `-p 512` triggers GPU recovery which blanks `DSI-1` until reboot; run when attended)* Bisect `-p 512` Vulkan compute stall (`llama-bench -ngl 99 -p 64/128/256/512`) -> `[gpu-05]` follows if faster than CPU (`10.5 tok/s`).
 3. `[fp-02]` Write `goodix,gw9558x` TrustZone/SPI feasibility assessment in `device/r8q/`.
 
-### Track B — Immediate Kernel DT & Human-Gated Boot Fixes (`AGENTS.md` §1–2)
-4. `[cam-03]` *(human-gate)* Fix `camss` `v4l2-async` deadlock (`port@1` `s5k3l6_out` in `sm8250-samsung-r8q.dts` or `camss_parse_ports()` `fwnode_device_is_available()`) -> `[cam-04]` re-verify `cam -l` / `omacam` tele <-> uw.
-5. `[aud-04]` *(human-gate)* Add `qcom,dmic-sample-rate = <600000>` on `&vamacro` + LPI DMIC DAI link in `sm8250-samsung-r8q.dts` -> `[aud-05]` verify `arecord` / `pw-record` internal mic capture.
-6. `[hap-04]` *(human-gate)* Enable `&pm8150l_flash` (`leds-qcom-flash.ko` already built!) with `led-0`/`led-1` capped at safe torch mA + quick-settings tile.
-7. `[hap-02]` *(human-gate)* Add `disabled` `LINEAR_0832RC` (`gpio137`/`L10C`) / `max77705-haptic` DT node + overlay and test single click via `feedbackd`.
-8. `[gpu-04]` *(human-gate)* Restore DPU scanout cleanly in `recover_worker` after Adreno fault recovery so `DSI-1` doesn't stay blank.
-9. `[doc-04]` *(human-gate)* Pack, verify `tools/phone-smoke` 100% green, and re-pin `device/r8q/stable-image.conf`.
+### Track B — Human Visual Checks & Next Kernel DT Fixes (`AGENTS.md` §1–2)
+4. `[cam-04]` *(human visual check)* Run `omacam` live preview and tele <-> ultrawide lens switch on `recovery-cam-torch-dmic.img`.
+5. `[hap-04]` *(human visual check)* Test physical `white:torch` strobe and quick-settings tile (`torch.dtso` + `20-r8q-torch.rules` already live).
+6. `[hap-02]` *(human-gate)* Add `disabled` `LINEAR_0832RC` (`gpio137`/`L10C`) / `max77705-haptic` DT node + overlay and test single click via `feedbackd`.
+7. `[gpu-04]` *(human-gate)* Restore DPU scanout cleanly in `recover_worker` after Adreno fault recovery so `DSI-1` doesn't stay blank.
+8. `[doc-04]` *(human-gate)* Fold verified `camera-uw`/`torch`/`dmic-va` DT changes cleanly, pack, verify `tools/phone-smoke` 100% green, and re-pin `device/r8q/stable-image.conf`.
 
 ### Track C — High-Risk Hardware Bring-Up (Needs Watchdog / `usbc-deadman` / NV Re-check)
 10. `[usb-03]` -> `[usb-04]` *(human-gate via `tools/usbc-deadman`)* Test Type-C replug gadget recovery + PD/OTG role-switch (`max77705` MUIC/TCPM).

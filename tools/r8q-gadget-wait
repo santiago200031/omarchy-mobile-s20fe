@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # r8q-gadget-wait [timeout-secs]: wait for the phone's USB gadget (lsusb).
 # Exits 0 with the lsusb line when found; exit 1 on timeout.
 timeout=${1:-60}

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT -->
 # Adreno 650 / GMU / Vulkan blocker on r8q (SM8250) —investigation report
 
 Scope: laptop-side investigation only (no phone). Kernel mainline tree:

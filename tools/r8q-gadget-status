@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # r8q-gadget-status: is the phone's USB gadget visible on the laptop?
 #
 # The r8q gadget (initramfs/init, gadget g1: "NCM + ACM") enumerates as

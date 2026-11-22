@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # r8q-m3-cycle-revert [flash-timeout] [gadget-timeout]: experiment flow —
 # wait for the phone in Samsung Download Mode, flash the M3-cycle-free
 # image (d87d5999…) to sda24, then wait for the USB gadget + SSH to be

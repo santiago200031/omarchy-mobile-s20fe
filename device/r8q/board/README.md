@@ -4,16 +4,16 @@
 
 This board tracks the hardware bring-up and upstreaming state of the **Samsung Galaxy S20 FE (`r8q`, SM8250)**.
 
-- **Live Machine Baseline (`2026-11-22`):** kernel `7.3.0-rc6-omamobile-push1-g4d235a595f28` (`recovery-stable-20261122.img`), native UFS root on `/dev/sda36` (`LABEL=omamobile-root`, `77/77` UFS partitions `ro=1`), `omamobile-device-r8q 0.1.34-1`, `pd-mapper 1.1-2`, `omamobile-settings 0.1.3-1`.
+- **Live Machine Baseline (`2026-11-22`):** kernel `7.3.0-rc6-omamobile-push1-g4d235a595f28` (`recovery-stable-20261122.img`), native UFS root on `/dev/sda36` (`LABEL=omamobile-root`, `77/77` UFS partitions `ro=1`), `omamobile-device-r8q 0.1.36-1`, `pd-mapper 1.1-2`, `omamobile-settings 0.1.3-1`, `omamobile-omarchy 0.1.49-1`, `omamobile-shell 0.2.141-1`, `omamobile-ai 0.1.1-1`.
 - **Stable Pin ([`../stable-image.conf`](../stable-image.conf)):** `out-r8q/recovery-stable-20261122.img` (`f84a754a…464e`).
 - **Helper Scripts:** [`tools/r8q-progress`](../../../tools/r8q-progress) (`--live`, `--next N`, `--json`) + [`tools/r8q-check-all`](../../../tools/r8q-check-all) (`--quick` for one-shot repo + worktree + phone health pass), backed by [`tasks.json`](tasks.json).
 
 | Track / Metric | Progress | Notes |
 | --- | --- | --- |
-| **Overall (Hardware + Upstream)** | **76.9% (50/65)** | Full SM8250 hardware bring-up + kernel DCO/PR readiness |
-| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **80.4% (45/56)** | Native root, 120 Hz display, Vulkan GPU (`5/5`), Wi-Fi/BT, haptics & torch (`4/4`), full-duplex audio, `0.5x`/`3x` cams, FP assessed |
-| **Daily Core (Stages 1–8 + UI)** | **95.5% (21/22)** | Usable daily palmtop on desk with `omamobile-settings 0.1.3` + `LFM3-1.7B` AI (`70.2 pp512 / 12.5 tg128` in `performance`) |
-| **Upstream & Docs (U1–U2)** | **55.6% (5/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` updated; 38 kernel commits awaiting human `Signed-off-by:` |
+| **Overall (Hardware + Upstream)** | **80.6% (54/67)** | Full SM8250 hardware bring-up + kernel DCO/PR readiness |
+| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **84.5% (49/58)** | Native root, 120 Hz display, Vulkan GPU (`5/5`), Wi-Fi/BT (`3/3`), haptics & torch (`4/4`), full-duplex audio, `0.5x`/`3x` cams, USB AI boost + Wi-Fi PS, FP assessed |
+| **Daily Core (Stages 1–8 + UI)** | **100.0% (22/22)** | Usable daily palmtop on desk with `omamobile-settings 0.1.3` + `LFM3-1.7B` AI (`75.84 pp512 / 12.46 tg128` in `performance`) |
+| **Upstream & Docs (U1–U2)** | **55.6% (5/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` updated; 42 kernel commits awaiting human `Signed-off-by:` |
 
 ## Board Columns
 

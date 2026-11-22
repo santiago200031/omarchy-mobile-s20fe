@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT -->
 # r8q suspend state
 
 The kernel's s2idle on this port never wakes: the phone freezes and only a

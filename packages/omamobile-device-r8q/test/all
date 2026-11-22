@@ -8,7 +8,8 @@ sh -n reboot
 grep -q "vm.swappiness = 150" 90-r8q-vm.conf
 grep -q "vm.dirty_background_bytes = 16777216" 90-r8q-vm.conf
 grep -q "vm.dirty_bytes = 67108864" 90-r8q-vm.conf
-grep -q "backup=(etc/pacman.d/omamobile-mirrorlist)" PKGBUILD
+grep -Eq '^backup=\(.*etc/pacman\.d/omamobile-mirrorlist' PKGBUILD
+grep -Eq '^backup=\(.*etc/NetworkManager/conf\.d/zz-omamobile-wifi-powersave\.conf' PKGBUILD
 grep -q "zram-size = ram / 2" 91-r8q-zram.conf
 grep -Eq '^depends=.*zram-generator' PKGBUILD
 grep -Eq '^depends=.*pd-mapper' PKGBUILD
@@ -206,3 +207,9 @@ grep -q 'USB_BOOST=1' etc/omamobile-ai.conf.d/10-sm8250.conf
 grep -q 'USB_IDLE_TIMEOUT=0' etc/omamobile-ai.conf.d/10-sm8250.conf
 grep -q 'BOOST_IDLE_TIMEOUT=60' etc/omamobile-ai.conf.d/10-sm8250.conf
 echo ok ai-dropin
+wp=etc/NetworkManager/conf.d/zz-omamobile-wifi-powersave.conf
+test -f "$wp"
+[ "$(grep -v '^#' "$wp" | paste -sd' ')" = "[connection] wifi.powersave=3" ]
+printf '%s\n%s\n' omarchy-wifi-powersave.conf "${wp##*/}" | LC_ALL=C sort -c
+grep -q 'etc/NetworkManager/conf.d/zz-omamobile-wifi-powersave.conf' PKGBUILD
+echo ok wifi-powersave

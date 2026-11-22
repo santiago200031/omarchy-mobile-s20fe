@@ -6,7 +6,7 @@
 - **Back:** [FAILED.md](../FAILED.md) · [Board Overview](../README.md)
 
 ## Root Cause
-- **Hardware / Downstream Protocol:** `touchscreen@49` on `i2c5` (`994000.i2c`) is Samsung's `fts5cu56a` controller (`tsp_stm/fts5cu56a_r8.bin`), wired in DT with `compatible = "st,stmfts5"`. Disassembling `fts_event_handler_type_b` (`0xcd8d00`) in the LineageOS `r8q` kernel proved Samsung FTS5 Type-B reads **16-byte packets** via `0x60` (`FTS_READ_ONE_EVENT`) + `0x61` (`FTS_READ_ALL_EVENT`, `data[7] & 0x1f` pending count), where:
+- **Hardware / Downstream Protocol:** `touchscreen@49` on `i2c5` (`994000.i2c`) is Samsung's `fts5cu56a` controller (`tsp_stm/fts5cu56a_r8.bin`), wired in DT with `compatible = "st,stmfts5"`. Inspecting `fts_event_handler_type_b` in the GPL-2.0 `r8q` touchscreen driver (`drivers/input/touchscreen/stm/fts5cu56a/fts_ts.c`) confirmed Samsung FTS5 Type-B reads **16-byte packets** via `0x60` (`FTS_READ_ONE_EVENT`) + `0x61` (`FTS_READ_ALL_EVENT`, `data[7] & 0x1f` pending count), where:
   - `eid = event[0] & 0x03` (`0` = coordinate, `1` = status/ready `0x09 0x00 0x10`, `2` = vendor, `3` = error)
   - `tchsta = event[0] >> 6` (`1` = press, `2` = move, `3` = release), `slot_id = (event[0] >> 2) & 0x0f`
   - `x = (event[1] << 4) | (event[3] >> 4)`, `y = (event[2] << 4) | (event[3] & 0x0f)`

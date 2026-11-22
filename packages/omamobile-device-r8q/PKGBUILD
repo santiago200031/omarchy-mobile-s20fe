@@ -12,7 +12,7 @@ makedepends=(gcc cargo)
 optdepends=('hexagonrpc: SLPI FastRPC reverse-tunnel daemon for sensors'
             'iio-sensor-proxy: D-Bus sensor proxy via libssc'
             'omamobile-ai: on-device AI with lazy llama-server management')
-backup=(etc/pacman.d/omamobile-mirrorlist)
+backup=(etc/pacman.d/omamobile-mirrorlist etc/NetworkManager/conf.d/zz-omamobile-wifi-powersave.conf)
 install=omamobile-device-r8q.install
 
 build() {
@@ -56,6 +56,8 @@ package() {
     "$pkgdir/usr/lib/systemd/network/20-usb-gadget.network"
   install -Dm644 "$startdir/10-omamobile-usb.conf" \
     "$pkgdir/usr/lib/NetworkManager/conf.d/10-omamobile-usb.conf"
+  install -Dm644 "$startdir/etc/NetworkManager/conf.d/zz-omamobile-wifi-powersave.conf" \
+    "$pkgdir/etc/NetworkManager/conf.d/zz-omamobile-wifi-powersave.conf"
   install -Dm644 "$startdir/sshd-omamobile.conf" \
     "$pkgdir/etc/ssh/sshd_config.d/omamobile.conf"
   install -Dm644 "$startdir/sshd.sysusers" \

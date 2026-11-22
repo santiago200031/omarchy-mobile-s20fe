@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # r8q-wait-gadget [timeout-secs]: wait for the phone's USB gadget
 # (r8q-gadget-wait), then probe SSH. Prints what the laptop saw.
 timeout=${1:-60}

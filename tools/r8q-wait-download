@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # r8q-wait-download [timeout-secs]: wait for the phone in Samsung Download
 # Mode, then flash the M3-cycle-free image to sda24 (with heimdall retries —
 # the protocol init fails transiently on this phone). Returns 0 when the

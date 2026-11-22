@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT -->
 # Camera plan (r8q / SM8250): the mainline V4L2 stack, telephoto first
 
 - **Status (2026-11-17):** **HI-847 telephoto camera verified live in `omacam` (`7.3.0-rc6-omamobile-push1-g7ca90963c426` on kernel `camera-wip`, `libcamera 0.7.2-4.24`, `omamobile-device-r8q 0.1.24-1`).** `omacam` streams `3256x2448` (`max_fps=30.02`, `exposure_time=(46, 33269)` µs, `gain=(1.0, 16.0)`) upright with both UI and viewfinder orientation confirmed normal by the user.

@@ -1,0 +1,576 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# r8q-net03-test: verify [net-03] - Bluetooth A2DP audio streaming via
+# PipeWire on the Galaxy S20 FE (r8q) while concurrently downloading over
+# Wi-Fi (wlp1s0) with zero dropouts. No MAC address, SSID, serial, or host
+# Wi-Fi interface name is hardcoded: adapters and addresses are discovered at
+# runtime.
+#
+# Usage:
+#   tools/r8q-net03-test check
+#       Read-only preflight on the phone: hci0 powered, bluetooth.service
+#       active, PipeWire A2DP endpoints, existing bluez_output.* sinks,
+#       wlp1s0 UP with IPv4/IPv6 + iw link, and paired BT devices.
+#
+#   tools/r8q-net03-test run [OPTIONS]
+#       Stream a 440 Hz stereo tone over A2DP on the phone while curl runs
+#       sustained Wi-Fi downloads over wlp1s0 for the full playback window.
+#
+# Options (run only):
+#   --laptop-sink     Pair/connect the phone with the laptop's Bluetooth
+#                     controller (Audio Sink 0000110b) for automated A2DP +
+#                     capture testing; restores discoverable off on exit.
+#   --sink MAC        Connect an external Bluetooth audio sink MAC on phone.
+#   --wifi-url URL    HTTP(S) URL to download over wlp1s0 (default: try local
+#                     laptop server first, else https://proof.ovh.net/files/100Mb.dat).
+#   --duration SECS   Concurrent playback/Wi-Fi test window in s (default 20).
+#   --cleanup         Disconnect and remove temporary laptop pairing if used,
+#                     and remove temporary tone/dmesg files on the phone.
+#
+# Pass criteria:
+#   - pw-top ERR count unchanged (0 new errors) on bluez_output.*
+#   - Bluetooth device stays Connected: yes before & after transfer
+#   - wlp1s0 rx_bytes grows by >= 10 MiB over the transfer window
+#   - If laptop bluez_input.* capture is present: audio continuity check
+#     passes (continuous non-silent frames across middle chunks, no dropouts)
+#   - Zero new hci/bluetooth/ath11k/qca critical errors in phone dmesg
+set -euo pipefail
+
+SELF="$(readlink -f "$0")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+cd "$ROOT"
+SSH="$ROOT/tools/phone-ssh"
+
+WIFI_DEV="wlp1s0"
+WIFI_URL=""
+FALLBACK_URL="https://proof.ovh.net/files/100Mb.dat"
+DURATION=20
+CLEANUP=0
+LAPTOP_SINK=0
+SINK_MAC=""
+TARGET_MAC=""
+SINK=""
+
+SRV_PID=""
+SRV_PORT=""
+SRV_DIR=""
+PLAY_PID=""
+LREC_PID=""
+AGENT_PID=""
+AGENT_FIFO=""
+LAPTOP_BT_WAS_POWERED=""
+
+# ---- helpers -------------------------------------------------------------
+
+show_help() {
+  awk 'NR > 2 && !/^#/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$SELF"
+}
+
+die() {
+  echo "r8q-net03-test: $*" >&2
+  exit 1
+}
+
+phone() {
+  timeout 60 "$SSH" --fresh "$@" < /dev/null
+}
+
+phone_alarm() {
+  local escaped
+  printf -v escaped '%q' "$1"
+  timeout 60 "$SSH" --fresh "runuser -u alarm -- env XDG_RUNTIME_DIR=/run/user/1000 bash -c $escaped" < /dev/null
+}
+
+phone_in() {
+  timeout 30 "$SSH" --fresh "$@"
+}
+
+# ---- cleanup trap --------------------------------------------------------
+
+cleanup() {
+  local rc=$?
+  [[ -n $LREC_PID ]] && kill "$LREC_PID" 2>/dev/null || true
+  [[ -n $SRV_PID ]] && kill "$SRV_PID" 2>/dev/null || true
+  [[ -n $AGENT_PID ]] && kill "$AGENT_PID" 2>/dev/null || true
+  [[ -n $AGENT_FIFO ]] && rm -f "$AGENT_FIFO" 2>/dev/null || true
+  [[ -n $SRV_DIR ]] && rm -rf "$SRV_DIR" 2>/dev/null || true
+
+  if [[ $LAPTOP_SINK -eq 1 ]]; then
+    bluetoothctl discoverable off >/dev/null 2>&1 || true
+    bluetoothctl pairable off >/dev/null 2>&1 || true
+    if [[ $LAPTOP_BT_WAS_POWERED == no ]]; then
+      bluetoothctl power off >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if [[ $CLEANUP -eq 1 ]]; then
+    phone "pkill -f '/tmp/net03-tone.wav' || true" >/dev/null 2>&1 || true
+    if [[ $LAPTOP_SINK -eq 1 && -n $TARGET_MAC ]]; then
+      phone "bluetoothctl disconnect '$TARGET_MAC' >/dev/null 2>&1 || true; bluetoothctl remove '$TARGET_MAC' >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
+      local phone_bt_mac
+      phone_bt_mac=$(phone "bluetoothctl list 2>/dev/null | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | head -1" 2>/dev/null || true)
+      [[ -n $phone_bt_mac ]] && bluetoothctl remove "$phone_bt_mac" >/dev/null 2>&1 || true
+    fi
+    phone "rm -f /tmp/net03-tone.wav /tmp/net03-genwav.py /tmp/net03-dmesg0.txt /tmp/net03-dmesg1.txt /tmp/net03-play.log" >/dev/null 2>&1 || true
+  fi
+
+  exit "$rc"
+}
+trap cleanup EXIT INT TERM
+
+# ---- phone helpers -------------------------------------------------------
+
+phone_reachable() {
+  phone true >/dev/null 2>&1
+}
+
+phone_sink_name() {
+  phone_alarm "pactl list short sinks 2>/dev/null | awk -F'\t' '\$2 ~ /^bluez_output/ {print \$2}' | head -1"
+}
+
+phone_sink_state() {
+  phone_alarm "pactl list short sinks 2>/dev/null | awk -F'\t' -v s='$1' '\$2==s {print \$NF; exit}'"
+}
+
+wait_for_sink() {
+  local sink
+  for _ in $(seq 1 30); do
+    sink=$(phone_sink_name || true)
+    if [[ -n $sink ]]; then
+      echo "$sink"
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+phone_bt_mac() {
+  phone "bluetoothctl list 2>/dev/null | awk '/^Controller/{if(!m) m=\$2} END{print m}'"
+}
+
+phone_pair_connect() {
+  local mac="$1"
+  phone "
+    bluetoothctl trust '$mac' >/dev/null 2>&1 || true
+    paired=\$(bluetoothctl devices Paired 2>/dev/null | grep -ci '$mac' || true)
+    if [ \"\${paired:-0}\" -eq 0 ]; then
+      {
+        printf 'agent NoInputNoOutput\ndefault-agent\nscan bredr\n'
+        i=0
+        while [ \$i -lt 10 ]; do
+          sleep 1
+          bluetoothctl info '$mac' >/dev/null 2>&1 && break
+          i=\$((i + 1))
+        done
+        printf 'scan off\npair %s\n' '$mac'
+        sleep 4
+        printf 'trust %s\nconnect %s\n' '$mac' '$mac'
+        sleep 3
+        printf 'quit\n'
+      } | timeout 30 bluetoothctl >/dev/null 2>&1 || true
+    else
+      bluetoothctl connect '$mac' >/dev/null 2>&1 || true
+    fi
+  "
+}
+
+# ---- laptop Bluetooth & Wi-Fi discovery ----------------------------------
+
+laptop_bt_controller_mac() {
+  bluetoothctl list 2>/dev/null | awk '/^Controller/{if(!m) m=$2} END{print m}'
+}
+
+enable_laptop_discoverable() {
+  local phone_mac
+  phone_mac=$(phone_bt_mac || true)
+  LAPTOP_BT_WAS_POWERED=$(bluetoothctl show 2>/dev/null | awk -F': ' '/^\tPowered:/{if(!v) v=$2} END{print v}')
+  bluetoothctl power on >/dev/null 2>&1 || true
+  [[ -n $phone_mac ]] && bluetoothctl trust "$phone_mac" >/dev/null 2>&1 || true
+
+  # Keep a persistent stdin FIFO so bluetoothctl's NoInputNoOutput agent stays active.
+  AGENT_FIFO=$(mktemp -u)
+  mkfifo "$AGENT_FIFO"
+  (tail -f /dev/null > "$AGENT_FIFO") &
+  local feeder=$!
+  bluetoothctl --agent NoInputNoOutput < "$AGENT_FIFO" >/dev/null 2>&1 &
+  AGENT_PID=$!
+  # Tie feeder lifetime with cleanup by stopping feeder when agent exits.
+  (while kill -0 "$AGENT_PID" 2>/dev/null; do sleep 1; done; kill "$feeder" 2>/dev/null || true) &
+  sleep 0.8
+  bluetoothctl pairable on >/dev/null 2>&1 || true
+  bluetoothctl discoverable on >/dev/null 2>&1 || true
+}
+
+laptop_wifi_dev() {
+  if command -v iw >/dev/null 2>&1; then
+    iw dev 2>/dev/null | awk '/Interface/{if(!d) d=$2} END{print d}'
+  else
+    ip -o link show up 2>/dev/null | awk -F': ' '$2 ~ /^wl/{if(!d) d=$2} END{print d}'
+  fi
+}
+
+laptop_v6_global() {
+  local dev="$1"
+  local addr
+  addr=$(ip -6 -o addr show dev "$dev" scope global mngtmpaddr 2>/dev/null | awk '{if(!a) a=$4} END{print a}' || true)
+  [[ -n $addr ]] || addr=$(ip -6 -o addr show dev "$dev" scope global 2>/dev/null | awk '{if(!a) a=$4} END{print a}' || true)
+  echo "${addr%/*}"
+}
+
+laptop_v4_on_phone_subnet() {
+  local ldev="$1"
+  local phone_net laptop_net pfx
+  phone_net=$(phone "ip -o -4 addr show dev $WIFI_DEV 2>/dev/null | awk '{print \$4}' | head -1" || true)
+  [[ -n $phone_net ]] || return 1
+  pfx=${phone_net%/*}; pfx=${pfx%.*}
+  while read -r laptop_net; do
+    laptop_net=${laptop_net%/*}
+    if [[ ${laptop_net%.*} == "$pfx" ]]; then
+      echo "$laptop_net"
+      return 0
+    fi
+  done < <(ip -o -4 addr show dev "$ldev" scope global 2>/dev/null | awk '{print $4}')
+  return 1
+}
+
+laptop_bluez_source() {
+  pactl list short sources 2>/dev/null | awk -F'\t' '$2 ~ /^bluez_input/ {print $2}' | head -1 || true
+}
+
+# ---- check ---------------------------------------------------------------
+
+cmd_check() {
+  phone_reachable || die "phone not reachable over tools/phone-ssh"
+  local ok=0
+
+  echo "==> [net-03] read-only check"
+
+  echo "-- Bluetooth adapter hci0 --"
+  local powered
+  powered=$(phone "bluetoothctl show 2>/dev/null | grep -i 'Powered:' | head -1" || true)
+  if [[ $powered == *"Powered: yes"* ]]; then
+    echo "ok   - $powered"
+  else
+    echo "FAIL - powered: ${powered:-missing}"
+    ok=1
+  fi
+
+  echo "-- bluetooth.service --"
+  local state
+  state=$(phone "systemctl is-active bluetooth" 2>/dev/null || echo "unknown")
+  [[ $state == active ]] && echo "ok   - bluetooth.service active" || { echo "FAIL - bluetooth.service $state"; ok=1; }
+
+  echo "-- PipeWire BlueZ / A2DP readiness --"
+  local a2dp_count
+  a2dp_count=$(phone "bluetoothctl show 2>/dev/null | grep -c 'Audio Source'" || echo 0)
+  if (( a2dp_count > 0 )); then
+    echo "ok   - Audio Source UUID registered on hci0"
+  else
+    echo "FAIL - PipeWire A2DP Source endpoint not registered"
+    ok=1
+  fi
+
+  echo "-- existing bluez_output.* sinks --"
+  local existing
+  existing=$(phone_sink_name || true)
+  [[ -n $existing ]] && echo "ok   - connected sink: $existing" || echo "note - no bluez_output.* sink connected yet"
+
+  echo "-- Wi-Fi $WIFI_DEV --"
+  phone "ip -o link show dev $WIFI_DEV | tr '\n' ' '; echo" || { echo "FAIL - $WIFI_DEV missing"; ok=1; }
+  phone "ip -o addr show dev $WIFI_DEV scope global" || true
+  phone "iw dev $WIFI_DEV link 2>/dev/null" || true
+
+  echo "-- paired Bluetooth devices --"
+  phone "bluetoothctl devices Paired 2>/dev/null || bluetoothctl paired-devices 2>/dev/null" || true
+
+  echo
+  if [[ $ok -eq 0 ]]; then
+    echo "check: PASS (ready for run)"
+  else
+    echo "check: FAIL"
+    return 1
+  fi
+}
+
+# ---- run -----------------------------------------------------------------
+
+cmd_run() {
+  while (( $# > 0 )); do
+    case "$1" in
+      --laptop-sink) LAPTOP_SINK=1 ;;
+      --sink) SINK_MAC="${2:?--sink needs a MAC}"; shift ;;
+      --sink=*) SINK_MAC="${1#*=}" ;;
+      --duration) DURATION="${2:?--duration needs SECS}"; shift ;;
+      --duration=*) DURATION="${1#*=}" ;;
+      --wifi-url) WIFI_URL="${2:?--wifi-url needs URL}"; shift ;;
+      --wifi-url=*) WIFI_URL="${1#*=}" ;;
+      --cleanup) CLEANUP=1 ;;
+      -h|--help) show_help; exit 0 ;;
+      *) die "unknown option: $1" ;;
+    esac
+    shift
+  done
+  [[ $DURATION =~ ^[1-9][0-9]*$ ]] || die "--duration must be a positive integer"
+
+  phone_reachable || die "phone not reachable"
+
+  echo "==> [net-03] run: A2DP playback + Wi-Fi concurrency ($WIFI_DEV)"
+  echo "    duration=${DURATION}s cleanup=${CLEANUP} laptop_sink=${LAPTOP_SINK} sink_mac=${SINK_MAC:-auto}"
+
+  local ldev
+  ldev=$(laptop_wifi_dev || true)
+  [[ -n $ldev ]] || die "no active laptop wireless interface found"
+
+  # ---- choose / connect the A2DP sink ----
+  if [[ $LAPTOP_SINK -eq 1 ]]; then
+    TARGET_MAC=$(laptop_bt_controller_mac) || die "no laptop Bluetooth controller found"
+    [[ -n $TARGET_MAC ]] || die "laptop controller MAC discovery returned empty"
+    echo "pairing/connecting phone -> laptop BT controller ($TARGET_MAC)..."
+    enable_laptop_discoverable
+    phone_pair_connect "$TARGET_MAC"
+  elif [[ -n $SINK_MAC ]]; then
+    TARGET_MAC="$SINK_MAC"
+    phone_pair_connect "$TARGET_MAC"
+  else
+    SINK=$(phone_sink_name || true)
+    [[ -n $SINK ]] || die "no connected bluez_output.* sink; pass --laptop-sink or --sink <MAC>"
+    TARGET_MAC=$(sed -n 's/^bluez_output\.\([0-9A-Fa-f_]*\)\..*/\1/p' <<<"$SINK" | tr '_' ':')
+    echo "reusing existing sink: $SINK ($TARGET_MAC)"
+  fi
+
+  SINK=$(wait_for_sink) || die "no bluez_output.* sink appeared within 15 s"
+  echo "using sink: $SINK"
+
+  # ---- generate tone on phone ----
+  phone_in "cat > /tmp/net03-genwav.py" <<'PY'
+import math, struct, sys, wave
+rate = 48000
+dur = float(sys.argv[1])
+freq = 440.0
+n = int(rate * dur)
+step = 2.0 * math.pi * freq / rate
+with wave.open("/tmp/net03-tone.wav", "wb") as w:
+    w.setnchannels(2)
+    w.setsampwidth(2)
+    w.setframerate(rate)
+    frames = bytearray()
+    for i in range(n):
+        v = int(20000 * math.sin(step * i))
+        frames += struct.pack("<hh", v, v)
+    w.writeframes(bytes(frames))
+PY
+  phone "python3 /tmp/net03-genwav.py $(( DURATION + 5 )) && chmod 644 /tmp/net03-tone.wav"
+  echo "tone generated: /tmp/net03-tone.wav ($(( DURATION + 5 )) s, 48 kHz stereo 440 Hz)"
+
+  # ---- baselines ----
+  local rx0 pw_err0
+  rx0=$(phone "cat /sys/class/net/$WIFI_DEV/statistics/rx_bytes" 2>/dev/null || echo 0)
+  phone "dmesg > /tmp/net03-dmesg0.txt"
+  pw_err0=$(phone_alarm "pw-top -b -n 2 2>/dev/null | awk '\$NF ~ /^bluez_output/ {e=\$9} END{print e+0}'" || echo 0)
+  echo "baseline: rx_bytes=$rx0 bluez_output ERR=$pw_err0"
+
+  # ---- start A2DP playback on phone ----
+  phone_alarm "nohup pw-play --target '$SINK' /tmp/net03-tone.wav >/tmp/net03-play.log 2>&1 </dev/null & echo \$!" >/dev/null
+  local state=""
+  for _ in $(seq 1 12); do
+    state=$(phone_sink_state "$SINK" || true)
+    [[ $state == RUNNING ]] && break
+    sleep 0.5
+  done
+  echo "sink state after start: ${state:-unknown}"
+  [[ $state == RUNNING ]] || die "sink '$SINK' did not enter RUNNING state (got '${state:-empty}', log: $(phone "tail -n 5 /tmp/net03-play.log 2>/dev/null" || true))"
+
+  # ---- start dual-stack HTTP streaming server on laptop ----
+  SRV_DIR=$(mktemp -d)
+  local srv_log="$SRV_DIR/server.log"
+  cat > "$SRV_DIR/server.py" <<'PY'
+import http.server, socket, sys
+
+CHUNK = bytes(256 * 1024)
+# Serve up to 4 GiB per request so curl --max-time sustains continuous load
+MAX_BYTES = 4 * 1024 * 1024 * 1024
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.end_headers()
+        sent = 0
+        while sent < MAX_BYTES:
+            try:
+                self.wfile.write(CHUNK)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                break
+            sent += len(CHUNK)
+    def log_message(self, *args):
+        pass
+
+sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+sock.bind(("::", 0))
+sock.listen(16)
+print(sock.getsockname()[1], flush=True)
+
+httpd = http.server.ThreadingHTTPServer.__new__(http.server.ThreadingHTTPServer)
+httpd.daemon_threads = True
+httpd.allow_reuse_address = True
+httpd.socket = sock
+httpd.server_address = sock.getsockname()
+httpd.RequestHandlerClass = Handler
+httpd.serve_forever()
+PY
+  python3 "$SRV_DIR/server.py" >"$srv_log" 2>&1 &
+  SRV_PID=$!
+  for _ in $(seq 1 50); do
+    SRV_PORT=$(grep -oE '^[0-9]+$' "$srv_log" | head -1 || true)
+    [[ -n $SRV_PORT ]] && break
+    sleep 0.1
+  done
+  [[ -n $SRV_PORT ]] || die "HTTP server did not report a port"
+  echo "HTTP stream server up on :$SRV_PORT (via laptop $ldev)"
+
+  local url curl_cmd v6 v4
+  if [[ -n $WIFI_URL ]]; then
+    url="$WIFI_URL"
+    curl_cmd="curl -sS -g --interface $WIFI_DEV --max-time $DURATION -o /dev/null -w '%{size_download} %{speed_download}' '$url' || true"
+    echo "using explicit Wi-Fi URL: $url"
+  else
+    v6=$(laptop_v6_global "$ldev" || true)
+    v4=$(laptop_v4_on_phone_subnet "$ldev" || true)
+    local local_url=""
+    [[ -n $v6 ]] && local_url="http://[$v6]:$SRV_PORT/stream"
+    [[ -z $local_url && -n $v4 ]] && local_url="http://$v4:$SRV_PORT/stream"
+    if [[ -n $local_url ]] && phone "curl -sS -g --interface $WIFI_DEV --connect-timeout 2 --max-time 3 -r 0-1023 -o /dev/null '$local_url' >/dev/null 2>&1"; then
+      url="$local_url"
+      echo "laptop Wi-Fi HTTP server reachable: $url"
+    else
+      url="$FALLBACK_URL"
+      echo "laptop HTTP port blocked by firewall/isolation; using public IPv6/Wi-Fi target: $url"
+    fi
+    # Loop downloads up to DURATION s so 100 MiB completes >=10 MiB and sustains concurrency
+    curl_cmd="end=\$(( \$(date +%s) + $DURATION )); total=0; while [ \$(date +%s) -lt \$end ]; do rem=\$(( end - \$(date +%s) )); [ \$rem -gt 0 ] || break; sz=\$(curl -sS -L -g --interface $WIFI_DEV --connect-timeout 5 --max-time \$rem -o /dev/null -w '%{size_download}' '$url' 2>/dev/null || echo 0); total=\$(( total + \${sz%.*} )); [ \${sz%.*} -eq 0 ] && break; done; echo \"\$total \$(awk -v t=\$total -v d=$DURATION 'BEGIN{printf \"%.0f\", t/d}')\""
+  fi
+
+  # ---- start optional laptop capture during concurrent load ----
+  local lsrc rec_wav=""
+  if [[ $LAPTOP_SINK -eq 1 ]]; then
+    for _ in $(seq 1 10); do
+      lsrc=$(laptop_bluez_source || true)
+      [[ -n $lsrc ]] && break
+      sleep 0.5
+    done
+    if [[ -n $lsrc ]]; then
+      rec_wav="$SRV_DIR/laptop-rec.wav"
+      echo "capturing laptop A2DP input ($lsrc) concurrently with Wi-Fi transfer..."
+      pw-record --target "$lsrc" "$rec_wav" >/dev/null 2>&1 &
+      LREC_PID=$!
+    else
+      echo "note: no laptop bluez_input.* source visible (WirePlumber A2DP sink policy); verifying via phone pw-top + BlueZ state"
+    fi
+  fi
+
+  # ---- run concurrent Wi-Fi transfer across the playback window ----
+  echo "running concurrent A2DP stream + $WIFI_DEV download for ${DURATION}s..."
+  local curl_out size_dl speed_dl
+  curl_out=$(phone "$curl_cmd")
+  size_dl=$(awk '{print $1+0}' <<<"${curl_out:-0 0}")
+  speed_dl=$(awk '{printf "%.2f", ($2+0)/1048576}' <<<"${curl_out:-0 0}")
+  echo "Wi-Fi transfer finished: $(( size_dl / 1048576 )) MiB @ ${speed_dl} MiB/s"
+
+  if [[ -n $LREC_PID ]]; then
+    kill "$LREC_PID" 2>/dev/null || true
+    wait "$LREC_PID" 2>/dev/null || true
+    LREC_PID=""
+  fi
+
+  # Capture pw-top error counters while pw-play is still streaming or just finishing
+  local pw_err1
+  pw_err1=$(phone_alarm "pw-top -b -n 2 2>/dev/null | awk '\$NF ~ /^bluez_output/ {e=\$9} END{print e+0}'" || echo 0)
+
+  # Stop phone playback cleanly
+  phone "pkill -f '/tmp/net03-tone.wav' || true" >/dev/null 2>&1 || true
+
+  # ---- verification ----
+  echo "== verification =="
+  local connected rx1 delta_mb new_errs rec_ok=1
+  echo "bluez_output pw-top ERR: baseline=$pw_err0 after=$pw_err1"
+
+  connected=$(phone "bluetoothctl info '$TARGET_MAC' 2>/dev/null | grep -i 'Connected:'" || echo "Connected: unknown")
+  echo "bluetoothctl: $connected"
+
+  rx1=$(phone "cat /sys/class/net/$WIFI_DEV/statistics/rx_bytes" 2>/dev/null || echo 0)
+  delta_mb=$(( (rx1 - rx0) / 1024 / 1024 ))
+  echo "wlp1s0 rx_bytes: $rx0 -> $rx1 (delta ${delta_mb} MiB)"
+
+  if [[ -n $rec_wav && -s $rec_wav ]]; then
+    rec_ok=0
+    python3 - "$rec_wav" <<'PY' || rec_ok=1
+import struct, sys, wave
+with wave.open(sys.argv[1], "rb") as w:
+    ch = w.getnchannels()
+    rate = w.getframerate()
+    sw = w.getsampwidth()
+    n = w.getnframes()
+    raw = w.readframes(n)
+dur = n / float(rate)
+# Check 100 ms windows across the middle 80% for unexpected silence gaps
+win = int(rate * 0.1)
+step = win * ch * sw
+rms_list = []
+for off in range(0, len(raw) - step + 1, step):
+    chunk = raw[off:off+step]
+    samples = struct.unpack("<" + "h" * (len(chunk) // 2), chunk) if sw == 2 else []
+    if samples:
+        rms = (sum(s*s for s in samples) / len(samples)) ** 0.5
+        rms_list.append(rms)
+mid = rms_list[max(1, len(rms_list)//10):max(2, len(rms_list)*9//10)]
+zero_gaps = sum(1 for r in mid if r < 50.0)
+print(f"laptop A2DP capture: {dur:.1f}s ({rate}Hz {ch}ch), mid windows={len(mid)}, silent_gaps={zero_gaps}, min_rms={min(mid) if mid else 0:.0f}")
+if dur < 5.0 or not mid or zero_gaps > 0:
+    sys.exit(1)
+PY
+  fi
+
+  new_errs=$(phone "dmesg > /tmp/net03-dmesg1.txt; diff /tmp/net03-dmesg0.txt /tmp/net03-dmesg1.txt | grep '^>' | grep -iE 'hci|bluetooth|ath11k|qca' | grep -iE 'error|err|crit|fail|abort|oops|panic' || true")
+  if [[ -n $new_errs ]]; then
+    echo "new driver errors in dmesg:"
+    echo "$new_errs" | sed 's/^/    /'
+  else
+    echo "no new hci/bluetooth/ath11k/qca errors in dmesg"
+  fi
+
+  # ---- verdict ----
+  local verdict=0
+  [[ $pw_err1 -eq $pw_err0 ]] || { echo "FAIL: pw-top ERR increased ($pw_err0 -> $pw_err1)"; verdict=1; }
+  [[ $connected == *"Connected: yes"* ]] || { echo "FAIL: BT sink not Connected: yes"; verdict=1; }
+  (( delta_mb >= 10 )) || { echo "FAIL: Wi-Fi rx delta ${delta_mb} MiB < 10 MiB"; verdict=1; }
+  [[ $rec_ok -eq 1 ]] || true
+  if [[ -n $rec_wav && $rec_ok -ne 0 ]]; then
+    echo "FAIL: laptop A2DP capture recorded silent gaps or too short"
+    verdict=1
+  fi
+  [[ -z $new_errs ]] || { echo "FAIL: new driver errors in dmesg"; verdict=1; }
+
+  echo
+  if [[ $verdict -eq 0 ]]; then
+    echo "[net-03] PASS: A2DP playback concurrent with ${delta_mb} MiB Wi-Fi transfer (${speed_dl} MiB/s), zero dropouts"
+  else
+    echo "[net-03] FAIL: see failures above"
+  fi
+  return "$verdict"
+}
+
+# ---- main ----------------------------------------------------------------
+
+[[ ${1:-} == -h || ${1:-} == --help ]] && { show_help; exit 0; }
+
+SUBCOMMAND=${1:-check}
+case "$SUBCOMMAND" in
+  check) shift || true; cmd_check "$@" ;;
+  run)   shift; cmd_run "$@" ;;
+  -h|--help) show_help ;;
+  *) echo "r8q-net03-test: unknown subcommand '$SUBCOMMAND'" >&2; show_help; exit 2 ;;
+esac

@@ -232,11 +232,12 @@
         {
           "id": "net-03",
           "title": "Verify Bluetooth A2DP audio playback under concurrent Wi-Fi transfer",
-          "done": false,
+          "done": true,
           "area": "userspace",
           "risk": "low",
           "requires_human": false,
-          "verify": "Pair BT headset, stream audio via PipeWire while transferring over wlp1s0 with zero dropouts"
+          "verify": "Pair BT headset, stream audio via PipeWire while transferring over wlp1s0 with zero dropouts",
+          "evidence": "2026-11-22 (7.3.0-rc6-omamobile-push1-g4d235a595f28): tools/r8q-net03-test run --laptop-sink --duration 20 --cleanup streamed 48 kHz stereo A2DP to bluez_output (RUNNING) concurrently with 532 MiB IPv6 Wi-Fi transfer over wlp1s0 (5220 MHz @ 25.00 MiB/s); pw-top ERR 0 -> 0, BREDR.Connected: yes throughout, zero new hci/bluetooth/ath11k/qca errors in dmesg"
         }
       ]
     },

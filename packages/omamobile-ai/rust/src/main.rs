@@ -52,6 +52,11 @@ struct Config {
     listen_port: u16,
     llama_port: u16,
     llama_bin: String,
+    usb_boost: bool,
+    usb_idle_timeout_secs: i64,
+    boost_idle_timeout_secs: i64,
+    boost_profile: String,
+    boost_max_temp_mc: i64,
 }
 
 impl Default for Config {
@@ -68,6 +73,11 @@ impl Default for Config {
             listen_port: 8080,
             llama_port: 18080,
             llama_bin: "llama-server".into(),
+            usb_boost: false,
+            usb_idle_timeout_secs: 0,
+            boost_idle_timeout_secs: 60,
+            boost_profile: "performance".into(),
+            boost_max_temp_mc: 85000,
         }
     }
 }
@@ -129,7 +139,23 @@ fn _apply_setting(key: &str, value: &str, config: &mut Config, path: &Path) {
         "IDLE_TIMEOUT" => _set_number(value, path, key, |n| config.idle_timeout_secs = n),
         "LISTEN_PORT" => _set_number(value, path, key, |n| config.listen_port = n),
         "LLAMA_PORT" => _set_number(value, path, key, |n| config.llama_port = n),
+        "USB_BOOST" => _set_bool(value, path, key, &mut config.usb_boost),
+        "USB_IDLE_TIMEOUT" => _set_number(value, path, key, |n| config.usb_idle_timeout_secs = n),
+        "BOOST_IDLE_TIMEOUT" => {
+            _set_number(value, path, key, |n| config.boost_idle_timeout_secs = n)
+        }
+        "BOOST_PROFILE" => config.boost_profile = value.into(),
+        "BOOST_MAX_TEMP_MC" => _set_number(value, path, key, |n| config.boost_max_temp_mc = n),
         other => warn!("{}: unknown setting {:?}", path.display(), other),
+    }
+}
+
+/// Parse boolean config values (`1`/`true`/`yes`/`on` vs `0`/`false`/`no`/`off`).
+fn _set_bool(value: &str, path: &Path, key: &str, target: &mut bool) {
+    match value.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => *target = true,
+        "0" | "false" | "no" | "off" => *target = false,
+        _ => warn!("{}: bad boolean for {}: {:?}", path.display(), key, value),
     }
 }
 
@@ -191,10 +217,11 @@ fn _validate_config(config: &Config) -> Result<(), String> {
 
 // ─── Shared state ────────────────────────────────────────────────────
 
-/// Runtime state: the config, the child we own, and the last request time.
+/// Runtime state: config, llama-server child, boost hold child, and last request time.
 struct AppState {
     config: Config,
     llama: Mutex<Option<tokio::process::Child>>,
+    boost: Mutex<Option<tokio::process::Child>>,
     last_request: AtomicI64,
 }
 
@@ -203,6 +230,7 @@ impl AppState {
         Self {
             config,
             llama: Mutex::new(None),
+            boost: Mutex::new(None),
             last_request: AtomicI64::new(0),
         }
     }
@@ -246,6 +274,7 @@ async fn _serve() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     _stop_llama(&state).await;
+    _release_boost(&state, "shutdown").await;
     Ok(())
 }
 
@@ -287,14 +316,22 @@ fn _build_router(state: Arc<AppState>) -> Router {
 
 // ─── Handlers ────────────────────────────────────────────────────────
 
-/// GET /health: liveness plus RAM, battery, load and whether the model is up.
+/// GET /health: liveness plus RAM, battery, boost state, load and model state.
 async fn _handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let running = state.llama.lock().await.is_some();
+    let boost_active = state.boost.lock().await.is_some();
+    let usb_connected = _usb_connected();
+    let power_profile = _power_profile().await;
     Json(json!({
         "status": "ok",
         "model": _model_id(&state.config),
         "model_loaded": running,
         "idle_timeout_secs": state.config.idle_timeout_secs,
+        "usb_boost": state.config.usb_boost,
+        "usb_connected": usb_connected,
+        "usb_idle_timeout_secs": state.config.usb_idle_timeout_secs,
+        "boost_active": boost_active,
+        "power_profile": power_profile,
         "threads": state.config.threads,
         "stats": _system_stats(),
     }))
@@ -331,7 +368,11 @@ async fn _handle_chat(
         })?;
 
     _record_request(&state);
-    _proxy_chat(&state, body).await
+    _sync_boost(&state).await;
+    let res = _proxy_chat(&state, body).await;
+    _record_request(&state);
+    _sync_boost(&state).await;
+    res
 }
 
 /// GET /models: the llama.cpp router catalog, with the one model we serve.
@@ -375,6 +416,7 @@ async fn _handle_router_load(
         StatusCode::SERVICE_UNAVAILABLE
     })?;
     _record_request(&state);
+    _sync_boost(&state).await;
     Ok(Json(json!({ "success": true })))
 }
 
@@ -505,7 +547,7 @@ async fn _wait_until_ready(port: u16) -> Result<(), String> {
     Err(format!("llama-server did not become ready on port {port}"))
 }
 
-/// Kill and reap llama-server, if we own one.
+/// Kill and reap llama-server, if we own one, and drop any performance boost.
 async fn _stop_llama(state: &AppState) {
     let mut guard = state.llama.lock().await;
     if let Some(mut child) = guard.take() {
@@ -513,28 +555,204 @@ async fn _stop_llama(state: &AppState) {
         let _ = child.wait().await;
         info!("llama-server stopped, model unloaded");
     }
+    drop(guard);
     state.last_request.store(0, Ordering::Relaxed);
+    _release_boost(state, "model unloaded").await;
 }
 
-/// Kill llama-server once the idle timeout has passed with no chat request.
+/// Kill llama-server once the effective idle timeout has passed and sync boost state.
 async fn _idle_watchdog(state: Arc<AppState>) {
     loop {
         tokio::time::sleep(WATCHDOG_TICK).await;
         if _idle_expired(&state) {
             info!("idle timeout reached");
             _stop_llama(&state).await;
+        } else {
+            _sync_boost(&state).await;
         }
     }
 }
 
 /// True when a model is loaded and nobody has asked for it in a while.
+/// When USB_BOOST=1 and USB is connected, USB_IDLE_TIMEOUT (0 = stay resident)
+/// replaces IDLE_TIMEOUT so the model remains warm across sessions.
 fn _idle_expired(state: &AppState) -> bool {
+    _idle_expired_with(state, _usb_connected(), _unix_now())
+}
+
+fn _idle_expired_with(state: &AppState, usb_connected: bool, now: i64) -> bool {
     let last = state.last_request.load(Ordering::Relaxed);
     if last == 0 {
         return false; // Nothing was started through us yet.
     }
-    let now = _unix_now();
-    now.saturating_sub(last) >= state.config.idle_timeout_secs
+    let timeout = if state.config.usb_boost && usb_connected {
+        state.config.usb_idle_timeout_secs
+    } else {
+        state.config.idle_timeout_secs
+    };
+    if timeout <= 0 {
+        return false;
+    }
+    now.saturating_sub(last) >= timeout
+}
+
+fn _boost_expired_with(state: &AppState, now: i64) -> bool {
+    let limit = state.config.boost_idle_timeout_secs;
+    if limit <= 0 {
+        return false;
+    }
+    let last = state.last_request.load(Ordering::Relaxed);
+    if last == 0 {
+        return true;
+    }
+    now.saturating_sub(last) >= limit
+}
+
+// ─── USB-powered performance boost ────────────────────────────────────
+
+/// Synchronize the powerprofilesctl performance hold with USB, load, and thermal state.
+async fn _sync_boost(state: &AppState) {
+    if !state.config.usb_boost {
+        _release_boost(state, "disabled").await;
+        return;
+    }
+    let llama_running = state.llama.lock().await.is_some();
+    let usb_up = _usb_connected();
+    let hot = _thermal_hot(state.config.boost_max_temp_mc);
+    let idle = _boost_expired_with(state, _unix_now());
+
+    if llama_running && usb_up && !hot && !idle {
+        _acquire_boost(state).await;
+    } else {
+        let reason = if !llama_running {
+            "model idle/unloaded"
+        } else if !usb_up {
+            "USB unplugged"
+        } else if hot {
+            "thermal guard"
+        } else {
+            "boost idle timeout"
+        };
+        _release_boost(state, reason).await;
+    }
+}
+
+/// Acquire a temporary powerprofilesctl HoldProfile child kept alive via stdin pipe.
+async fn _acquire_boost(state: &AppState) {
+    let mut guard = state.boost.lock().await;
+    if let Some(child) = guard.as_mut() {
+        if child.try_wait().ok().flatten().is_none() {
+            return;
+        }
+        *guard = None;
+    }
+    let profile = &state.config.boost_profile;
+    let mut cmd = tokio::process::Command::new("powerprofilesctl");
+    cmd.args([
+        "launch",
+        "-p",
+        profile,
+        "-r",
+        "USB AI serving",
+        "-i",
+        "omamobile-ai",
+        "--",
+        "sh",
+        "-c",
+        "read _",
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .kill_on_drop(true);
+
+    match cmd.spawn() {
+        Ok(child) => {
+            info!("acquired USB powerprofilesctl boost ({profile})");
+            *guard = Some(child);
+        }
+        Err(e) => warn!("could not acquire powerprofilesctl boost ({profile}): {e}"),
+    }
+}
+
+/// Close stdin pipe and reap the HoldProfile helper so power-profiles-daemon reverts cleanly.
+async fn _release_boost(state: &AppState, reason: &str) {
+    let mut guard = state.boost.lock().await;
+    if let Some(mut child) = guard.take() {
+        drop(child.stdin.take());
+        let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        info!("released powerprofilesctl boost ({reason})");
+    }
+}
+
+/// True when USB power supply is online or USB gadget UDC is configured.
+fn _usb_connected() -> bool {
+    _usb_connected_at(Path::new("/sys"))
+}
+
+fn _usb_connected_at(sys: &Path) -> bool {
+    let ps = sys.join("class/power_supply");
+    if let Ok(entries) = fs::read_dir(ps) {
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            let ptype = fs::read_to_string(dir.join("type")).unwrap_or_default();
+            if ptype.trim().starts_with("USB") {
+                let online = fs::read_to_string(dir.join("online")).unwrap_or_default();
+                if online.trim() == "1" {
+                    return true;
+                }
+            }
+        }
+    }
+    let udc = sys.join("class/udc");
+    if let Ok(entries) = fs::read_dir(udc) {
+        for entry in entries.flatten() {
+            let state = fs::read_to_string(entry.path().join("state")).unwrap_or_default();
+            if state.trim() == "configured" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// True when any thermal zone reads at or above `max_mc` millidegrees C.
+fn _thermal_hot(max_mc: i64) -> bool {
+    _thermal_hot_at(Path::new("/sys"), max_mc)
+}
+
+fn _thermal_hot_at(sys: &Path, max_mc: i64) -> bool {
+    if max_mc <= 0 {
+        return false;
+    }
+    let dir = sys.join("class/thermal");
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let Ok(raw) = fs::read_to_string(entry.path().join("temp")) else {
+                continue;
+            };
+            if let Ok(temp) = raw.trim().parse::<i64>() {
+                if temp >= max_mc {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Read the active power-profiles-daemon profile, if available.
+async fn _power_profile() -> String {
+    match tokio::process::Command::new("powerprofilesctl")
+        .arg("get")
+        .output()
+        .await
+    {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        _ => "unknown".into(),
+    }
 }
 
 /// Remember when a request last arrived.
@@ -649,4 +867,60 @@ fn _loadavg() -> String {
     fs::read_to_string("/proc/loadavg")
         .map(|s| s.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
         .unwrap_or_else(|_| "unknown".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn _test_config_boost_flags() {
+        let mut cfg = Config::default();
+        let p = Path::new("/tmp/test.conf");
+        _apply_setting("USB_BOOST", "1", &mut cfg, p);
+        _apply_setting("USB_IDLE_TIMEOUT", "0", &mut cfg, p);
+        _apply_setting("BOOST_IDLE_TIMEOUT", "45", &mut cfg, p);
+        _apply_setting("BOOST_PROFILE", "performance", &mut cfg, p);
+        _apply_setting("BOOST_MAX_TEMP_MC", "75000", &mut cfg, p);
+        assert!(cfg.usb_boost);
+        assert_eq!(cfg.usb_idle_timeout_secs, 0);
+        assert_eq!(cfg.boost_idle_timeout_secs, 45);
+        assert_eq!(cfg.boost_profile, "performance");
+        assert_eq!(cfg.boost_max_temp_mc, 75000);
+    }
+
+    #[test]
+    fn _test_idle_keeps_resident_on_usb() {
+        let mut cfg = Config::default();
+        cfg.usb_boost = true;
+        cfg.idle_timeout_secs = 180;
+        cfg.usb_idle_timeout_secs = 0;
+        cfg.boost_idle_timeout_secs = 60;
+        let state = AppState::new(cfg);
+        state.last_request.store(100, Ordering::Relaxed);
+        assert!(!_idle_expired_with(&state, true, 5000));
+        assert!(_idle_expired_with(&state, false, 280));
+        assert!(!_boost_expired_with(&state, 159));
+        assert!(_boost_expired_with(&state, 160));
+    }
+
+    #[test]
+    fn _test_sysfs_usb_and_thermal() {
+        let tmp = std::env::temp_dir().join(format!("omamobile-ai-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let chg = tmp.join("class/power_supply/max77705-charger");
+        let tz = tmp.join("class/thermal/thermal_zone0");
+        fs::create_dir_all(&chg).unwrap();
+        fs::create_dir_all(&tz).unwrap();
+        fs::write(chg.join("type"), "USB\n").unwrap();
+        fs::write(chg.join("online"), "0\n").unwrap();
+        fs::write(tz.join("temp"), "42000\n").unwrap();
+        assert!(!_usb_connected_at(&tmp));
+        assert!(!_thermal_hot_at(&tmp, 78000));
+        fs::write(chg.join("online"), "1\n").unwrap();
+        fs::write(tz.join("temp"), "79000\n").unwrap();
+        assert!(_usb_connected_at(&tmp));
+        assert!(_thermal_hot_at(&tmp, 78000));
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }

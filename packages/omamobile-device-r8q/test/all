@@ -202,4 +202,7 @@ test -f etc/omamobile-ai.conf.d/10-sm8250.conf
 grep -q 'CPU_AFFINITY=4-7' etc/omamobile-ai.conf.d/10-sm8250.conf
 grep -q 'THREADS=4' etc/omamobile-ai.conf.d/10-sm8250.conf
 grep -q 'IDLE_TIMEOUT=180' etc/omamobile-ai.conf.d/10-sm8250.conf
+grep -q 'USB_BOOST=1' etc/omamobile-ai.conf.d/10-sm8250.conf
+grep -q 'USB_IDLE_TIMEOUT=0' etc/omamobile-ai.conf.d/10-sm8250.conf
+grep -q 'BOOST_IDLE_TIMEOUT=60' etc/omamobile-ai.conf.d/10-sm8250.conf
 echo ok ai-dropin

@@ -322,11 +322,12 @@
         {
           "id": "pwr-05",
           "title": "Auto-boost omamobile-ai serving profile to max performance while USB-connected",
-          "done": false,
+          "done": true,
           "area": "package",
           "risk": "low",
           "requires_human": false,
-          "verify": "On USB power/gadget connect + active omamobile-ai request, switch powerprofilesctl to performance (2.42/2.84 GHz) and keep LFM3 resident; revert cleanly on idle/unplug"
+          "verify": "On USB power/gadget connect + active omamobile-ai request, switch powerprofilesctl to performance (2.42/2.84 GHz) and keep LFM3 resident; revert cleanly on idle/unplug",
+          "evidence": "2026-11-22 (omamobile-ai 0.1.1-1 + 10-sm8250.conf USB_BOOST=1 USB_IDLE_TIMEOUT=0 BOOST_IDLE_TIMEOUT=60 BOOST_MAX_TEMP_MC=85000): live test on r8q transitioned balanced -> performance HoldProfile (2419200/2841600 kHz) on prompt, held LFM3-1.7B-Q8_0 resident across 60s idle while reverting boost to balanced, re-boosted on warm prompt without reload, and released on /v1/unload"
         }
       ]
     },

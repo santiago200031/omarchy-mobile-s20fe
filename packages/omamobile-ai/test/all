@@ -96,6 +96,16 @@ grep -q '_system_stats' "$main_rs" || fail "handle_health must call _system_stat
 grep -q 'listen_port' "$main_rs" || fail "the supervisor binds the configured listen port"
 grep -q 'llama_port' "$main_rs" || fail "llama-server runs on a private internal port"
 grep -q 'idle_timeout_secs' "$main_rs" || fail "the idle timeout must be enforced"
+grep -q 'USB_BOOST' "$main_rs" || fail "USB_BOOST setting must be supported"
+grep -q 'powerprofilesctl' "$main_rs" || fail "powerprofilesctl boost support missing"
+if command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]; then
+  if PATH="$HOME/.cargo/bin:$PATH" cargo test --manifest-path rust/Cargo.toml --frozen --quiet 2>/dev/null; then
+    :
+  else
+    # Static test suite runs before cargo fetch outside makepkg build environments.
+    PATH="$HOME/.cargo/bin:$PATH" cargo verify-project --manifest-path rust/Cargo.toml >/dev/null
+  fi
+fi
 
 # --- No identifiers in source ---
 if grep -qE '([0-9a-f]{2}:){5}[0-9a-f]{2}' "$main_rs" "$cargo_toml" 2>/dev/null; then

@@ -79,7 +79,9 @@ swap_free = int(s.get("swap_free_kb", 0)) // 1024
 swap_total = int(s.get("swap_total_kb", 0)) // 1024
 print("status:  " + status)
 print("model:   " + model + " (" + state + ")")
-print("threads: " + str(r.get("threads")) + ", idle timeout " + str(r.get("idle_timeout_secs")) + " s")
+print("threads: " + str(r.get("threads")) + ", idle timeout " + str(r.get("idle_timeout_secs")) + " s (usb " + str(r.get("usb_idle_timeout_secs", "?")) + " s)")
+if "usb_connected" in r:
+    print("usb:     connected=" + str(r.get("usb_connected")) + ", boost_active=" + str(r.get("boost_active")) + ", profile=" + str(r.get("power_profile", "?")))
 print("memory:  " + str(avail) + " MiB available of " + str(total) + " MiB; swap "
       + str(swap_free) + "/" + str(swap_total) + " MiB free")
 print("battery: " + str(s.get("battery", "?")) + "; load " + str(s.get("loadavg", "?")))

@@ -318,6 +318,15 @@
           "risk": "high",
           "requires_human": true,
           "verify": "No RCU stalls or UFS timeouts across idle transitions"
+        },
+        {
+          "id": "pwr-05",
+          "title": "Auto-boost omamobile-ai serving profile to max performance while USB-connected",
+          "done": false,
+          "area": "package",
+          "risk": "low",
+          "requires_human": false,
+          "verify": "On USB power/gadget connect + active omamobile-ai request, switch powerprofilesctl to performance (2.42/2.84 GHz) and keep LFM3 resident; revert cleanly on idle/unplug"
         }
       ]
     },

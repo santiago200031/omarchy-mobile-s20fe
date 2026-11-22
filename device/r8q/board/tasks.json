@@ -3,7 +3,7 @@
   "device": "r8q",
   "model": "Samsung Galaxy S20 FE (SM-G780G)",
   "soc": "SM8250 (Snapdragon 865)",
-  "updated": "2026-11-21",
+  "updated": "2026-11-22",
   "baseline": {
     "kernel_release": "7.3.0-rc6-omamobile-push1-gae195e6deaac",
     "image": "out-r8q/recovery-fault-quiesce.img",
@@ -245,7 +245,7 @@
       "stage": "9",
       "track": "bringup",
       "title": "Haptics & Torch",
-      "milestone_status": "missing",
+      "milestone_status": "achieved",
       "plan": "CONTRIBUTING.md",
       "tasks": [
         {
@@ -258,11 +258,9 @@
         {
           "id": "hap-02",
           "title": "Add disabled haptics DT node + bring-up overlay and test feedbackd click",
-          "done": false,
+          "done": true,
           "area": "kernel",
-          "risk": "medium",
-          "requires_human": true,
-          "verify": "Single short haptic pulse verified with zero PMIC brownout or I2C errors"
+          "evidence": "wt-r8q r8q-haptics commits 68726e156 (gcc_gp2_clk_src clk_rcg2_gp_ops) + 358e286ef (disabled vreg_l10c_3p2, vib_pwm clk-pwm on GPIO 137, max77705-haptic) + device/r8q/overlays/haptics.dtso + kernel.config (PWM_CLK=m, INPUT_MAX77693_HAPTIC=m): verified live on 7.3.0-rc6-omamobile-push1-g358e286ef5a6 (20000 Hz bi_tcxo, L10C 3.2V, /dev/input/event5 max77693-haptic FEEDBACKD_TYPE=vibra, ff-rumble 150 ms @ 35% + fbcli -E message-new-instant physically felt with zero PMIC/I2C/PWM errors)"
         },
         {
           "id": "hap-03",

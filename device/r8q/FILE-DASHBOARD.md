@@ -2,9 +2,9 @@
 
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
-**Updated:** `2026-11-21` (`0.1.34-1` + `recovery-gpu-hangcheck.img`)
+**Updated:** `2026-11-22` (`0.1.34-1` + `recovery-haptics.img`)
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-g802d3d3bc512` (`recovery-gpu-hangcheck.img` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + `-p 512` hangcheck fix + Vulkan, Wi-Fi, BT, remoteprocs, `SamsungGalaxyS2` playback + `DMIC3` capture via `dmic-va.dtso`, `camera-uw.dtso` + `omacam` `0.5x..3x` lenses, RT8547 `white:torch` via `torch.dtso`, SLPI sensors)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-g358e286ef5a6` (`recovery-haptics.img` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + `-p 512` hangcheck fix + Vulkan, Wi-Fi, BT, haptics (`max77705-haptic` via `haptics.dtso` + `gcc_gp2_clk_src`), remoteprocs, `SamsungGalaxyS2` playback + `DMIC3` capture via `dmic-va.dtso`, `camera-uw.dtso` + `omacam` `0.5x..3x` lenses, RT8547 `white:torch` via `torch.dtso`, SLPI sensors)
 **Live Packages:** `omamobile-device-r8q 0.1.34-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.3-1` (upgraded natively via `tools/phone-install-package`), `libcamera 0.7.2-4.25`
 **Boot Method:** Samsung `recovery` (`sda24`) → native `/dev/sda36` (`LABEL=omamobile-root`); a plain power-on boots it ([NOTES §24](NOTES.md))
 **Safety:** `77/77` UFS partitions read-only (`ro=1`), `userdata` (`sda36`) `rw`; NV partitions untouched
@@ -41,9 +41,9 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 
 | Metric | Progress | Notes |
 | --- | --- | --- |
-| **Overall (Hardware + Upstream)** | **73.8% (48/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
-| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **78.6% (44/56)** | Stages 1–6, 7–8, 14 achieved; 9–13, 15 partial; Stage 16 deferred ([`FINGERPRINT-PLAN.md`](FINGERPRINT-PLAN.md)) |
-| **Daily Core (Stages 1–8 + UI)** | **95.5% (21/22)** | Usable daily phone on desk (`120 Hz`, full-duplex audio, `0.5x`/`3x` cams, torch, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI `70.2 pp512 / 12.5 tg128`) |
+| **Overall (Hardware + Upstream)** | **75.4% (49/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
+| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **80.4% (45/56)** | Stages 1–6, 7–8, 9, 14 achieved; 10–13, 15 partial; Stage 16 deferred ([`FINGERPRINT-PLAN.md`](FINGERPRINT-PLAN.md)) |
+| **Daily Core (Stages 1–8 + UI)** | **95.5% (21/22)** | Usable daily phone on desk (`120 Hz`, haptics + torch, full-duplex audio, `0.5x`/`3x` cams, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI `75.8 pp512 / 12.5 tg128` at `4-7`) |
 | **Upstream & Docs (U1–U2)** | **44.4% (4/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` pass; 38/83 kernel commits need human `Signed-off-by:` |
 
 | Column | Count | Last Updated |
@@ -88,7 +88,7 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 > **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **38 of 83** commits in `~/omamobile-kernel/wt-r8q` (`omamobile..HEAD`) await Santiago's sign-off (`git -C ~/omamobile-kernel/wt-r8q rebase --signoff ...`).
 
 1. **Immediate Software / Offline Tasks (`1` open):** `[net-03]` BT A2DP audio + Wi-Fi concurrency.
-2. **Kernel DT Fixes (`human-gate` reboot, `2` open):** `[hap-02]` haptics DT (`LINEAR_0832RC` / `max77705`); `[doc-04]` fold base-DTS overlays & re-pin `stable-image.conf`.
+2. **Kernel DT Fixes (`human-gate` reboot, `1` open):** `[doc-04]` fold base-DTS overlays & re-pin `stable-image.conf`.
 3. **High-Risk Hardware Bring-Up (`8` open):** `[usb-03..04]` Type-C replug/PD & OTG (`usbc-deadman`), `[mdm-03..05]` native `sda36` `modem.dtso` boot + NV verify + SIM/QMI/MBIM, `[pwr-03..04]` / `[slp-02..03]` `s2idle`/DVFS/`cpuidle`/UFS PM w/ watchdog, `[cam-05]` IMX555/IMX616 drivers.
 4. **Kernel Upstream (`4` open):** `[krn-02..05]` Human `Signed-off-by:` on 38 commits -> split topic branches -> `tools/kernel-pr-check --build --merge origin/omamobile` -> fork PRs.
 

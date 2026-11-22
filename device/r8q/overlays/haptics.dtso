@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay: maxim,max77705-haptic (motor PWM via clk-pwm on
+ * GCC_GP2_CLK to gpio137, haptic rail from PM8150L L10C / vreg_l10c_3p2).
+ * Enabled one boot at a time.
+ */
+/dts-v1/;
+/plugin/;
+
+&vib_pwm {
+	status = "okay";
+};
+
+&max77705 {
+	haptic {
+		status = "okay";
+	};
+};

@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay (CAMERA-PLAN [cam-05]): enable CCI0 camera bus,
+ * CSIPHY0 (port@0) for the rear wide Sony IMX555, CSIPHY3 (port@3)
+ * for the front Sony IMX616, and both sensor nodes.
+ *
+ * The base device tree ships camss port@0, port@3, CCI0, CCI1,
+ * imx555, and imx616 all disabled, so the phone boots exactly as
+ * before without this overlay.
+ *
+ * Boot it with `tools/r8q-boot --overlay camera-main`, and only after
+ * the camera modules are installed (camcc-sm8250, qcom-camss,
+ * qcom-ci2c-cci) and `camcc_sm8250` is no longer blacklisted:
+ * CAMSS and the sensors get their clocks and their CSIPHY rails from
+ * CAMCC.
+ *
+ * DEADLOCK AVOIDANCE (HARDWARE-DISCOVERY §1 / cam-03):
+ * camss_parse_ports() walks the port tree and resolves remote-endpoint
+ * references via v4l2-async.  If a port endpoint references a sensor
+ * node that is disabled (not probed), the async framework can deadlock
+ * waiting for the remote subdev.  The fix: enable the camss port AND
+ * the sensor node in the *same* overlay so that both are probed
+ * together and the async graph resolves atomically.  The base DT keeps
+ * port@0 and port@3 disabled with their remote-endpoint stubs; this
+ * overlay flips both sides to "okay" at once.
+ */
+/dts-v1/;
+/plugin/;
+
+/*
+ * Enable CSIPHY0 port@0 for the rear wide IMX555.
+ * The endpoint's remote-endpoint points to imx555_ep (defined in the
+ * base DTS), which is enabled below.
+ */
+&{/soc@0/camss@ac6a000/ports/port@0} {
+	status = "okay";
+};
+
+/*
+ * Enable CSIPHY3 port@3 for the front IMX616.
+ * The endpoint's remote-endpoint points to imx616_ep (defined in the
+ * base DTS), which is enabled below.
+ */
+&{/soc@0/camss@ac6a000/ports/port@3} {
+	status = "okay";
+};
+
+/*
+ * CCI0: the camera control bus for both the rear wide IMX555
+ * (master 0) and the front IMX616 (master 1).
+ *
+ * Stock live.dts: cam_cci0 at 0xac4f000, qcom,cci compatible.
+ * Mainline: qcom,sm8250-cci compatible, same register layout.
+ */
+&{/soc@0/cci@ac4f000} {
+	status = "okay";
+};
+
+/*
+ * CCI1: second I2C bus on the CCI0 controller (master 1).
+ * The IMX616 is on CCI0 master 1, which maps to the CCI1 node
+ * in the mainline DT (cci@ac50000).
+ */
+&{/soc@0/cci@ac50000} {
+	status = "okay";
+};
+
+/*
+ * Rear wide: Sony IMX555 (12.3 MP) at 7-bit I2C address 0x1a,
+ * on CCI0 master 0, CSIPHY0, MCLK0 19.2 MHz.
+ */
+&{/soc@0/cci@ac4f000/camera@1a} {
+	status = "okay";
+};
+
+/*
+ * Front: Sony IMX616 (32.3 MP) at 7-bit I2C address 0x1a,
+ * on CCI0 master 1, CSIPHY3, MCLK2 24 MHz.
+ */
+&{/soc@0/cci@ac50000/camera@1a} {
+	status = "okay";
+};

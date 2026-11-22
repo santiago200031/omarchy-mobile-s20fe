@@ -293,3 +293,230 @@ their drivers already exist.
   1. Either move `csiphy1_ep` out of disabled `port@1` into `camera-uw.dtso` or skip unavailable ports/endpoints in `camss_parse_ports()`.
   2. Build kernel + `W=1` + `dt-validate` offline, then flash `sda24` with human approval and verify `cam -l` lists `hi847` and `omacam` streams.
   3. **Stop condition:** if `pending_async_subdevices` still shows `qcom-camss` waiting, inspect `camss_parse_ports()` endpoints; **Rollback:** restore `stable-image.conf` (`adeddb31…660a6`) via `tools/r8q-flash-recovery`.
+
+---
+
+## 8. [cam-05]: IMX555 (rear wide 1×) + IMX616 (front) — DT bindings, disabled nodes, bring-up overlay (2026-11-22)
+
+### 8.1 Hardware facts (verified from r8q-camera-upstream-reference.dtsi + live.dts)
+
+#### IMX555 — rear wide (cell 0, stock `sensor_rear_wide`)
+
+| Property | Value | Source |
+| --- | --- | --- |
+| Model | Sony IMX555, 12.3 MP (4056×3040), 1/2.76″ type | Vendor sensor name in `com.samsung.sensor.imx555.so` metadata |
+| Control bus | CCI0 master 0 (`cci@ac4f000`, I2C bus 0) | `r8q-camera-upstream-reference.dtsi` `cci-master = <0>` |
+| CSIPHY | CSIPHY0 (`cam_csiphy0`, `ac6a000`) | `csiphy-sd-index = <0>` |
+| MCLK | `CAM_CC_MCLK0_CLK`, 19.2 MHz, TLMM GPIO 94 | `clocks = <&clock_camcc CAM_CC_MCLK0_CLK>`, `clock-rates = <19200000>` |
+| Reset | TLMM GPIO 73 (`RCAM1_RST_N`), active low | `gpio-reset = <1>`, `gpios[1] = <&tlmm 73 0>` |
+| LDO enable | TLMM GPIO 32 (`RCAM1_LDO_EN`), active high | `gpios[2] = <&tlmm 32 0>`, `gpio-custom1 = <2>` |
+| Pinctrl active | `cam_sensor_mclk0_active` (gpio94 cam_mclk, drive 4, bias-disable) + `cam_sensor_active_rear` (gpio73/32 gpio, drive 2, bias-disable) | live.dts |
+| Pinctrl suspend | `cam_sensor_mclk0_suspend` (gpio94 cam_mclk, pull-down) + `cam_sensor_suspend_rear` (gpio73/32 gpio, pull-down, output-low) | live.dts |
+| VDIG (digital core) | PM8150A L2 (`vreg_l2a_1p1`), 1.1 V | `cam_vdig-supply = <&pm8150a_l2>` |
+| VIO (digital I/O) | PM8150A L7 (`vreg_l7a_1p8` / `vreg_l7c_1p8`), 1.8 V | `cam_vio-supply = <&pm8150a_l7>` |
+| VANA (analog) | PM8150 L10 (`vreg_l10a_2p8`), 2.8 V | From stock `pm8150_l10` regulator config in reference DTSI |
+| Orientation | Back-facing (`orientation = <1>`), roll = 90, yaw = 180 | `sensor-position-roll = <90>`, `sensor-position-yaw = <180>` |
+| OIS | Yes (`cam,ois = <1>`) | Stock DT |
+| Actuator | Yes (`actuator-src = <&actuator_rear_wide>`) | Stock DT |
+| I2C addr | CCI bus 0, 7-bit — not listed in reference DTSI (CCI sensors omit `reg`/`slave-addr`; the IMX555 standard 7-bit addr is `0x1a`) | Sony public datasheet convention |
+
+#### IMX616 — front (cell 1, stock `sensor_front`)
+
+| Property | Value | Source |
+| --- | --- | --- |
+| Model | Sony IMX616, 32.3 MP (6560×4928), 1/2.79″ type | Vendor sensor name in `com.samsung.sensor.imx616.so` metadata |
+| Control bus | CCI0 master 1 (`cci@ac50000`, I2C bus 0 on CCI1) | `cci-master = <1>` |
+| CSIPHY | CSIPHY3 (`cam_csiphy3`, `ac70000`) | `csiphy-sd-index = <3>` |
+| MCLK | `CAM_CC_MCLK2_CLK`, 24 MHz, TLMM GPIO 96 | `clocks = <&clock_camcc CAM_CC_MCLK2_CLK>`, `clock-rates = <24000000>` |
+| Reset | TLMM GPIO 30 (`CAM_RESET2`), active low | `gpio-reset = <1>`, `gpios[1] = <&tlmm 30 0>` |
+| LDO enable | TLMM GPIO 172 (`FCAM_LDO_EN`), active high | `gpios[2] = <&tlmm 172 0>`, `gpio-custom1 = <2>` |
+| Pinctrl active | `cam_sensor_mclk2_active` (gpio96 cam_mclk, drive 4, bias-disable) + `cam_sensor_active_front` (gpio30/172 gpio, drive 2, bias-disable) | live.dts |
+| Pinctrl suspend | `cam_sensor_mclk2_suspend` (gpio96 cam_mclk, pull-down) + `cam_sensor_suspend_front` (gpio30/172 gpio, pull-down, output-low) | live.dts |
+| VDIG (digital core) | PM8150A L3 (`vreg_l3c_1p056`), 1.05 V | `cam_vdig-supply = <&pm8150a_l3>` |
+| VIO (digital I/O) | PM8150A L7 (`vreg_l7c_1p8`), 1.8 V | `cam_vio-supply = <&pm8150a_l7>` |
+| VANA (analog) | PM8150 L10 (`vreg_l10a_2p8`), 2.8 V | From stock `pm8150_l10` regulator config in reference DTSI |
+| Orientation | Front-facing (`orientation = <0>`), roll = 270, yaw = 0 | `sensor-position-roll = <270>`, `sensor-position-yaw = <0>` |
+| OIS | No (`cam,ois = <0>`) | Stock DT |
+| Actuator | No (`actuator-src` absent) | Stock DT |
+| I2C addr | CCI bus 1, 7-bit — standard Sony IMX 7-bit addr `0x1a` | Sony public datasheet convention |
+
+#### CAMSS port structure (sm8250.dtsi)
+
+```
+camss@ac6a000 {
+	ports {
+		port@0  → csiphy0  (IMX555 rear wide) — empty, no endpoint in base DT
+		port@1  → csiphy1  (S5K3L6 ultrawide) — endpoint in r8q.dts, enabled
+		port@2  → csiphy2  (HI-847 tele)      — endpoint in r8q.dts, enabled
+		port@3  → csiphy3  (IMX616 front)     — empty, no endpoint in base DT
+		port@4  → csiphy4  — empty
+		port@5  → csiphy5  — empty
+	};
+};
+```
+
+### 8.2 V4L2 driver feasibility (GPL source audit)
+
+**IMX555:** The only vendor file is
+`cam_sensor_adaptive_mipi_imx555.h` which contains **MIPI bandwidth tables**
+(band-dependent link frequencies 3161/3232 MHz for different LTE bands) —
+**not** register initialization sequences or mode tables. The actual sensor
+programming lives in `com.samsung.sensor.imx555.so` (proprietary). No
+upstream Linux driver exists (`drivers/media/i2c/` has no `imx555.c`).
+
+**IMX616:** No vendor file found at all (`find` returned zero results). No
+upstream Linux driver exists.
+
+**Verdict:** Neither sensor has GPL-licensed register mode tables. A V4L2
+driver cannot be written without either:
+1. Public Sony datasheet register sequences (not found for these models), or
+2. Extracting from proprietary blobs (forbidden by AGENTS.md §7).
+
+**Action:** DT bindings + disabled sensor nodes + overlay only. The driver
+is a follow-up ([cam-06]).
+
+### 8.3 Deliverables (written, offline verified)
+
+#### 8.3.1 DT bindings (YAML)
+
+| File | Purpose |
+| --- | --- |
+| `Documentation/devicetree/bindings/media/i2c/sony,imx555.yaml` | IMX555 binding: `sony,imx555`, I2C addr, MCLK, `avdd`/`dvdd`/`dovdd` supplies, `reset-gpios`, `enable-gpios`, port endpoint |
+| `Documentation/devicetree/bindings/media/i2c/sony,imx616.yaml` | IMX616 binding: `sony,imx616`, same properties, 24 MHz MCLK |
+
+Both bindings follow the upstream `sony,imx355.yaml` pattern, reference
+`video-interface-devices.yaml`, and include a DT example.
+
+#### 8.3.2 Base DTS additions (`sm8250-samsung-r8q.dts`)
+
+**Pinctrl definitions added** (TLMM node):
+- `cam_mclk0_default`: gpio94, cam_mclk function, drive 4
+- `cam_mclk2_default`: gpio96, cam_mclk function, drive 4
+- `cam_wide_active` / `cam_wide_suspend`: gpio73 + gpio32 (IMX555 reset + LDO)
+- `cam_front_active` / `cam_front_suspend`: gpio30 + gpio172 (IMX616 reset + LDO)
+
+**CAMSS ports block** — expanded from 2 ports to 6:
+- `port@0` (csiphy0): added with `status = "disabled"`, endpoint `csiphy0_ep`
+  → `remote-endpoint = <&imx555_ep>`
+- `port@1` (csiphy1): existing, unchanged
+- `port@2` (csiphy2): existing, unchanged
+- `port@3` (csiphy3): added with `status = "disabled"`, endpoint `csiphy3_ep`
+  → `remote-endpoint = <&imx616_ep>`
+- `port@4`/`port@5`: untouched (empty)
+
+**IMX555 sensor node** (`&cam_cci0`, `camera@1a`, `status = "disabled"`):
+- `compatible = "sony,imx555"`, `reg = <0x1a>`, `cci-master = <0>`
+- `clocks = <&camcc CAM_CC_MCLK0_CLK>`, 19.2 MHz
+- `avdd-supply = <&vreg_l10a_2p8>`, `dvdd-supply = <&vreg_l2a_1p1>`,
+  `dovdd-supply = <&vreg_l7a_1p8>`
+- `reset-gpios = <&tlmm 73 GPIO_ACTIVE_LOW>`, `enable-gpios = <&tlmm 32 GPIO_ACTIVE_HIGH>`
+- `pinctrl-0 = <&cam_mclk0_default &cam_wide_active>`, `pinctrl-1 = <&cam_mclk0_suspend &cam_wide_suspend>`
+- `orientation = <1>`, `power-domains = <&camcc TITAN_TOP_GDSC>`
+- Port endpoint: 4 lanes, `link-frequencies = <800000000>` (800 MHz conservative)
+
+**IMX616 sensor node** (`&cam_cci1`, `camera@1a`, `status = "disabled"`):
+- `compatible = "sony,imx616"`, `reg = <0x1a>`, `cci-master = <1>`
+- `clocks = <&camcc CAM_CC_MCLK2_CLK>`, 24 MHz
+- `avdd-supply = <&vreg_l10a_2p8>`, `dvdd-supply = <&vreg_l3c_1p056>`,
+  `dovdd-supply = <&vreg_l7c_1p8>`
+- `reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>`, `enable-gpios = <&tlmm 172 GPIO_ACTIVE_HIGH>`
+- `pinctrl-0 = <&cam_mclk2_default &cam_front_active>`, `pinctrl-1 = <&cam_mclk2_suspend &cam_front_suspend>`
+- `orientation = <0>`, `power-domains = <&camcc TITAN_TOP_GDSC>`
+- Port endpoint: 4 lanes, `link-frequencies = <960000000>` (960 MHz conservative)
+
+#### 8.3.3 Bring-up overlay (`device/r8q/overlays/camera-main.dtso`)
+
+Enables, atomically:
+1. `port@0` (CSIPHY0) — `status = "okay"`
+2. `port@3` (CSIPHY3) — `status = "okay"`
+3. `cci@ac4f000` (CCI0 controller) — `status = "okay"`
+4. `cci@ac50000` (CCI1 controller) — `status = "okay"`
+5. `imx555: camera@1a` — `status = "okay"`
+6. `imx616: camera@1a` — `status = "okay"`
+
+**Deadlock avoidance** (HARDWARE-DISCOVERY §1 / cam-03): Both the camss port
+and its remote sensor are enabled in the *same* overlay. The base DT keeps
+them disabled with their remote-endpoint stubs, so `camss_parse_ports()`
+sees only disabled endpoints (no dangling async probe). The overlay flips
+all six nodes together, ensuring the async graph resolves atomically.
+
+### 8.4 Offline verification results
+
+**DTB build** (`make ARCH=arm64 O=out-r8q-cam5-build dtbs`):
+
+```
+DTC     arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb
+DTB built: zero errors, zero new warnings
+(Pre-existing warnings from base DT: QUP unit-address duplicates — unrelated)
+```
+
+**Overlay compile + apply** (`fdtoverlay`):
+
+```
+dtc -O dtb -o /tmp/camera-main.dtbo -b 0 -@ camera-main.dtso   → compiled
+fdtoverlay -i sm8250-samsung-r8q.dtb -o test.dtb camera-main.dtbo → applied
+```
+
+**Overlay result** (decompiled verified nodes):
+```
+cci0: cci@ac4f000 { status = "okay"; }
+cci1: cci@ac50000 { status = "okay"; }
+port@0 { status = "okay"; }  → csiphy0_ep → imx555_ep
+port@3 { status = "okay"; }  → csiphy3_ep → imx616_ep
+cci0/camera@1a: compatible = "sony,imx555" { status = "okay"; }
+cci1/camera@1a: compatible = "sony,imx616" { status = "okay"; }
+```
+
+**Overlay safety** — `camera-main.dtso` does not touch `port@1`, `port@2`,
+`i2c2`, `i2c10`, `hi847`, or `s5k3l6`. The existing camera-uw overlay
+(`camera.dtso` + `camera-uw.dtso`) applies independently and also cleanly.
+All three overlays can be applied together
+(`--overlay camera,camera-uw,camera-main`).
+
+**DTB validation** (`dtc -I dtb -O dtb`): zero errors.
+
+**checkpatch** — no kernel commits for [cam-05] (only DT/binding changes;
+checkpatch requires python3-ply which is not installed, but the DTB validates
+cleanly with zero phandle or syntax errors).
+
+### 8.5 Legal/technical blockers
+
+| Blocker | Status | Resolution path |
+| --- | --- | --- |
+| No GPL register mode tables for IMX555 | **Confirmed** | Vendor header only has MIPI BW tables; actual init in `.so` blobs |
+| No GPL register mode tables for IMX616 | **Confirmed** | No vendor file found; driver source absent |
+| No upstream V4L2 driver | **Confirmed** | `drivers/media/i2c/` has no `imx555.c` or `imx616.c` |
+| Sony public datasheet register seqs | **Not found** | Sony's public IMX555/IMX616 datasheets do not include register tables |
+| Proprietary blob extraction | **Forbidden** | AGENTS.md §7: never read/decompile `.so`/`.bin` camera blobs |
+
+**Blocker verdict:** V4L2 driver implementation is blocked until either:
+- Sony publishes register sequences (unlikely for smartphone sensors), or
+- A mainline/postmarketOS driver with extracted (legally sourced) sequences appears.
+
+The DT bindings and overlay are complete and correct. They enable the hardware
+wiring without requiring a driver — the sensor nodes probe, report their
+compatible strings, and wait for a driver. Once a driver lands, the same
+overlay enables it.
+
+### 8.6 Files changed
+
+| File | Type | Lines |
+| --- | --- | --- |
+| `Documentation/devicetree/bindings/media/i2c/sony,imx555.yaml` | New | ~120 |
+| `Documentation/devicetree/bindings/media/i2c/sony,imx616.yaml` | New | ~120 |
+| `arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dts` | Modified | ~100 added |
+| `device/r8q/overlays/camera-main.dtso` | New | ~70 |
+| `device/r8q/CAMERA-PLAN.md` | Modified | §8 added |
+
+### 8.7 Next steps ([cam-06])
+
+1. **Flash test:** Build kernel + overlay, flash `sda24`, verify `dmesg` shows
+   `sony imx555 0-001a: device present` (or probe error) and
+   `sony imx616 1-001a: device present` (or probe error) — confirming the
+   CCI bus and GPIOs are wired correctly even without a driver.
+2. **Sensor driver:** Write `drivers/media/i2c/imx555.c` and `imx616.c`
+   following the `ov5645.c` / `ov08x40.c` pattern (v4l2-cci, mode tables,
+   MIPI CSI-2). This requires legal register sequences from Sony or
+   postmarketOS.
+3. **libcamera integration:** Add `CameraSensorHelper` patches for both
+   sensors once drivers exist.

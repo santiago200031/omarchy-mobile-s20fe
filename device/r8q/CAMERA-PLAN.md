@@ -397,48 +397,66 @@ Both bindings follow the upstream `sony,imx355.yaml` pattern, reference
 
 **CAMSS ports block** — expanded from 2 ports to 6:
 - `port@0` (csiphy0): added with `status = "disabled"`, endpoint `csiphy0_ep`
-  → `remote-endpoint = <&imx555_ep>`
+  **no `remote-endpoint`** — the camera-main overlay adds the complete
+  port@0 with its endpoint to avoid `camss_parse_ports()` deadlock
+  (HARDWARE-DISCOVERY §1 / cam-03)
 - `port@1` (csiphy1): existing, unchanged
 - `port@2` (csiphy2): existing, unchanged
 - `port@3` (csiphy3): added with `status = "disabled"`, endpoint `csiphy3_ep`
-  → `remote-endpoint = <&imx616_ep>`
+  **no `remote-endpoint`** — the camera-main overlay adds the complete
+  port@3 with its endpoint to avoid deadlock (HARDWARE-DISCOVERY §1 / cam-03)
 - `port@4`/`port@5`: untouched (empty)
 
-**IMX555 sensor node** (`&cam_cci0`, `camera@1a`, `status = "disabled"`):
-- `compatible = "sony,imx555"`, `reg = <0x1a>`, `cci-master = <0>`
+**IMX555 sensor node** (`&cci0_i2c0`, `camera@1a`, `status = "disabled"`):
+- `compatible = "sony,imx555"`, `reg = <0x1a>`
+- **No `cci-master`**: the parent `i2c-bus@0` node IS the bus
+  (mainline sm8250 DTS style)
 - `clocks = <&camcc CAM_CC_MCLK0_CLK>`, 19.2 MHz
 - `avdd-supply = <&vreg_l10a_2p8>`, `dvdd-supply = <&vreg_l2a_1p1>`,
-  `dovdd-supply = <&vreg_l7a_1p8>`
+  `dovdd-supply = <&vreg_l7c_1p8>`
 - `reset-gpios = <&tlmm 73 GPIO_ACTIVE_LOW>`, `enable-gpios = <&tlmm 32 GPIO_ACTIVE_HIGH>`
 - `pinctrl-0 = <&cam_mclk0_default &cam_wide_active>`, `pinctrl-1 = <&cam_mclk0_suspend &cam_wide_suspend>`
 - `orientation = <1>`, `power-domains = <&camcc TITAN_TOP_GDSC>`
-- Port endpoint: 4 lanes, `link-frequencies = <800000000>` (800 MHz conservative)
+- Port endpoint: 4 lanes, `link-frequencies = <800000000>` (800 MHz conservative),
+  `remote-endpoint = <&csiphy0_ep>`
 
-**IMX616 sensor node** (`&cam_cci1`, `camera@1a`, `status = "disabled"`):
-- `compatible = "sony,imx616"`, `reg = <0x1a>`, `cci-master = <1>`
+**IMX616 sensor node** (`&cci0_i2c1`, `camera@1a`, `status = "disabled"`):
+- `compatible = "sony,imx616"`, `reg = <0x1a>`
+- **No `cci-master`**: the parent `i2c-bus@1` node IS the bus
+  (mainline sm8250 DTS style)
 - `clocks = <&camcc CAM_CC_MCLK2_CLK>`, 24 MHz
 - `avdd-supply = <&vreg_l10a_2p8>`, `dvdd-supply = <&vreg_l3c_1p056>`,
   `dovdd-supply = <&vreg_l7c_1p8>`
 - `reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>`, `enable-gpios = <&tlmm 172 GPIO_ACTIVE_HIGH>`
 - `pinctrl-0 = <&cam_mclk2_default &cam_front_active>`, `pinctrl-1 = <&cam_mclk2_suspend &cam_front_suspend>`
 - `orientation = <0>`, `power-domains = <&camcc TITAN_TOP_GDSC>`
-- Port endpoint: 4 lanes, `link-frequencies = <960000000>` (960 MHz conservative)
+- Port endpoint: 4 lanes, `link-frequencies = <960000000>` (960 MHz conservative),
+  `remote-endpoint = <&csiphy3_ep>`
 
 #### 8.3.3 Bring-up overlay (`device/r8q/overlays/camera-main.dtso`)
 
 Enables, atomically:
-1. `port@0` (CSIPHY0) — `status = "okay"`
-2. `port@3` (CSIPHY3) — `status = "okay"`
+1. `port@0` (CSIPHY0) — `status = "okay"` + complete endpoint with
+   `remote-endpoint = <&imx555_ep>`
+2. `port@3` (CSIPHY3) — `status = "okay"` + complete endpoint with
+   `remote-endpoint = <&imx616_ep>`
 3. `cci@ac4f000` (CCI0 controller) — `status = "okay"`
-4. `cci@ac50000` (CCI1 controller) — `status = "okay"`
-5. `imx555: camera@1a` — `status = "okay"`
-6. `imx616: camera@1a` — `status = "okay"`
+4. `imx555: camera@1a` under `cci0_i2c0` — `status = "okay"`
+5. `imx616: camera@1a` under `cci0_i2c1` — `status = "okay"`
 
-**Deadlock avoidance** (HARDWARE-DISCOVERY §1 / cam-03): Both the camss port
-and its remote sensor are enabled in the *same* overlay. The base DT keeps
-them disabled with their remote-endpoint stubs, so `camss_parse_ports()`
-sees only disabled endpoints (no dangling async probe). The overlay flips
-all six nodes together, ensuring the async graph resolves atomically.
+**Correct CCI bus hierarchy** (review fix [cam-05]):
+IMX555 lives under `&cci0_i2c0` (CCI0 master 0 = i2c-bus@0) and
+IMX616 lives under `&cci0_i2c1` (CCI0 master 1 = i2c-bus@1).
+Both sensors are children of CCI0's I2C bus children — **not** under
+`cci1` (which is a separate CCI controller at 0xac50000).
+No `cci-master` property on sensor nodes: the parent i2c-bus@N
+already identifies the bus (mainline sm8250 DTS style).
+
+**Deadlock avoidance** (HARDWARE-DISCOVERY §1 / cam-03): The base DT
+keeps camss port@0 and port@3 **without** `remote-endpoint` references,
+so `camss_parse_ports()` sees no dangling async probes. This overlay
+adds the complete port@0/port@3 nodes with their endpoints, enabling
+both sides of the graph together — the async graph resolves atomically.
 
 ### 8.4 Offline verification results
 
@@ -460,11 +478,10 @@ fdtoverlay -i sm8250-samsung-r8q.dtb -o test.dtb camera-main.dtbo → applied
 **Overlay result** (decompiled verified nodes):
 ```
 cci0: cci@ac4f000 { status = "okay"; }
-cci1: cci@ac50000 { status = "okay"; }
 port@0 { status = "okay"; }  → csiphy0_ep → imx555_ep
 port@3 { status = "okay"; }  → csiphy3_ep → imx616_ep
-cci0/camera@1a: compatible = "sony,imx555" { status = "okay"; }
-cci1/camera@1a: compatible = "sony,imx616" { status = "okay"; }
+cci0/cci0_i2c0/camera@1a: compatible = "sony,imx555" { status = "okay"; }
+cci0/cci0_i2c1/camera@1a: compatible = "sony,imx616" { status = "okay"; }
 ```
 
 **Overlay safety** — `camera-main.dtso` does not touch `port@1`, `port@2`,

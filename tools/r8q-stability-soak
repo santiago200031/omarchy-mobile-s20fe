@@ -166,7 +166,7 @@ run_gui_test() {
     log "Running GUI IPC responsiveness check..."
     if pgrep -x Hyprland > /dev/null 2>&1; then
         local sig
-        sig=$(ls -1 /run/user/1000/hypr/ 2>/dev/null | head -n 1 || true)
+        sig=$(ls -1 /run/user/1000/hypr/ 2>/dev/null | sed -n 1p || true)
         if [ -n "$sig" ] && su - alarm -c "XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE='$sig' hyprctl monitors >/dev/null 2>&1"; then
             log_ok "Hyprland running and IPC responsive ($sig)"
         else
@@ -244,7 +244,7 @@ check_battery() {
     log "Checking battery status..."
     local ps="/sys/class/power_supply/max170xx_battery"
     if [ ! -d "$ps" ]; then
-        ps=$(find /sys/class/power_supply -maxdepth 1 -mindepth 1 -exec test -f '{}/capacity' ';' -print 2>/dev/null | head -n 1 || true)
+        ps=$(find /sys/class/power_supply -maxdepth 1 -mindepth 1 -exec test -f '{}/capacity' ';' -print 2>/dev/null | sed -n 1p || true)
     fi
     if [ -n "$ps" ] && [ -d "$ps" ]; then
         local cap status volt

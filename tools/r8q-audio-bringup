@@ -141,7 +141,7 @@ test_audio() {
   say "Testing low-volume audio playback..."
   phone_ssh '
     if command -v speaker-test >/dev/null 2>&1; then
-      timeout 6 speaker-test -c 2 -t sine -f 440 -l 1 2>&1 | head -20 || true
+      timeout 6 speaker-test -c 2 -t sine -f 440 -l 1 2>&1 | sed -n '1,20p' || true
     elif command -v aplay >/dev/null 2>&1; then
       aplay /usr/share/sounds/alsa/Front_Center.wav 2>&1 || echo "Audio test failed"
     else

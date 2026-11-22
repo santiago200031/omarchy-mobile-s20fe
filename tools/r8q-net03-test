@@ -109,7 +109,7 @@ cleanup() {
     if [[ $LAPTOP_SINK -eq 1 && -n $TARGET_MAC ]]; then
       phone "bluetoothctl disconnect '$TARGET_MAC' >/dev/null 2>&1 || true; bluetoothctl remove '$TARGET_MAC' >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
       local phone_bt_mac
-      phone_bt_mac=$(phone "bluetoothctl list 2>/dev/null | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | head -1" 2>/dev/null || true)
+      phone_bt_mac=$(phone "bluetoothctl list 2>/dev/null | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | sed -n 1p" 2>/dev/null || true)
       [[ -n $phone_bt_mac ]] && bluetoothctl remove "$phone_bt_mac" >/dev/null 2>&1 || true
     fi
     phone "rm -f /tmp/net03-tone.wav /tmp/net03-genwav.py /tmp/net03-dmesg0.txt /tmp/net03-dmesg1.txt /tmp/net03-play.log" >/dev/null 2>&1 || true
@@ -126,7 +126,7 @@ phone_reachable() {
 }
 
 phone_sink_name() {
-  phone_alarm "pactl list short sinks 2>/dev/null | awk -F'\t' '\$2 ~ /^bluez_output/ {print \$2}' | head -1"
+  phone_alarm "pactl list short sinks 2>/dev/null | awk -F'\t' '\$2 ~ /^bluez_output/ {print \$2; exit}'"
 }
 
 phone_sink_state() {
@@ -222,7 +222,7 @@ laptop_v6_global() {
 laptop_v4_on_phone_subnet() {
   local ldev="$1"
   local phone_net laptop_net pfx
-  phone_net=$(phone "ip -o -4 addr show dev $WIFI_DEV 2>/dev/null | awk '{print \$4}' | head -1" || true)
+  phone_net=$(phone "ip -o -4 addr show dev $WIFI_DEV 2>/dev/null | awk '{print \$4; exit}'" || true)
   [[ -n $phone_net ]] || return 1
   pfx=${phone_net%/*}; pfx=${pfx%.*}
   while read -r laptop_net; do
@@ -236,7 +236,7 @@ laptop_v4_on_phone_subnet() {
 }
 
 laptop_bluez_source() {
-  pactl list short sources 2>/dev/null | awk -F'\t' '$2 ~ /^bluez_input/ {print $2}' | head -1 || true
+  pactl list short sources 2>/dev/null | awk -F'\t' '$2 ~ /^bluez_input/ {print $2; exit}' || true
 }
 
 # ---- check ---------------------------------------------------------------
@@ -249,7 +249,7 @@ cmd_check() {
 
   echo "-- Bluetooth adapter hci0 --"
   local powered
-  powered=$(phone "bluetoothctl show 2>/dev/null | grep -i 'Powered:' | head -1" || true)
+  powered=$(phone "bluetoothctl show 2>/dev/null | grep -i 'Powered:' | sed -n 1p" || true)
   if [[ $powered == *"Powered: yes"* ]]; then
     echo "ok   - $powered"
   else
@@ -425,7 +425,7 @@ PY
   python3 "$SRV_DIR/server.py" >"$srv_log" 2>&1 &
   SRV_PID=$!
   for _ in $(seq 1 50); do
-    SRV_PORT=$(grep -oE '^[0-9]+$' "$srv_log" | head -1 || true)
+    SRV_PORT=$(grep -oE '^[0-9]+$' "$srv_log" | sed -n 1p || true)
     [[ -n $SRV_PORT ]] && break
     sleep 0.1
   done

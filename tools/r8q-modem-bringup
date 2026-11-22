@@ -58,7 +58,7 @@ say "Loading the modules (dep order)"
 ph 'for m in mhi gnss wwan mhi_wwan_ctrl mhi_pci_generic; do
       if ! grep -q "^$m " /proc/modules; then insmod /tmp/$m.ko 2>/dev/null \
         || modprobe $m 2>/dev/null || echo "  note: $m already present or failed"; fi
-    done; ls /sys/bus/mhi/drivers/ | tr "\n" " "' | head -2
+    done; ls /sys/bus/mhi/drivers/ | tr "\n" " "' | sed -n '1,2p'
 
 say "Waiting for mhi1 (the modem's controller; mhi0 is the Wi-Fi's)"
 mhi1=""
@@ -68,7 +68,7 @@ for _ in $(seq 1 30); do
   sleep 4
 done
 [[ $mhi1 == 1 ]] || die "mhi1 never appeared — did pcie2 train? (ls /sys/bus/pci/devices/0002:01:00.0)"
-ok "mhi1 up: $(ph 'cat /sys/kernel/debug/mhi/mhi1/states | head -1')"
+ok "mhi1 up: $(ph 'cat /sys/kernel/debug/mhi/mhi1/states | sed -n 1p')"
 
 say "Pushing the firmware set (17 files, ~88 MB, RAM) + bind-mount"
 ph 'mkdir -p /tmp/sdx55m'
@@ -90,11 +90,11 @@ ph 'systemctl is-active r8q-sahara-memdump' | grep -c active >/dev/null || die "
 ok "loader running (log: /tmp/sahara-memdump.log)"
 
 say "The modem chain is armed. mhi1 state:"
-ph 'cat /sys/kernel/debug/mhi/mhi1/states | head -1'
+ph 'cat /sys/kernel/debug/mhi/mhi1/states | sed -n 1p'
 if ((WATCH)); then
   say "Watching (Ctrl-C to stop)"
   while :; do
-    printf '\r%s' "$(date +%H:%M:%S) $(ph 'cat /sys/kernel/debug/mhi/mhi1/states | head -1' 2>/dev/null)"
+    printf '\r%s' "$(date +%H:%M:%S) $(ph 'cat /sys/kernel/debug/mhi/mhi1/states | sed -n 1p' 2>/dev/null)"
     sleep 10
   done
 else

@@ -101,7 +101,7 @@ printf 'sleep:   '; cat /sys/power/state 2>/dev/null
 printf 'mem_sleep: '; cat /sys/power/mem_sleep 2>/dev/null
 printf 'drm:     '; ls /sys/class/drm/ 2>/dev/null | tr '\n' ' '; echo
 for c in /sys/class/drm/card*/status; do [ -f "$c" ] && printf '%s: %s\n' "$c" "$(cat "$c")"; done
-printf 'gpu:     '; ls /sys/class/drm/card*/device/driver 2>/dev/null | head -3 | tr '\n' ' '; echo
+printf 'gpu:     '; ls /sys/class/drm/card*/device/driver 2>/dev/null | sed -n '1,3p' | tr '\n' ' '; echo
 printf 'modules dir: '; ls -d /usr/lib/modules/* 2>/dev/null | tr '\n' ' '; echo
 printf 'msm/adreno/smmu modules: '
 lsmod 2>/dev/null | awk '{print $1}' | grep -E '^(msm|adreno|arm_smmu|iommu)' | tr '\n' ' '; echo

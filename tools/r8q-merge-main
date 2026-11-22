@@ -49,7 +49,7 @@ grep -q "$PASS_SHA" "$ROOT/device/r8q/NOTES.md" ||
 # ---- a clean tree ----
 [[ -z $(git -C "$ROOT" status --porcelain | grep -v '^??') ]] ||
   die "the working tree has uncommitted changes — commit them first
-$(git -C "$ROOT" status --short | grep -v '^??' | head -4)"
+$(git -C "$ROOT" status --short | grep -v '^??' | sed -n '1,4p')"
 
 # ---- the branch tip is what gets merged ----
 tip=$(git -C "$ROOT" rev-parse --short "$BRANCH")

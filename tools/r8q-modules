@@ -29,7 +29,7 @@ REBOOT=0
 say "Building the modules tarball (DEVICE=r8q)"
 DEVICE=r8q KERNEL_DIR="$KERNEL_DIR" KERNEL_OUT="$KERNEL_OUT" \
   "$ROOT/bin/omamobile" modules >/dev/null
-tarball=$(ls -t "$KERNEL_OUT"/modules-*.tar.zst | head -1)
+tarball=$(ls -t "$KERNEL_OUT"/modules-*.tar.zst | sed -n 1p)
 version=$(basename "$tarball" | sed 's/^modules-//; s/\.tar\.zst$//')
 ok "tarball: $(basename "$tarball") (kernel $version)"
 

@@ -109,7 +109,7 @@ check_camss_graph() {
   phone_ssh '
     if [ -e /dev/media0 ]; then
       if command -v media-ctl >/dev/null 2>&1; then
-        media-ctl -d /dev/media0 -p | head -40
+        media-ctl -d /dev/media0 -p | sed -n '1,40p'
       else
         echo "media-ctl not installed (v4l-utils)"
       fi

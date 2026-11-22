@@ -112,7 +112,7 @@ say "SSH is up: verifying the boot (retries if the USB link drops)"
 VERIFIED=""
 for attempt in $(seq 1 6); do
   line=$("${SSH[@]}" "$REMOTE" '
-    echo "$(uname -r) $(ls -d /sys/block/sd* 2>/dev/null | wc -l) $(ls /sys/class/udc 2>/dev/null | head -1)"' 2>/dev/null || true)
+    echo "$(uname -r) $(ls -d /sys/block/sd* 2>/dev/null | wc -l) $(ls /sys/class/udc 2>/dev/null | sed -n 1p)"' 2>/dev/null || true)
   if [[ -n $line ]]; then VERIFIED="$line"; break; fi
   say "  link dropped at verify (attempt $attempt/6) — waiting for gadget+SSH again"
   for _ in $(seq 1 120); do

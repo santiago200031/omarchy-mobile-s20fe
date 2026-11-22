@@ -29,7 +29,7 @@ get_default_model() {
   fi
   # Autodetect first .gguf model in MODEL_DIR
   local first
-  first=$(find "$MODEL_DIR" -maxdepth 1 -name "*.gguf" 2>/dev/null | head -n1 || true)
+  first=$(find "$MODEL_DIR" -maxdepth 1 -name "*.gguf" 2>/dev/null | sed -n 1p || true)
   if [[ -n "$first" ]]; then
     basename "$first" > "$DEFAULT_MODEL_FILE"
     cat "$DEFAULT_MODEL_FILE"
@@ -43,7 +43,7 @@ is_running() {
 }
 
 get_server_pid() {
-  pgrep -f "llama-server" | head -n1 || true
+  pgrep -f "llama-server" | sed -n 1p || true
 }
 
 cmd_status() {
@@ -137,7 +137,7 @@ cmd_install_runtime() {
   say "Extracting binaries..."
   tar -xzf llama-*-bin-linux-arm64-snapdragon.tar.gz
   local extract_dir
-  extract_dir=$(find . -maxdepth 1 -type d -name "llama-*" | head -n1)
+  extract_dir=$(find . -maxdepth 1 -type d -name "llama-*" | sed -n 1p)
 
   mkdir -p /usr/local/bin /usr/local/lib
   cp "$extract_dir"/bin/llama* /usr/local/bin/ || true

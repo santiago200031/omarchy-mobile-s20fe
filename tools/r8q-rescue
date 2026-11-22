@@ -76,16 +76,16 @@ echo "== uptime =="; cat /proc/uptime
 echo "== cmdline =="; cat /proc/cmdline
 echo "== input devices =="; grep -H . /sys/class/input/input*/name 2>/dev/null
 echo "== power key =="; ls -l /sys/class/input/input*/name 2>/dev/null; grep -i pwrkey /proc/bus/input/devices 2>/dev/null
-echo "== wakeup sources =="; cat /sys/kernel/debug/wakeup_sources 2>/dev/null | head -20
+echo "== wakeup sources =="; cat /sys/kernel/debug/wakeup_sources 2>/dev/null | sed -n '1,20p'
 echo "== sleep state =="; cat /sys/power/state; cat /sys/power/mem_sleep
 echo "== failed units =="; systemctl --failed --no-legend
-echo "== activating =="; systemctl list-units --state=activating --no-legend | head -10
-echo "== queued jobs =="; systemctl list-jobs --no-legend | head -10
+echo "== activating =="; systemctl list-units --state=activating --no-legend | sed -n '1,10p'
+echo "== queued jobs =="; systemctl list-jobs --no-legend | sed -n '1,10p'
 echo "== sessions =="; loginctl list-sessions --no-legend 2>/dev/null
 echo "== D-state =="; ps -eo pid,stat,comm | awk '$2 ~ /D/'
-echo "== hand-installed units =="; ls /etc/systemd/system/*.service /etc/systemd/system/*.target 2>/dev/null | head -20
-echo "== local bins =="; ls /usr/local/bin 2>/dev/null | head -20
-echo "== user units =="; systemctl --user -M alarm@ list-units --type=service --no-legend 2>/dev/null | head -20
+echo "== hand-installed units =="; ls /etc/systemd/system/*.service /etc/systemd/system/*.target 2>/dev/null | sed -n '1,20p'
+echo "== local bins =="; ls /usr/local/bin 2>/dev/null | sed -n '1,20p'
+echo "== user units =="; systemctl --user -M alarm@ list-units --type=service --no-legend 2>/dev/null | sed -n '1,20p'
 echo "== graphical =="; systemctl is-active sddm graphical.target 2>&1
 echo "== drm =="; ls -l /dev/dri 2>/dev/null; cat /sys/class/drm/card*/status 2>/dev/null
 echo "== pstore =="; ls -l /sys/fs/pstore/ 2>/dev/null
@@ -93,4 +93,4 @@ REMOTE_EOF
 "${R8Q_SSH[@]}" "$REMOTE" 'dmesg' > "$dir/dmesg.txt" 2>/dev/null || true
 "${R8Q_SSH[@]}" "$REMOTE" 'journalctl -b --no-pager -p warning' > "$dir/journal-warn.txt" 2>/dev/null || true
 say "state: $dir/state.txt, dmesg: $dir/dmesg.txt"
-grep -E '^(== uname|== uptime|== graphical)' -A1 "$dir/state.txt" | head -8 || true
+grep -E '^(== uname|== uptime|== graphical)' -A1 "$dir/state.txt" | sed -n '1,8p' || true

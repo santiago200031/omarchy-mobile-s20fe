@@ -170,7 +170,7 @@ cmd_pack() {
     # below are the phone's own, pulled read-only over SSH (Google files,
     # never committed).
     local mod_tar
-    mod_tar=$(ls -t "$KERNEL_OUT"/modules-*.tar.zst 2>/dev/null | head -1)
+    mod_tar=$(ls -t "$KERNEL_OUT"/modules-*.tar.zst 2>/dev/null | sed -n 1p)
     [[ -n ${mod_tar:-} ]] || die "--rescue-test needs a modules tarball in \$KERNEL_OUT (run bin/omamobile modules first)"
     say "rescue-test: staging modules from $mod_tar"
     mkdir -p "$stage/root/lib/modules"
@@ -203,7 +203,7 @@ cmd_pack() {
   )
   set +o pipefail
   if grep -vE '^[0-9]+ blocks?$' "$stage/cpio-errors.log" | grep -c . >/dev/null; then
-    grep -vE '^[0-9]+ blocks?$' "$stage/cpio-errors.log" | head -5
+    grep -vE '^[0-9]+ blocks?$' "$stage/cpio-errors.log" | sed -n '1,5p'
     die "cpio reported errors building the initramfs"
   fi
   say "initramfs: $(du -h "$ramdisk" | cut -f1) from $(find "$stage/root" -mindepth 1 | wc -l) staged files"
@@ -364,7 +364,7 @@ cmd_flash_recovery() {
   say "Verifying recovery partition readback checksum"
   local blocks=$(( (img_bytes + 4095) / 4096 ))
   local readback_sha
-  readback_sha=$(adb shell "dd if=/dev/block/by-name/recovery bs=4096 count=$blocks 2>/dev/null | head -c $img_bytes | sha256sum | awk '{print \$1}'" | tr -d '\r\n')
+  readback_sha=$(adb shell "dd if=/dev/block/by-name/recovery bs=4096 count=$blocks 2>/dev/null | { head -c $img_bytes; cat >/dev/null; } | sha256sum | awk '{print \$1}'" | tr -d '\r\n')
   [[ $readback_sha == "$img_sha" ]] || die "Recovery readback checksum mismatch ($readback_sha != $img_sha)"
 
   say "Recovery partition successfully updated and verified ($img_sha)"

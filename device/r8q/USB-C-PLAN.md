@@ -2,17 +2,24 @@
 
 # USB-C and charging plan: r8q (Galaxy S20 FE, SM8250Q)
 
-Status (2026-11-22): **`[usb-03]` PASSED; `[usb-04]` controller role-switch PASSED (`xhci-hcd` host/device), 5 V VBUS boost blocked on MAX77705 `0x25` USBC/CCIC driver.**
+Status (2026-11-22): **`[usb-03]` PASSED; `[usb-04]` controller role-switch PASSED (`xhci-hcd` host/device), extcon driver written and committed, 5 V VBUS boost still blocked (CNFG_00 on charger I2C 0x69).**
 The gadget runs in fixed peripheral mode (HS-only, USB 2.0), the charger
-reports `online=1, status=Full`, and `/sys/class/typec` plus
-`/sys/class/extcon` are empty. `tools/usbc-deadman` refuses r8q because
+reports `online=1, status=Full`. `tools/usbc-deadman` refuses r8q because
 its I2C bus detection, TCPC address and PHY parameter are hardcoded for
 cheetah (Exynos gs201). `tools/usbc-deadman-r8q` + `tools/usbc-deadman-r8q-phone`
 now adapt the dead-man safety net for r8q and passed live `[usb-03]` drills
 (`noop`, `noop --no-confirm`, `udc-rebind`, `replug`), and `[usb-04]`'s
 `device/r8q/overlays/usbc-otg-test.dtso` passed DWC3 host/device role switching;
 bus-powered USB peripherals (hub/mouse) do not receive 5 V VBUS yet because
-MAX77705's USBC/CCIC controller (`i2c-0` `0x25`) is unbound in mainline.
+the MAX77705 charger's CNFG_00 (0xB7, OTG_EN/BOOST_EN) lives on I2C slave
+0x69 and requires coordination with the USBC block at 0x25.
+
+**Kernel on phone:** 7.3.0-rc6-omamobile-push1-g4d235a595f28 (HEAD commit
+4d235a595f28 in `~/omamobile-kernel/wt-r8q` on branch `r8q-base-dts-fold`).
+
+**Branch `r8q-usbc-max77705`:** 3 commits (dt-bindings → driver → DTS),
+builds with 0 warnings, 0 checkpatch errors. DT wiring verified: `usb-role-switch`
+on dwc3 in base DTS, extcon + `dr_mode = "otg"` in overlay.
 
 **Kernel on phone:** 7.3.0-rc6-omamobile-push1-g4d235a595f28 (HEAD commit
 4d235a595f28 in `~/omamobile-kernel/wt-r8q` on branch `r8q-base-dts-fold`).
@@ -779,7 +786,116 @@ restored afterward via `tools/r8q-flash-recovery --stable`.
 
 ---
 
-## Appendix A: Reference — cheetah usbc-deadman-phone I2C bus detection
+## 6. [usb-04] Feature 1 (`[usb-04]`) fixup results (2026-11-22)
+
+Branch `r8q-usbc-max77705` on `~/omamobile-kernel/wt-r8q-usbc` contains 3
+commits applied in order: **dt-bindings → driver → DTS**.
+
+### 6.1 Commits
+
+| # | Commit | Files |
+|---|---|---|
+| 1 | `c59ff5614` dt-bindings: extcon: Add maxim,max77705-muic DT schema | `Documentation/devicetree/bindings/extcon/maxim,max77705-muic.yaml` (new) |
+| 2 | `14e718746` extcon: Add MAX77705 integrated MUIC/USBC extcon driver | `drivers/extcon/extcon-max77705.c` (new), `Kconfig`, `Makefile`, `drivers/mfd/max77705.c` |
+| 3 | `61efacc62` arm64: dts: qcom: sm8250-samsung: Enable usb-role-switch on dwc3 | `sm8250-samsung-common.dtsi`, `sm8250-samsung-r8q.dts` |
+
+### 6.2 CRITICAL BUGS FIXED
+
+| # | Bug | Fix | Status |
+|---|---|---|---|
+| 1 | **Sleeping-in-atomic**: `spinlock_t` + `spin_lock_irqsave()` around I2C transfers and `extcon_set_state_sync()` | Replaced with `struct mutex` + `mutex_lock()`/`mutex_unlock()` | ✅ Fixed |
+| 2 | **Deprecated `flush_workqueue(system_wq)`** in `.remove()` | Removed — `cancel_delayed_work_sync()` is sufficient | ✅ Fixed |
+| 3 | **OTG detection bug**: `EXTCON_NONE` returned immediately when `!(bc_status & VBUSDET)`, preventing unpowered OTG hub detection | Check CC_STATUS0/1 and UIDADC regardless of VBUSDET; CC_SOURCE with no VBUS = OTG host mode | ✅ Fixed |
+| 4 | **Wrong regmap for VBUS OTG boost**: `max77705_muic_set_otg_vbus()` wrote to CNFG_00 (0xB7) via parent regmap (0x66), but CNFG_00 lives on I2C slave 0x69 (charger) | Removed `max77705_muic_set_otg_vbus()` entirely; no unused static functions remain; OTG VBUS boost to be handled in `max77705_charger.c` (0x69 regmap) | ✅ Fixed |
+| 5 | **Log order bug**: `dev_info` printed new → old because `prev_cable_type` was overwritten before the log | Save `old_cable = info->prev_cable_type` before updating; log reads old → new | ✅ Fixed |
+| 6 | **dwc3 extcon wiring**: Verified `drivers/usb/dwc3/drd.c` — `usb-role-switch` property registers `usb_role_switch` (userspace control); `extcon` property auto-detects role from cable state. Base DTS gets `usb-role-switch`; overlay adds `extcon = <&max77705_muic>` and `dr_mode = "otg"` | ✅ Verified and wired |
+| 7 | **DT binding schema**: Added `Documentation/devicetree/bindings/extcon/maxim,max77705-muic.yaml` | ✅ Added |
+| 8 | **Clean commits**: dt-bindings → driver → DTS, no Signed-off-by trailer | ✅ Done |
+
+### 6.3 Build and check results
+
+| Test | Result |
+|---|---|
+| `KERNEL_DIR=$PWD KERNEL_OUT=... bin/omamobile kernel` (W=1, -Werror) | **0 warnings, 0 errors** on extcon-max77705.c, Kconfig, Makefile, DTS |
+| `scripts/checkpatch.pl --strict` on all 3 commits | **0 errors**, 2 warnings per commit (MAINTAINERS update for new file, SPDX `#include` false positive) |
+| `./tests/device-overlays` | **90 overlays compile**, every descriptor parses |
+| `./tools/pr-check` | **No commits** to check against origin/main (branch based on r8q-base-dts-fold) |
+| DT overlay syntax (`dtc -@`) | **usbc-otg-test.dtso compiles cleanly** |
+
+### 6.4 DT wiring verified
+
+```
+Base DTS (sm8250-samsung-common.dtsi):
+  &usb_1_dwc3 {
+      dr_mode = "peripheral";
+      usb-role-switch;              ← dwc3 core registers usb_role_switch
+      role-switch-default-mode = "peripheral";
+  };
+
+Base DTS (sm8250-samsung-r8q.dts):
+  max77705: pmic@66 {
+      max77705_muic: muic {
+          compatible = "maxim,max77705-muic";
+          status = "disabled";
+      };
+  };
+
+Overlay (usbc-otg-test.dtso):
+  &max77705_muic { status = "okay"; };
+  &usb_1_dwc3 {
+      dr_mode = "otg";
+      extcon = <&max77705_muic>;    ← dwc3 auto-detects role from extcon
+  };
+```
+
+### 6.5 Safe gated test runbook (online, requires phone)
+
+**Prerequisites:** Battery ≥ 50 %, Wi-Fi SSH backup, USB-C OTG adapter.
+
+**Step U4.0 — Read-only: verify base state**
+```sh
+tools/phone-ssh --fresh '
+    echo "=== role switch ==="
+    ls /sys/class/usb_role/ 2>/dev/null
+    echo "=== extcon ==="
+    ls /sys/class/extcon/ 2>/dev/null
+'
+```
+**Expected:** `/sys/class/usb_role/a600000.usb-role-switch/role` exists, reads `device`.
+
+**Step U4.1 — Build and flash the overlay**
+```sh
+# On laptop:
+tools/r8q-boot pack --overlay usbc-otg-test
+tools/r8q-flash-recovery
+```
+
+**Step U4.2 — Verify overlay after boot**
+```sh
+tools/phone-ssh --fresh '
+    echo "=== dr_mode ==="
+    cat /sys/firmware/devicetree/base/soc@0/usb@a6f8800/usb@a600000/dr_mode 2>/dev/null
+    echo "=== extcon ==="
+    ls /sys/class/extcon/ 2>/dev/null
+    echo "=== extcon state ==="
+    cat /sys/class/extcon/*/state 2>/dev/null
+'
+```
+**Expected:** `dr_mode = otg`, `/sys/class/extcon/extcon-X/` exists with cable state.
+
+**Step U4.3 — Manual role switch (risk: medium)**
+```sh
+tools/usbc-deadman-r8q otg-host --duration 15 --confirm 30 --grace 20
+```
+**Expected:** xhci-hcd registers root hubs, switches back to device, gadget rebinds.
+
+**Step U4.4 — OTG peripheral test (risk: medium, human's go)**
+Plug in a bus-powered USB-C hub + mouse. **Expected:** dmesg shows enumeration.
+**Note:** Bus-powered hub needs 5 V VBUS from MAX77705 CNFG_00 (0xB7) — this
+requires OTG boost wiring in `max77705_charger.c` (0x69 regmap), which is the
+next step after this feature is merged.
+
+**Rollback:** `tools/r8q-flash-recovery --stable` (no overlay).
 
 For comparison, the cheetah tool's `i2c_bus()` function:
 

@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: MIT
 /*
- * Bring-up overlay: enable OTG / dual-role on the dwc3 controller.
+ * Bring-up overlay: enable OTG / dual-role on the dwc3 controller
+ * and the MAX77705 MUIC/USBC extcon driver.
  *
- * Sets dr_mode = "otg", adds usb-role-switch, and sets the default role
- * to peripheral so the gadget enumerates as a device on boot.
+ * Enables:
+ *   - max77705-muic (USB cable detection via extcon)
+ *   - dwc3 dr_mode = "otg" with extcon wiring
+ *
+ * The base DTS (sm8250-samsung-common.dtsi) already sets:
+ *   - dr_mode = "peripheral"
+ *   - usb-role-switch;
+ *   - role-switch-default-mode = "peripheral";
+ *
+ * This overlay enables the MUIC and switches dr_mode to "otg" so the
+ * extcon property on dwc3 can auto-switch role from cable detection.
  *
  * Usage:
  *   tools/r8q-boot pack --overlay usbc-otg-test
@@ -12,8 +22,13 @@
 /dts-v1/;
 /plugin/;
 
+/* Enable the MAX77705 MUIC/USBC block */
+&max77705_muic {
+	status = "okay";
+};
+
+/* Enable OTG / dual-role on dwc3 with extcon wiring */
 &usb_1_dwc3 {
 	dr_mode = "otg";
-	usb-role-switch;
-	role-switch-default-mode = "peripheral";
+	extcon = <&max77705_muic>;
 };

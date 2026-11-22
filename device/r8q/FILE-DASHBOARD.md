@@ -2,9 +2,9 @@
 
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
-**Updated:** `2026-11-22` (`0.1.34-1` + `recovery-haptics.img`)
+**Updated:** `2026-11-22` (`0.1.34-1` + `recovery-stable-20261122.img`)
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-g358e286ef5a6` (`recovery-haptics.img` — native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + `-p 512` hangcheck fix + Vulkan, Wi-Fi, BT, haptics (`max77705-haptic` via `haptics.dtso` + `gcc_gp2_clk_src`), remoteprocs, `SamsungGalaxyS2` playback + `DMIC3` capture via `dmic-va.dtso`, `camera-uw.dtso` + `omacam` `0.5x..3x` lenses, RT8547 `white:torch` via `torch.dtso`, SLPI sensors)
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-g4d235a595f28` (`recovery-stable-20261122.img` — overlay-free base DT: native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + `-p 512` hangcheck fix + Vulkan, Wi-Fi, BT, haptics (`max77705-haptic` + `gcc_gp2_clk_src`), remoteprocs, `SamsungGalaxyS2` full-duplex playback + `DMIC3` capture, `s5k3l6` + `hi847` cameras, RT8547 `white:torch`, SLPI sensors)
 **Live Packages:** `omamobile-device-r8q 0.1.34-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.3-1` (upgraded natively via `tools/phone-install-package`), `libcamera 0.7.2-4.25`
 **Boot Method:** Samsung `recovery` (`sda24`) → native `/dev/sda36` (`LABEL=omamobile-root`); a plain power-on boots it ([NOTES §24](NOTES.md))
 **Safety:** `77/77` UFS partitions read-only (`ro=1`), `userdata` (`sda36`) `rw`; NV partitions untouched
@@ -18,9 +18,9 @@
 
 | Fact | Value |
 | --- | --- |
-| Release | `7.3.0-rc6-omamobile-push1-gae195e6deaac` |
-| Image | `~/omamobile-kernel/out-r8q/recovery-fault-quiesce.img` |
-| sha256 | `adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a6` |
+| Release | `7.3.0-rc6-omamobile-push1-g4d235a595f28` |
+| Image | `~/omamobile-kernel/out-r8q/recovery-stable-20261122.img` |
+| sha256 | `f84a754ad5d28935998b396ab08e4b6051abcf0e3969e40897c611bd4fb3464e` |
 | Packed with | `tools/r8q-boot pack` (native `userdata` `sda36`, no `--dual-boot`) |
 | Partition | `sda24` (`recovery`) |
 | Modem | PCIe2 and its PHY `disabled` in the packed DTB, no `modem` overlay, no Sahara loader |
@@ -33,7 +33,7 @@ tools/phone-smoke                   # read-only full system smoke check
 tools/r8q-progress --live           # compute completion % + check wt-r8q & phone
 ```
 
-Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `sha256: 04e252eb19670b33e7ad09f92855929af59f32ae76950a483314ab5e45ef28c4`): `tools/phone-smoke` reports `storage guard ok` (`77/77`), `sound cards ok (SamsungGalaxyS2)`, `cameras ok (2 listed by libcamera)`, `battery ok (99%)`, `USB gadget ok`, `sensors ok (AmbientLight)`, plus clean `pw-record` `DMIC3` capture, verified `omacam` `0.5x <-> 3x` switching, and physical RT8547 Flashlight quick-settings tile ON/OFF. `stable-image.conf` keeps the `recovery-fault-quiesce.img` rollback pin until base-DTS fold (`[doc-04]`).
+Verified on `2026-11-22` (`NOTES §57` on `recovery-stable-20261122.img`, `sha256: f84a754ad5d28935998b396ab08e4b6051abcf0e3969e40897c611bd4fb3464e`, zero runtime overlays, flashed via Heimdall to `sda24` + `modules-push` + reboot): `sha256sum /dev/sda24` matches, `tools/phone-smoke` reports `storage guard ok` (`77/77`), `1080x2400 DSI-1`, GPU `msm_dpu`, `wlp1s0` UP, `hci0` Powered, `99%` battery, `SamsungGalaxyS2` (`MultiMedia1` + `MultiMedia2` VA capture), `Accelerometer` + `AmbientLight`, `2` libcamera cameras (`s5k3l6` + `hi847`), `white:torch` LED, `max77693-haptic` (`pwmchip0` + `feedbackd`), and `pcie@1c10000` / `phy@1c16000` `disabled`. `tools/r8q-stable-check` passes against both the image and the phone.
 
 ---
 
@@ -41,16 +41,16 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 
 | Metric | Progress | Notes |
 | --- | --- | --- |
-| **Overall (Hardware + Upstream)** | **75.4% (49/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
+| **Overall (Hardware + Upstream)** | **76.9% (50/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
 | **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **80.4% (45/56)** | Stages 1–6, 7–8, 9, 14 achieved; 10–13, 15 partial; Stage 16 deferred ([`FINGERPRINT-PLAN.md`](FINGERPRINT-PLAN.md)) |
 | **Daily Core (Stages 1–8 + UI)** | **95.5% (21/22)** | Usable daily phone on desk (`120 Hz`, haptics + torch, full-duplex audio, `0.5x`/`3x` cams, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI `75.8 pp512 / 12.5 tg128` at `4-7`) |
-| **Upstream & Docs (U1–U2)** | **44.4% (4/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` pass; 38/83 kernel commits need human `Signed-off-by:` |
+| **Upstream & Docs (U1–U2)** | **55.6% (5/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` pass; 38/83 kernel commits need human `Signed-off-by:` |
 
 | Column | Count | Last Updated |
 | --- | --- | --- |
 | ✅ SUCCESS | 7 cards ([board/SUCCESS.md](board/SUCCESS.md)) | `2026-11-21` |
 | ❌ FAILED (permanent rules) | 8 cards ([board/FAILED.md](board/FAILED.md)) | `2026-11-20` |
-| 🔲 MISSING / STEP QUEUE | 16-stage breakdown ([board/MISSING.md](board/MISSING.md) · [`board/tasks.json`](board/tasks.json)) | `2026-11-21` |
+| 🔲 MISSING / STEP QUEUE | 16-stage breakdown ([board/MISSING.md](board/MISSING.md) · [`board/tasks.json`](board/tasks.json)) | `2026-11-22` |
 
 ---
 
@@ -88,9 +88,8 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 > **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **38 of 83** commits in `~/omamobile-kernel/wt-r8q` (`omamobile..HEAD`) await Santiago's sign-off (`git -C ~/omamobile-kernel/wt-r8q rebase --signoff ...`).
 
 1. **Immediate Software / Offline Tasks (`1` open):** `[net-03]` BT A2DP audio + Wi-Fi concurrency.
-2. **Kernel DT Fixes (`human-gate` reboot, `1` open):** `[doc-04]` fold base-DTS overlays & re-pin `stable-image.conf`.
-3. **High-Risk Hardware Bring-Up (`8` open):** `[usb-03..04]` Type-C replug/PD & OTG (`usbc-deadman`), `[mdm-03..05]` native `sda36` `modem.dtso` boot + NV verify + SIM/QMI/MBIM, `[pwr-03..04]` / `[slp-02..03]` `s2idle`/DVFS/`cpuidle`/UFS PM w/ watchdog, `[cam-05]` IMX555/IMX616 drivers.
-4. **Kernel Upstream (`4` open):** `[krn-02..05]` Human `Signed-off-by:` on 38 commits -> split topic branches -> `tools/kernel-pr-check --build --merge origin/omamobile` -> fork PRs.
+2. **High-Risk Hardware Bring-Up (`8` open):** `[usb-03..04]` Type-C replug/PD & OTG (`usbc-deadman`), `[mdm-03..05]` native `sda36` `modem.dtso` boot + NV verify + SIM/QMI/MBIM, `[pwr-03..04]` / `[slp-02..03]` `s2idle`/DVFS/`cpuidle`/UFS PM w/ watchdog, `[cam-05]` IMX555/IMX616 drivers.
+3. **Kernel Upstream (`4` open):** `[krn-02..05]` Human `Signed-off-by:` on 38 commits -> split topic branches -> `tools/kernel-pr-check --build --merge origin/omamobile` -> fork PRs.
 
 ---
 
@@ -220,9 +219,9 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Worktree | ⚠️ | `~/omamobile-kernel/wt-r8q`, branch `r8q-gpu-fault-quiesce` (`83` commits ahead of `omamobile`; `38` missing human `Signed-off-by:`) |
-| Output | ✅ | `~/omamobile-kernel/out-r8q` (`7.3.0-rc6-omamobile-push1-gae195e6deaac`) |
-| HEAD | ✅ | `ae195e6de` (`drm/msm/a6xx: quiesce the adreno smmu across the CX collapse window`) |
+| Worktree | ⚠️ | `~/omamobile-kernel/wt-r8q`, branch `r8q-base-dts-fold` (`4d235a595f28`; `83` commits ahead of `omamobile`; `38` missing human `Signed-off-by:`) |
+| Output | ✅ | `~/omamobile-kernel/out-r8q` (`7.3.0-rc6-omamobile-push1-g4d235a595f28`) |
+| HEAD | ✅ | `4d235a595f28` (`arm64: dts: qcom: sm8250-samsung-r8q: fold verified subsystem overlays`) |
 | Upstream prep | 🔴 | Run human `git rebase --signoff`, split topic branches, then pass `tools/kernel-pr-check --build --merge origin/omamobile` |
 
 ---
@@ -233,11 +232,11 @@ Verified on `2026-11-21` (`NOTES §52–§53` on `recovery-rt8547-torch.img`, `s
 Native root sda36 + 120 Hz + GPU quiesce + Full-duplex Audio + 0.5x/3x Cams + RT8547 Torch (✅) → Kernel DCO Sign-off & Upstream PRs → Stages 9–16 polish
 ```
 
-**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-gae195e6deaac` + `recovery-rt8547-torch.img` + `omamobile-device-r8q 0.1.33-1`):**
-- Native UFS root `/dev/sda36` (`77/77` UFS partitions locked `ro=1`), USB CDC NCM + ACM gadget (`172.16.42.1`), clean boot on `tools/phone-smoke`
+**What's working right now on hardware (`7.3.0-rc6-omamobile-push1-g4d235a595f28` + `recovery-stable-20261122.img` + `omamobile-device-r8q 0.1.34-1`):**
+- Native UFS root `/dev/sda36` (`77/77` UFS partitions locked `ro=1`), USB CDC NCM + ACM gadget (`172.16.42.1`), clean boot on `tools/phone-smoke` (`pcie2` & `pcie2_phy` `disabled`)
 - Hyprland desktop (`sddm`, `quickshell`, `squeekboard`, `1080x2400@120`), DPMS & Power-key wake + lock screen, `stmfts` 16-byte Type-B touch, Volume Up/Down/Power
 - Wi-Fi (`wlp1s0` UP via `ath11k_pci`) & Bluetooth (`hci0` Powered via `998000.serial`)
-- Adreno 650 GPU (`3d00000.gpu`, `renderD128`, `305–587 MHz`, Turnip Vulkan `1.3.354`, fault quiesce recovery) + pseudo-NMI watchdog
-- Remoteprocs (`slpi`, `cdsp`, `adsp` via `pd-mapper 1.1-2`), SLPI Sensors (`Accelerometer`, `AmbientLight`), & Full-Duplex Audio (`SamsungGalaxyS2` -> dual `cs35l41` at `-9.5 dB` UCM2 + `DMIC3` via `dmic-va.dtso` & `50-r8q-audio.conf`)
-- Cameras & Torch: `camera-uw.dtso` + `omacam-lenses.toml` (`4200x3120` `0.5x` Ultrawide `s5k3l6xx` <-> `3256x2448` `3x` Telephoto `hi847` switching verified in `omacam`), and `torch.dtso` (`gpio-leds` RT8547 `GPIO 117` + `GPIO 126` `output-high`) + `20-r8q-torch.rules` (`664 root:video`) toggling Flashlight tile physically ON/OFF
-- Battery telemetry (`max77705`/`max17042`, `100%`, `27 °C`, `health Good`), `6.8G` tiered swap (`2.7G` zram + `4G` swapfile + MGLRU), & pi-tuned `LFM3-1.7B` AI (`10.5 tok/s`)
+- Adreno 650 GPU (`3d00000.gpu`, `renderD128`, `305–587 MHz`, Turnip Vulkan `1.3.354`, fault quiesce + `-p 512` hangcheck fix `802d3d3bc`) + pseudo-NMI watchdog
+- Remoteprocs (`slpi`, `cdsp`, `adsp` via `pd-mapper 1.1-2`), SLPI Sensors (`Accelerometer`, `AmbientLight`), & Full-Duplex Audio (`SamsungGalaxyS2` -> dual `cs35l41` at `-9.5 dB` UCM2 + `DMIC3` `MultiMedia2` folded into base DT & `50-r8q-audio.conf`)
+- Cameras, Torch & Haptics (folded into base DT `4d235a595f28`): `omacam-lenses.toml` (`4200x3120` `0.5x` Ultrawide `s5k3l6xx` <-> `3256x2448` `3x` Telephoto `hi847`), RT8547 `white:torch` (`GPIO 117` + `GPIO 126`) + `20-r8q-torch.rules`, and `max77705-haptic` (`gcc_gp2_clk_src` `clk_rcg2_gp_ops` `20 kHz` + `vreg_l10c_3p2` `3.2 V`) + `feedbackd`
+- Battery telemetry (`max77705`/`max17042`, `99–100%`, `27 °C`, `health Good`), `6.8G` tiered swap (`2.7G` zram + `4G` swapfile + MGLRU), & pi-tuned `LFM3-1.7B` AI (`75.8 pp512 / 12.5 tg128` at `4-7`)

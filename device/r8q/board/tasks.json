@@ -5,11 +5,11 @@
   "soc": "SM8250 (Snapdragon 865)",
   "updated": "2026-11-22",
   "baseline": {
-    "kernel_release": "7.3.0-rc6-omamobile-push1-gae195e6deaac",
-    "image": "out-r8q/recovery-fault-quiesce.img",
-    "image_sha256": "adeddb31faa4a263616ff8383b80e0316b3c1bcff2ea6f8004dd02f207d660a6",
-    "repo_main": "aec750d1",
-    "device_pkg": "0.1.33-1",
+    "kernel_release": "7.3.0-rc6-omamobile-push1-g4d235a595f28",
+    "image": "out-r8q/recovery-stable-20261122.img",
+    "image_sha256": "f84a754ad5d28935998b396ab08e4b6051abcf0e3969e40897c611bd4fb3464e",
+    "repo_main": "71d18797",
+    "device_pkg": "0.1.34-1",
     "pd_mapper_pkg": "1.1-2",
     "settings_pkg_phone": "0.1.3-1",
     "settings_pkg_repo": "0.1.3"
@@ -636,7 +636,7 @@
       "stage": "U2",
       "track": "release",
       "title": "Repo Registry, Docs & Stable Image Re-pin",
-      "milestone_status": "in_progress",
+      "milestone_status": "achieved",
       "plan": "CONTRIBUTING.md",
       "tasks": [
         {
@@ -663,11 +663,9 @@
         {
           "id": "doc-04",
           "title": "Pack and pin new device/r8q/stable-image.conf once camera port@1 + DMIC DT fixes land",
-          "done": false,
+          "done": true,
           "area": "release",
-          "risk": "medium",
-          "requires_human": true,
-          "verify": "tools/r8q-stable-check and full tools/phone-smoke pass 100% green"
+          "evidence": "wt-r8q r8q-base-dts-fold (4d235a595f28) folds camera-uw, dmic-va, torch, and haptics cleanly (pcie2/phy disabled); recovery-stable-20261122.img (sha256 f84a754ad5d28935998b396ab08e4b6051abcf0e3969e40897c611bd4fb3464e) flashed to /dev/sda24 with 1822 modules; tools/phone-smoke and tools/r8q-stable-check both pass"
         }
       ]
     }

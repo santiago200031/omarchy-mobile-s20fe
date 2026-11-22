@@ -2,7 +2,7 @@
 
 # Omarchy Mobile — Samsung Galaxy S20 FE (`r8q`, SM-G780G) Port Plan
 
-- **Status (`2026-11-21`):** the phone runs the native UFS root on `/dev/sda36` cleanly (`omamobile-device-r8q 0.1.33-1`, `recovery-rt8547-torch.img` live); run `tools/r8q-progress` for live % & atomic tasks ([`board/tasks.json`](board/tasks.json)). Details: [NOTES §40–§53](NOTES.md).
+- **Status (`2026-11-22`):** the phone runs the native UFS root on `/dev/sda36` cleanly (`omamobile-device-r8q 0.1.34-1`, `recovery-stable-20261122.img` live); run `tools/r8q-progress` for live % & atomic tasks ([`board/tasks.json`](board/tasks.json)). Details: [NOTES §40–§53](NOTES.md).
 
 | Subsystem | State |
 | --- | --- |
@@ -16,10 +16,10 @@
 | Audio & Sensors | **Stage 14 achieved (speakers + earpiece + DMIC3 mic)** (`2026-11-21`, NOTES §51–§52): `pd-mapper 1.1-2` + `omamobile-device-r8q 0.1.30-1` (`-9.5 dB` L/R CS35L41 + `Earpiece`), `dmic-va.dtso` (`vreg_l4c_1p8` + `dmic23_active` + `2.4 MHz`) + `50-r8q-audio.conf` (`S16LE`/`48k`), full-duplex + `pw-record` clean (`rms=10.29`), SLPI accel/light live |
 | Cameras | **ultrawide & telephoto verified end-to-end in `omacam` (`0.1.33-1`)** (`NOTES §52–§53`): `cam -l` lists `s5k3l6xx` + `hi847`, `omacam-lenses.toml` (`4200x3120` + `3256x2448`) confirmed clean viewfinder & `0.5x <-> 3x` zoom switching; IMX555/IMX616 drivers remain (base DTS fold tracked in `krn-03`) |
 | Torch & Haptics | **Stage 9 achieved (`0.1.34-1` + `recovery-haptics.img`)** (`NOTES §53, §56`): `torch.dtso` (`gpio-leds` on `GPIO 117`/`126`) drives Flashlight tile ON/OFF; `haptics.dtso` (`max77705-haptic` + `clk-pwm` `gcc_gp2_clk_src` `clk_rcg2_gp_ops` `20 kHz` + `vreg_l10c_3p2` `3.2 V`) drives `feedbackd` vibration physically |
-| Kernel | `r8q-gpu-fault-quiesce` (`7.3.0-rc6-omamobile-push1-gae195e6deaac`) **running, pinned** in `stable-image.conf` (`adeddb31…660a6`); **38 of 83** commits ahead of `omamobile` still need human `Signed-off-by:` |
+| Kernel | `r8q-base-dts-fold` (`7.3.0-rc6-omamobile-push1-g4d235a595f28`) **running, pinned** in `stable-image.conf` (`f84a754a…464e`); **38 of 83** commits ahead of `omamobile` still need human `Signed-off-by:` |
 | Modem | SDX55M reached `AMSS` (`EE: MISSION MODE`, `MODEM-PLAN` §10) in rescue boot; parked in daily boot (`pcie2` disabled); next: test `modem.dtso` on native `sda36` + opt-in SIM/QMI/MBIM |
-| Way back | [`stable-image.conf`](stable-image.conf) pins `out-r8q/recovery-fault-quiesce.img` (`gae195e6deaac`, `adeddb31…660a6`): `tools/r8q-flash-recovery --stable` |
-- **Progress Snapshot (`2026-11-21`, `tools/r8q-progress`):** **67.7% overall (44/65 atomic tasks)** · **71.4% Hardware Stages 1–16 (40/56)** · **81.8% Daily Core Stages 1–8 (18/22)** · **44.4% Upstream & Docs (4/9)**. Run `tools/r8q-check-all --quick` for a one-shot health pass; see [board/MISSING.md](board/MISSING.md) for the exact step-by-step atomic backlog.
+| Way back | [`stable-image.conf`](stable-image.conf) pins `out-r8q/recovery-stable-20261122.img` (`g4d235a595f28`, `f84a754a…464e`): `tools/r8q-flash-recovery --stable` |
+- **Progress Snapshot (`2026-11-22`, `tools/r8q-progress`):** **76.9% overall (50/65 atomic tasks)** · **80.4% Hardware Stages 1–16 (45/56)** · **95.5% Daily Core Stages 1–8 (21/22)** · **55.6% Upstream & Docs (5/9)**. Run `tools/r8q-check-all --quick` for a one-shot health pass; see [board/MISSING.md](board/MISSING.md) for the exact step-by-step atomic backlog.
 - **Boot model correction (2026-11-20, owner-observed):** `sda24` is this phone's **power-on default** — a plain power-on boots our kernel; there is **no automatic fallback to LineageOS** (`sda23` contents remain untouched but unreachable by an ordinary boot). `Volume Up + Power` is not needed to boot our image; Download Mode (Volume Up + Volume Down + cable from power-off) is the always-available recovery path. Details: [NOTES §24](NOTES.md).
 
 ---

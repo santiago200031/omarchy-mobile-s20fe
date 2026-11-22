@@ -1561,3 +1561,18 @@ Verified on kernel branch `r8q-haptics` (`7.3.0-rc6-omamobile-push1-g358e286ef5a
 - **Clock bug found & fixed (`68726e156`):** `gcc_gp2_clk_src` in `drivers/clk/qcom/gcc-sm8250.c` used `clk_rcg2_ops` with `19.2 MHz..200 MHz` bypass table entries, causing `clk_rcg2_set_duty_cycle()` (`!(cfg & CFG_MODE_MASK)`) to return `-EINVAL` on kHz PWM requests. Switching `gcc_gp2_clk_src` to `clk_rcg2_gp_ops` with empty `ftbl_gcc_gp2_clk_src` (matching `gcc-sdm845.c`) and pinning `assigned-clock-parents = <&rpmhcc RPMH_CXO_CLK>` enables dynamic M/N/pre_div duty-cycle control.
 - **DT & Kconfig (`358e286ef`, `haptics.dtso`, `device/r8q/kernel.config`):** Added `vreg_l10c_3p2` (`3200000 uV`), `motor_pwm_active` (`GPIO 137` `gcc_gp2`) + `motor_pwm_sleep` (`gpio` low), disabled `vib_pwm: pwm` (`clk-pwm`), and disabled `max77705` `haptic` child (`maxim,max77705-haptic`, `pwms = <&vib_pwm 0 50000>`, `haptic-supply = <&vreg_l10c_3p2>`), enabled `CONFIG_PWM_CLK=m` and `CONFIG_INPUT_MAX77693_HAPTIC=m`. Both kernel commits pass `checkpatch.pl --strict` (0 errors, 0 warnings) and `W=1` C/DTB builds cleanly.
 - **Hardware & `feedbackd` verification:** With `max77693_haptic` initially blacklisted and then `modprobe`'d on boot, `/sys/kernel/debug/clk/gcc_gp2_clk_src` locked onto `bi_tcxo` at `20000 Hz` (`31562/50000 ns` duty cycle), `max77693-haptic` registered on `/dev/input/event5` (`FEEDBACKD_TYPE=vibra` from upstream `feedbackd` udev rules, picked up by `/usr/lib/feedbackd`), `tools/ff-rumble --name max77693-haptic --ms 150 --strength 35` exited `0`, and `fbcli -E message-new-instant` produced a clean physical vibration confirmed by the owner with zero PMIC/I2C/PWM errors. Removed `/etc/modprobe.d/omamobile-haptics-bringup.conf`; `tools/phone-smoke` passed (`49/65` = `75.4%`, Stage 9 `4/4` = `100.0%`).
+
+## 57. Overlay-free base-DTS fold: verified subsystem overlays folded, stable-image.conf re-pinned (2026-11-22)
+
+Folded the verified `camera-uw`/`torch`/`dmic-va`/`haptics` subsystem DT changes into the base DTS on branch `r8q-base-dts-fold` (`~/omamobile-kernel/wt-r8q`, HEAD `4d235a595f28` — `arm64: dts: qcom: sm8250-samsung-r8q: fold verified subsystem overlays`), built cleanly for `DEVICE=r8q`, and pinned `device/r8q/stable-image.conf` to the result:
+
+- **Release:** `7.3.0-rc6-omamobile-push1-g4d235a595f28`
+- **Image:** `recovery-stable-20261122.img` (`out-r8q`), **sha256** `f84a754ad5d28935998b396ab08e4b6051abcf0e3969e40897c611bd4fb3464e`
+- **Pack args:** `""` (no overlays needed — the base DTS carries them); **Partition:** `/dev/sda24`
+
+**Verified live on the phone** (Heimdall flash to `/dev/sda24` + `modules-push` (1822 modules) + full reboot):
+- `sha256sum /dev/sda24` matches `f84a754a…464e`
+- `tools/phone-smoke` passed: `77/77` UFS ro=1 (only userdata `rw`), `1080x2400 DSI-1`, GPU `msm_dpu`, `wlp1s0` link up, `hci0` powered, `99%` battery, `SamsungGalaxyS2` sound card (MM1 + MM2 VA capture), Accelerometer + AmbientLight, 2 libcamera cameras (`camera@2d` s5k3l6 + `camera@21` hi847), `white:torch` LED, `max77693-haptic` on `/dev/input/*` with `pwmchip0` + `feedbackd` running, `pcie@1c10000` and `phy@1c16000` both disabled
+- `tools/r8q-stable-check` passes against both the local image and the phone
+
+This closes `[doc-04]` (Stage U2 → 4/4 = 100.0%). Repo progress: **Overall 50/65 (76.9%)**, Hardware Bring-Up `45/56` (`80.4%`), Daily Core `21/22` (`95.5%`), Upstream & Docs `5/9` (`55.6%`). The previous pin (`gae195e6deaac` / `recovery-fault-quiesce.img`) stays in git history.

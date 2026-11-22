@@ -2372,3 +2372,196 @@ e0940af77ffezlQM11AA7czoav).
 When SSH is up again (the gadget brings it), the gadget status is:
 `ls /sys/class/udc` → `a600000.usb`; `lsusb` shows the gadget (the Omarchy
 gadget, VID 1d6b); `cat /sys/class/udc/*/state` — the mainline strings.
+
+## 15. Native sda36 [mdm-03] → [mdm-04] → [mdm-05] Runbook (2026-11-22)
+
+**Goal:** Boot the SDX55M modem from native sda36 (no SD card), capture DIAG
+logs during the +32 s mission window, and verify ModemManager + rmtfs +
+pd-mapper + tqftpserv readiness — strictly opt-in, disabled by default,
+NV partitions staying ro=1.
+
+**Prerequisites (from [mdm-03] & [mdm-04]):**
+- Kernel with PCIe2 + QMP modem PHY overlay compiles and applies cleanly.
+- The modem.dtso overlay (device/r8q/overlays/modem.dtso) applies onto the
+  base DTB (4d235a595 base DTS) without errors.
+- The recovery-modem-sda36-test.img packs and verifies (sha256 recorded below).
+- NV partitions backed up and checksum-verified (tools/nv-backup).
+
+### Preflight (Read-Only)
+
+1. **NV backup check:**
+   ```sh
+   tools/nv-backup -d r8q --check <backup-dir>
+   ```
+   All NV_PARTS must report `SAME`. If any differ, take a fresh backup
+   first (`tools/nv-backup -d r8q <new-dir>`). **Stop if any NV differs**
+   — a stock boot may have written to them.
+
+2. **Overlay compiles:**
+   ```sh
+   DTC=~/omamobile-kernel/out-r8q/scripts/dtc/dtc ./tests/device-overlays
+   ```
+   All overlays compile with `dtc -@`.
+
+3. **Image verification (offline):**
+   ```sh
+   KERNEL_OUT=$HOME/omamobile-kernel/out-r8q \
+     ./tools/r8q-boot pack --overlay modem \
+       ~/omamobile-kernel/out-r8q/recovery-modem-sda36-test.img
+   KERNEL_OUT=$HOME/omamobile-kernel/out-r8q \
+     ./tools/r8q-boot verify \
+       ~/omamobile-kernel/out-r8q/recovery-modem-sda36-test.img
+   ```
+   Record exact sha256. Expected: `ANDROID!` magic, AVB-signed.
+   **Recorded sha256: 0def722487d077118147c797077cf2b1c645b56268417fdadf1badee15a46663**
+
+4. **DIAG tool self-test:**
+   ```sh
+   python3 -m py_compile tools/r8q-modem-diag
+   python3 tools/r8q-modem-diag --self-test
+   ```
+   All 16 checks must pass.
+
+5. **Live phone preflight (over SSH):**
+   ```sh
+   OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'r8q-preflight --json'
+   ./tools/r8q-stable-check --phone
+   ```
+   Must confirm `"ufs_guard":{"ok":true,"detail":"77 UFS partitions read-only"}` and baseline health before flashing. **Stop if SSH or guard fails.**
+
+### Step 1: Flash the modem test image (gated, human says yes)
+
+```sh
+# Flash to recovery partition (sda24) via storage-guard-aware readback helper
+KERNEL_OUT=$HOME/omamobile-kernel/out-r8q \
+  OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" \
+  ./tools/r8q-flash-recovery ~/omamobile-kernel/out-r8q/recovery-modem-sda36-test.img
+```
+
+- **Expect/Pass:** Stages image in `/tmp`, unlocks `sda24` briefly, `dd`s to `/dev/sda24`, relocks `ro=1`, and verifies readback sha256 (`0def722487d077118147c797077cf2b1c645b56268417fdadf1badee15a46663`).
+- **Stop condition:** readback sha256 mismatch or partition guard failure (`tools/r8q-flash-recovery` aborts cleanly).
+- **Rollback:** `OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/r8q-flash-recovery --stable` (or Heimdall in Download Mode with the pinned `recovery-stable-20261122.img`).
+
+### Step 2: Boot and SSH in (gated, human says yes)
+
+```sh
+# Reboot cleanly into the staged sda24 image, then wait for USB NCM gadget.
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'systemctl reboot'
+./tools/r8q-wait-gadget 120
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh --fresh 'uname -r && findmnt / && ls -l /dev/wwan*'
+```
+
+- **Expect/Pass:** `/dev/sda36` stays `rw`, `mhi_pci_generic` binds `0002:01:00.0`, and `/dev/wwan0*` nodes enumerate cleanly without storage errors.
+- **Stop condition:** SSH to 172.16.42.1 times out for >120 s. **Do not send more commands; hold Power + Volume Down for forced restart or Volume Up + Volume Down + USB for Download Mode.**
+- **Rollback:** `tools/r8q-flash-recovery --stable`, then `systemctl reboot`.
+
+### Step 3: DIAG log capture during the +32 s mission window
+
+```sh
+# Stream DIAG from the phone cleanly (no persistent root install required):
+mkdir -p logs/r8q
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh \
+  'python3 - --device /dev/wwan0qcdm0 --duration 45' < tools/r8q-modem-diag \
+  2>&1 | tee logs/r8q/r8q-diag-sda36.log
+```
+
+- **The DIAG tool** (`tools/r8q-modem-diag`) opens `/dev/wwan0qcdm0`, sends
+  `DIAG_LOG_MASK_ENABLE` for MSG category (0x0001), and captures HDLC frames.
+  It saves timestamped binary logs to `logs/r8q/` and decodes printable
+  strings + crash keywords during capture.
+- **Expect/Pass:** DIAG port opens, mask-enable sent, log frames received.
+  The 45 s window covers the +32 s crash from Run 25.
+- **Stop condition:** DIAG port not found (`/dev/wwan0qcdm0` missing), or
+  no log frames received after 10 s (the modem may not reach mission mode
+  without the SD card — this is expected in the SBL-only phase).
+- **Post-capture decode:**
+  ```sh
+  python3 tools/r8q-modem-diag --decode logs/r8q/r8q-diag-YYYYMMDD-HHMMSS.bin
+  ```
+
+### Step 4: Verify NV 15/15 SAME (read-only)
+
+```sh
+# After the capture, verify NV partitions are unchanged:
+tools/nv-backup -d r8q --check <backup-dir>
+```
+
+- **Expect/Pass:** all NV_PARTS report `SAME`.
+- **Stop condition:** any NV differs — stock may have written during this
+  boot. Take a fresh backup.
+
+### Step 5: [mdm-05] ModemManager + rmtfs + pd-mapper + tqftpserv readiness
+
+**Audit summary (packages/omamobile-modem + packages/omamobile-device-r8q):**
+
+- **omamobile-modem (packages/omamobile-modem/):**
+  - The modem chroot (rfsd + cbd) works on RAM copies of NV partitions only.
+  - NV partitions stay ro=1 via udev rule `60-omamobile-modem-nv-ro.rules`.
+  - The NV overlay (`omamobile-modem nv-overlay`) captures writes to
+    `efs/nv_normal.bin` when `/etc/omamobile/modem-nv-overlay-enable` exists.
+  - **Disabled by default:** the boot target `omamobile-modem-boot.target`
+    is enabled by the device package only. On r8q, no vendor wants link
+    exists, so the modem is off by default.
+  - **Opt-in:** `systemctl enable omamobile-modem-boot.target` starts it;
+    `systemctl mask omamobile-modem-boot.target` keeps it off.
+  - **r8q adjustments needed:** none for the core modem stack. The Qualcomm
+    PCIe2 + MHI (`mhi_pci_generic` / `mhi_wwan_ctrl`) driver handles the SDX55M
+    PCIe link; the userspace QMI/MBIM path is standard.
+
+- **ModemManager + rmtfs + pd-mapper + tqftpserv:**
+  - **pd-mapper** (packages/omamobile-device-r8q PKGBUILD `depends`): maps
+    the SDX55M's resource tables. Required for rmtfs to find the modem's
+    shared memory regions.
+  - **rmtfs** (from the modem chroot profile): provides a virtual filesystem
+    to the modem for EFS reads/writes. Uses `/dev/qcom_rmtfs_mem1` from the
+    modem.dtso overlay's `qcom,rmtfs-mem` reserved memory region.
+  - **tqftpserv** (from the modem chroot profile): serves firmware files
+    to the modem over QMI. Handles the modem's firmware download requests.
+  - **ModemManager:** handles QMI/MBIM at the host side. The SDX55M presents
+    as a QMI/MBIM device once the MHI link is up. No r8q-specific ModemManager
+    config is needed — the driver stack (PCIe2 → MHI → QMI/MBIM) is generic.
+  - **The DIAG port** (`/dev/wwan0qcdm0`) is separate from the QMI data
+    path. It's opened by `tools/r8q-modem-diag` for log capture.
+
+- **Safe helpers for [mdm-05]:**
+  - `tools/r8q-modem-diag`: DIAG log capture (created above, opt-in).
+  - `tools/r8q-flash-recovery --stable`: restore the stable baseline image.
+  - `tools/r8q-boot verify`: verify any packed image before flashing.
+  - `tools/nv-backup --check`: verify NV partitions before/after any step.
+  - **No r8q-specific device config changes needed** for the modem stack.
+    The modem.dtso overlay provides the PCIe2, QMP PHY, rmtfs memory region,
+    and AP2MDM/MDM2AP GPIOs. The rest is generic.
+
+- **Strict opt-in, disabled by default:**
+  - No systemd units are enabled for the modem on r8q.
+  - The modem.dtso overlay is **not** in the descriptor's DTB_OVERLAYS
+    (it's applied manually for bring-up tests only).
+  - NV partitions are never listed in UFS_RW allowlist.
+  - The DIAG tool is a standalone script, never loaded at boot.
+
+### Rollback
+
+```sh
+# Restore the stable baseline image:
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/r8q-flash-recovery --stable
+OMAMOBILE_SSH_KEY="$HOME/.ssh/omamobile-r8q" ./tools/phone-ssh 'systemctl reboot'
+```
+
+- **Rollback risk:** low — the recovery partition is overwritten, but the
+  LineageOS boot partition (sda23) and userdata (sda36) are untouched.
+- **NV rollback:** `tools/nv-backup -d r8q --check <backup-dir>` confirms
+  NV is unchanged. If it differs, take a fresh backup.
+
+### Results Template (fill in after each run)
+
+```
+Date: YYYY-MM-DD
+Kernel: <uname -r>
+Image sha256: <recorded sha256>
+NV check: SAME / DIFFERENT
+DIAG frames captured: <count>
+Crash keywords found: <count>
+Modem reached ONLINE: yes / no / N/A
+Notes: <free text>
+```
+

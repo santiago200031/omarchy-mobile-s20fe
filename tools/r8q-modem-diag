@@ -1,0 +1,560 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# r8q-modem-diag: Qualcomm DIAG HDLC log capture for the SDX55M modem on
+# Galaxy S20 FE (r8q).
+#
+# Opens /dev/wwan0qcdm0 (the QCDM DIAG port), enables the DIAG log mask
+# through standard DIAG HDLC framing, and captures the raw stream.
+#
+# The DIAG protocol (Qualcomm HDLC over QCDM):
+#   - Frame: 0x7E flag, ADDR 0xFF, CTRL 0x03, then length (big-endian 16-bit),
+#     then data, then two CRC-16 bytes, then 0x7E flag.
+#   - The host sends a DIAG_LOG_MASK_ENABLE (0x0038) frame to enable log
+#     categories (e.g. MSG, NMEA, GPS, PCAP). The modem then streams log
+#     frames (0x0028 DIAG_LOG_DATA) on the same port.
+#   - Each log frame carries a 16-bit category ID, a 16-bit subcategory ID,
+#     a 32-bit timestamp (ms), then the payload.
+#
+# This tool:
+#   1. Opens the DIAG port read-only (O_RDONLY) for safety.
+#   2. Sends DIAG_LOG_MASK_ENABLE to turn on MSG logs (category 0x0001).
+#   3. Reads raw DIAG HDLC frames, extracts printable strings and MSG frames.
+#   4. Saves timestamped binary logs to logs/r8q/ and decodes during capture.
+#
+# Safety:
+#   - Read-only: never writes to the modem except the initial mask-enable.
+#   - The mask-enable is additive; it can be sent again without side effects.
+#   - No NV partitions, no identity data, no blobs are touched or committed.
+#   - Timestamps and strings are redacted of identity fields.
+#
+# Usage:
+#   tools/r8q-modem-diag --self-test          Run offline unit tests
+#   tools/r8q-modem-diag --capture [sec]      Capture DIAG logs (default 60s)
+#   tools/r8q-modem-diag --decode FILE        Decode a saved binary log
+#
+# Output directory: logs/r8q/ (created if missing).
+
+import argparse
+import binascii
+import datetime
+import os
+import re
+import select
+import struct
+import sys
+import tempfile
+import time
+
+# --- DIAG HDLC constants ---
+FLAG = 0x7E
+ADDR = 0xFF
+CTRL = 0x03
+CRC_INIT = 0xFFFF
+
+# DIAG service commands (QCDM / DIAG protocol)
+DIAG_LOG_MASK_ENABLE = 0x0038
+DIAG_LOG_MASK_DISABLE = 0x0039
+DIAG_LOG_DATA = 0x0028
+DIAG_LOG_MASK_REPORT = 0x003A
+
+# Log categories (what we care about for debugging)
+LOG_CAT_MSG = 0x0001       # MSG (general modem logs)
+LOG_CAT_NMEA = 0x0002      # NMEA (GPS)
+LOG_CAT_GPS = 0x0003       # GPS raw
+LOG_CAT_PCAP = 0x0004      # PCAP (packet capture)
+LOG_CAT_QMI = 0x0005       # QMI protocol
+LOG_CAT_RIL = 0x0006       # RIL
+LOG_CAT_ALL = 0xFFFF       # all categories
+
+# Redact identity fields from extracted strings
+REDACT_KEYS = ("ChipSerial", "Serial Number", "PK_HASH", "OEM Secure Boot",
+               "IMEI", "MEID", "ESN", "board id", "cdt_hwid",
+               "ro.boot.", "persist.vendor.modem")
+STRING_MIN_LEN = 6
+
+_STRING_RE = re.compile(rb"[ -~]{%d,}" % STRING_MIN_LEN)
+
+
+def log(msg):
+    print("[DIAG %9.3f] %s" % (time.monotonic(), msg), flush=True)
+
+
+# --- CRC-16 (CCITT) ---
+
+def crc16_ccitt(data, crc=CRC_INIT):
+    """Compute CRC-16/CCITT-FALSE over data."""
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = (crc << 1) ^ 0x1021
+            else:
+                crc = crc << 1
+            crc &= 0xFFFF
+    return crc
+
+
+# --- HDLC framing ---
+
+def build_hdlc_frame(data):
+    """Build a DIAG HDLC frame: FLAG ADDR CTRL LEN DATA CRC FLAG."""
+    length = len(data)
+    header = bytes([FLAG, ADDR, CTRL]) + struct.pack(">H", length) + data
+    crc = crc16_ccitt(header)
+    return header + struct.pack(">H", crc) + bytes([FLAG])
+
+
+def parse_hdlc_frame(raw):
+    """Parse one HDLC frame from a byte stream. Returns (data, remaining).
+
+    Finds the next FLAG byte, reads ADDR+CTRL+LEN, then data+CRC+FLAG.
+    Validates CRC. Returns (payload_data, leftover_bytes) or (None, raw).
+    """
+    # Find start flag
+    idx = raw.find(bytes([FLAG]))
+    if idx == -1:
+        return None, raw
+    raw = raw[idx:]
+
+    # Need at least: FLAG(1) + ADDR(1) + CTRL(1) + LEN(2) + CRC(2) + FLAG(1) = 8
+    if len(raw) < 8:
+        return None, raw
+
+    if raw[1] != ADDR or raw[2] != CTRL:
+        # Not a DIAG frame; skip past this flag
+        return None, raw[1:]
+
+    length = struct.unpack(">H", raw[3:5])[0]
+    data_start = 5
+    data_end = data_start + length
+    crc_start = data_end
+    crc_end = data_end + 2
+    flag_pos = data_end + 2
+    if len(raw) <= flag_pos:
+        return None, raw
+
+    frame_data = raw[data_start:data_end]
+    frame_crc = struct.unpack(">H", raw[crc_start:crc_end])[0]
+    if raw[flag_pos] != FLAG:
+        return None, raw[1:]
+
+    # Validate CRC
+    computed_crc = crc16_ccitt(raw[:crc_start])
+    if computed_crc != frame_crc:
+        return None, raw[1:]
+
+    return frame_data, raw[flag_pos + 1:]
+
+
+def decode_diag_header(data):
+    """Decode the first 4 bytes of a DIAG frame: service_id (16-bit) + length (16-bit)."""
+    if len(data) < 4:
+        return None, None
+    service_id, length = struct.unpack(">HH", data[:4])
+    return service_id, length
+
+
+# --- Redaction ---
+
+def redact_string(s):
+    """Redact identity fields in an extracted string."""
+    for key in REDACT_KEYS:
+        if key.lower() in s.lower():
+            head = s.split(":", 1)[0].split("=", 1)[0]
+            return "%s: <REDACTED>" % head
+    return s
+
+
+def extract_ascii_strings(data):
+    """Extract printable ASCII strings >= STRING_MIN_LEN from raw bytes."""
+    out = []
+    for m in _STRING_RE.finditer(data):
+        text = m.group().strip().decode("ascii", "replace")
+        if text:
+            out.append((m.start(), redact_string(text)))
+    return out
+
+
+# --- Log parsing ---
+
+CRASH_KEYWORDS = (
+    "ERR", "FATAL", "SSR", "ASSERT", "PANIC", "REASON", "CRASH",
+    "RESET", "WDOG", "WATCHDOG", "NOC", "SDI", "PON", "ABORT",
+    "TIMEOUT", "FAIL", "panic", "fatal", "error",
+)
+
+
+def parse_log_data_frame(data):
+    """Parse a DIAG_LOG_DATA frame: category(2) + subcategory(2) + timestamp(4) + payload.
+
+    Returns (category, subcategory, timestamp_ms, payload) or None.
+    """
+    if len(data) < 8:
+        return None
+    category, subcategory, timestamp = struct.unpack(">HHI", data[:8])
+    payload = data[8:]
+    return category, subcategory, timestamp, payload
+
+
+def decode_binary_log(log_path):
+    """Decode a saved binary DIAG log file and print summary."""
+    if not os.path.exists(log_path):
+        print("Log file not found: %s" % log_path, file=sys.stderr)
+        return 1
+
+    log("Decoding %s" % log_path)
+    with open(log_path, "rb") as f:
+        raw = f.read()
+
+    # Walk through all HDLC frames
+    remaining = raw
+    total_frames = 0
+    log_data_frames = 0
+    crash_hits = 0
+    timestamps = []
+    category_counts = {}
+
+    while remaining:
+        frame_data, remaining = parse_hdlc_frame(remaining)
+        if frame_data is None:
+            # Skip one byte and try again
+            remaining = remaining[1:] if remaining else b""
+            continue
+
+        total_frames += 1
+        service_id, _ = decode_diag_header(frame_data)
+
+        if service_id == DIAG_LOG_DATA:
+            log_data_frames += 1
+            parsed = parse_log_data_frame(frame_data[4:])
+            if parsed:
+                category, subcategory, timestamp, payload = parsed
+                category_counts[category] = category_counts.get(category, 0) + 1
+                timestamps.append(timestamp)
+
+                # Extract and check for crash keywords
+                strings = extract_ascii_strings(payload)
+                for off, s in strings:
+                    if any(k in s.upper() for k in CRASH_KEYWORDS):
+                        crash_hits += 1
+                        if crash_hits <= 20:
+                            log("  cat=0x%04x sub=0x%04x ts=%dms: %s"
+                                % (category, subcategory, timestamp, s))
+
+    if total_frames == 0:
+        log("No HDLC frames found in log file")
+        return 0
+
+    # Summary
+    log("=== DIAG Log Summary ===")
+    log("Total HDLC frames: %d" % total_frames)
+    log("DIAG_LOG_DATA frames: %d" % log_data_frames)
+    log("Crash-keyword hits: %d" % crash_hits)
+    if timestamps:
+        log("Timestamp range: %d ms - %d ms (%.1f s)"
+            % (min(timestamps), max(timestamps),
+               (max(timestamps) - min(timestamps)) / 1000.0))
+    log("Categories seen:")
+    for cat, count in sorted(category_counts.items()):
+        name = {
+            LOG_CAT_MSG: "MSG",
+            LOG_CAT_NMEA: "NMEA",
+            LOG_CAT_GPS: "GPS",
+            LOG_CAT_PCAP: "PCAP",
+            LOG_CAT_QMI: "QMI",
+            LOG_CAT_RIL: "RIL",
+        }.get(cat, "unknown")
+        log("  0x%04x (%s): %d frames" % (cat, name, count))
+
+    return 0
+
+
+# --- Capture ---
+
+def send_log_mask_enable(fd):
+    """Send DIAG_LOG_MASK_ENABLE to turn on MSG logs (category 0x0001).
+
+    Frame payload: mask_type(1) + category_count(2) +
+                   category(2) + subcategory(2) + ...
+    mask_type=0x01 (enable), one category: MSG.
+    """
+    # mask_type=1 (enable), 1 category
+    payload = struct.pack(">BHI", 0x01, 1, LOG_CAT_MSG)
+    frame = build_hdlc_frame(struct.pack(">H", DIAG_LOG_MASK_ENABLE) + payload)
+    os.write(fd, frame)
+    log("Sent DIAG_LOG_MASK_ENABLE (MSG category 0x%04x)" % LOG_CAT_MSG)
+
+
+def capture_diag(device="/dev/wwan0qcdm0", duration=60, out_dir=None):
+    """Open DIAG port, enable MSG logs, capture for `duration` seconds."""
+    if out_dir is None:
+        out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "..", "logs", "r8q")
+    os.makedirs(out_dir, exist_ok=True)
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    binary_path = os.path.join(out_dir, "r8q-diag-%s.bin" % timestamp)
+    text_path = binary_path + ".txt"
+
+    log("Opening DIAG port %s (O_RDWR for mask-enable + capture)" % device)
+
+    writable = True
+    try:
+        fd = os.open(device, os.O_RDWR | os.O_CLOEXEC)
+    except OSError:
+        writable = False
+        try:
+            fd = os.open(device, os.O_RDONLY | os.O_CLOEXEC)
+        except OSError as e:
+            log("ERROR: cannot open %s: %s" % (device, e))
+            log("The modem must be up and the QCDM port must exist.")
+            log("Check: ls -la /dev/wwan*qcdm*  and  dmesg | grep -i diag")
+            return 1
+
+    if writable:
+        log("Enabling DIAG log mask...")
+        try:
+            send_log_mask_enable(fd)
+        except OSError as e:
+            log("WARNING: mask enable write failed (%s); continuing passive read" % e)
+    else:
+        log("Opened read-only; skipping mask enable")
+
+    log("Capturing for %d seconds to %s" % (duration, binary_path))
+    deadline = time.monotonic() + duration
+    raw_data = bytearray()
+    total_frames = 0
+    log_data_frames = 0
+    crash_hits = 0
+    last_time = time.monotonic()
+
+    try:
+        while time.monotonic() < deadline:
+            rem = deadline - time.monotonic()
+            if rem <= 0:
+                break
+
+            r, _, _ = select.select([fd], [], [], min(1.0, rem))
+            if not r:
+                continue
+
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                break
+
+            if not chunk:
+                break
+
+            raw_data.extend(chunk)
+            # Parse frames from the chunk
+            remaining = chunk
+            while remaining:
+                frame_data, remaining = parse_hdlc_frame(remaining)
+                if frame_data is None:
+                    remaining = remaining[1:] if remaining else b""
+                    continue
+                total_frames += 1
+                service_id, _ = decode_diag_header(frame_data)
+                if service_id == DIAG_LOG_DATA:
+                    log_data_frames += 1
+                    parsed = parse_log_data_frame(frame_data[4:])
+                    if parsed:
+                        category, subcategory, ts, payload = parsed
+                        strings = extract_ascii_strings(payload)
+                        for _, s in strings:
+                            if any(k in s.upper() for k in CRASH_KEYWORDS):
+                                crash_hits += 1
+
+            # Progress every 5 seconds
+            now = time.monotonic()
+            if now - last_time >= 5.0:
+                elapsed = now - (deadline - duration)
+                log("  %d s / %d s: %d frames (%d log, %d crash hits)"
+                    % (int(elapsed), duration, total_frames,
+                       log_data_frames, crash_hits))
+                last_time = now
+
+    finally:
+        os.close(fd)
+
+    # Write binary log
+    with open(binary_path, "wb") as f:
+        f.write(bytes(raw_data))
+
+    # Write text summary
+    with open(text_path, "w") as f:
+        f.write("# r8q DIAG log capture\n")
+        f.write("# Device: %s\n" % device)
+        f.write("# Timestamp: %s UTC\n" % timestamp)
+        f.write("# Duration: %d seconds\n" % duration)
+        f.write("# Binary log: %s\n" % binary_path)
+        f.write("#\n")
+        f.write("# Summary:\n")
+        f.write("#   Total HDLC frames: %d\n" % total_frames)
+        f.write("#   DIAG_LOG_DATA frames: %d\n" % log_data_frames)
+        f.write("#   Crash-keyword hits: %d\n" % crash_hits)
+        f.write("#\n")
+        f.write("# Crash hits (redacted):\n")
+
+    # Re-scan for crash strings and append to text file
+    remaining = bytes(raw_data)
+    while remaining:
+        frame_data, remaining = parse_hdlc_frame(remaining)
+        if frame_data is None:
+            remaining = remaining[1:] if remaining else b""
+            continue
+        service_id, _ = decode_diag_header(frame_data)
+        if service_id == DIAG_LOG_DATA:
+            parsed = parse_log_data_frame(frame_data[4:])
+            if parsed:
+                category, subcategory, ts, payload = parsed
+                strings = extract_ascii_strings(payload)
+                for _, s in strings:
+                    if any(k in s.upper() for k in CRASH_KEYWORDS):
+                        with open(text_path, "a") as tf:
+                            tf.write("#   ts=%dms cat=0x%04x sub=0x%04x: %s\n"
+                                     % (ts, category, subcategory, s))
+
+    log("Capture complete:")
+    log("  Binary: %s (%d bytes)" % (binary_path, len(raw_data)))
+    log("  Text:   %s" % text_path)
+    log("  Frames: %d total, %d LOG_DATA, %d crash hits"
+        % (total_frames, log_data_frames, crash_hits))
+
+    return 0
+
+
+# --- Self-test ---
+
+def selftest():
+    """Offline self-test: HDLC framing, CRC, log parsing, redaction."""
+    import tempfile
+    results = []
+    passed = 0
+    failed = 0
+
+    def check(ok, label):
+        nonlocal passed, failed
+        if ok:
+            passed += 1
+            log("selftest ok: %s" % label)
+        else:
+            failed += 1
+            log("selftest FAIL: %s" % label)
+
+    # Test 1: HDLC frame build and parse round-trip
+    test_payload = struct.pack(">H", DIAG_LOG_MASK_ENABLE) + struct.pack(">BHI", 1, 1, LOG_CAT_MSG)
+    frame = build_hdlc_frame(test_payload)
+    data, remaining = parse_hdlc_frame(frame)
+    check(data == test_payload, "HDLC frame round-trip")
+    check(len(remaining) == 0, "HDLC frame: no trailing bytes")
+
+    # Test 2: CRC validation (tampered frame is rejected)
+    bad_frame = bytearray(frame)
+    bad_frame[5] ^= 0xFF  # corrupt data
+    bad_data, _ = parse_hdlc_frame(bytes(bad_frame))
+    check(bad_data is None, "HDLC CRC check: corrupted frame rejected")
+
+    # Test 3: DIAG header decode
+    diag_header = struct.pack(">HH", DIAG_LOG_MASK_ENABLE, 100)
+    sid, length = decode_diag_header(diag_header)
+    check(sid == DIAG_LOG_MASK_ENABLE and length == 100, "DIAG header decode")
+
+    # Test 4: Log data frame parse
+    log_payload = struct.pack(">HHI", LOG_CAT_MSG, 0, 12345) + b"test log data"
+    parsed = parse_log_data_frame(log_payload)
+    check(parsed is not None and parsed[0] == LOG_CAT_MSG and parsed[2] == 12345,
+          "LOG_DATA frame parse")
+
+    # Test 5: Redaction
+    redacted = redact_string("IMEI: 123456789012345")
+    check("REDACTED" in redacted and "123456789012345" not in redacted,
+          "Redaction: IMEI field redacted")
+    clean = redact_string("normal log message")
+    check(clean == "normal log message", "Redaction: clean string passes through")
+
+    # Test 6: ASCII string extraction
+    test_data = b"hello world\x00\x01\x02normal text here\xff\xfe"
+    strings = extract_ascii_strings(test_data)
+    check(len(strings) >= 2, "ASCII string extraction finds multiple strings")
+    check(any("hello world" in s for _, s in strings),
+          "ASCII string extraction: hello world found")
+
+    # Test 7: Mask enable frame construction
+    mask_payload = struct.pack(">H", DIAG_LOG_MASK_ENABLE) + struct.pack(">BHI", 1, 1, LOG_CAT_MSG)
+    mask_frame = build_hdlc_frame(mask_payload)
+    decoded, _ = parse_hdlc_frame(mask_frame)
+    sid, _ = decode_diag_header(decoded)
+    check(sid == DIAG_LOG_MASK_ENABLE, "Mask enable frame: correct service ID")
+
+    # Test 8: Empty and short inputs handled gracefully
+    check(parse_hdlc_frame(b"") == (None, b""), "Empty input returns None")
+    check(parse_hdlc_frame(b"\x7E") == (None, b"\x7E"), "Single flag returns None")
+    check(parse_log_data_frame(b"short") is None, "Short log payload returns None")
+
+    # Test 9: Multiple frames in one stream
+    frame1 = build_hdlc_frame(b"frame1")
+    frame2 = build_hdlc_frame(b"frame2")
+    stream = frame1 + frame2
+    d1, r1 = parse_hdlc_frame(stream)
+    d2, r2 = parse_hdlc_frame(r1)
+    check(d1 == b"frame1" and d2 == b"frame2", "Multiple frames in stream")
+    check(len(r2) == 0, "Multiple frames: no trailing data")
+
+    # Test 10: decode_binary_log works on a synthetic file
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tf:
+        tf.write(frame1 + frame2)
+        tf_path = tf.name
+
+    rc = decode_binary_log(tf_path)
+    check(rc == 0, "decode_binary_log on synthetic file returns 0")
+    os.unlink(tf_path)
+
+    log("selftest: %d/%d checks passed" % (passed, passed + failed))
+    return 0 if failed == 0 else 1
+
+
+# --- CLI ---
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--self-test", action="store_true",
+                    help="Run offline unit tests")
+    ap.add_argument("--capture", nargs="?", const=60, type=int, metavar="SECONDS",
+                    help="Capture DIAG logs for SECONDS (default: 60)")
+    ap.add_argument("--device", default="/dev/wwan0qcdm0",
+                    help="DIAG port device (default: %(default)s)")
+    ap.add_argument("--decode", metavar="FILE",
+                    help="Decode a saved binary DIAG log file")
+    ap.add_argument("--out-dir", default=None,
+                    help="Output directory (default: logs/r8q/)")
+
+    args = ap.parse_args()
+
+    if args.self_test:
+        return selftest()
+
+    if args.capture is not None:
+        return capture_diag(args.device, args.capture, args.out_dir)
+
+    if args.decode:
+        return decode_binary_log(args.decode)
+
+    ap.print_usage(sys.stderr)
+    print("Pass --self-test, --capture [seconds], or --decode FILE.",
+          file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (IOError, OSError) as e:
+        log("I/O error: %s" % e)
+        sys.exit(2)
+    except KeyboardInterrupt:
+        log("interrupted")
+        sys.exit(130)

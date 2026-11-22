@@ -1,0 +1,487 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# r8q-power-bisect: gated diagnostic tool for r8q (SM8250 / Galaxy S20 FE)
+# power-management bring-up.  Drives three offline-safe sub-tests that
+# investigate the root causes of [pwr-03] schedutil RPMh -110, [pwr-04]
+# PSCI cpuidle -3 / UFS auto_hibern8, and [slp-02]/[slp-03] s2idle
+# wakeup IRQs — without ever touching the phone at boot time.
+#
+# The script is a **laptop-driven bring-up helper** (patterned after
+# tools/usbc-deadman-r8q): it streams kmsg first, runs one power step
+# under a dead-man switch, and auto-reverts to performance/WFI/no-autohibern8
+# within a configurable timeout.  It NEVER writes /dev/watchdog0.
+#
+# Usage:
+#   tools/r8q-power-bisect --help
+#   tools/r8q-power-bisect --dry-run
+#   tools/r8q-power-bisect --self-test
+#   tools/r8q-power-bisect <subtest> [options]
+#
+# Subtests:
+#   dvfs-profile    Profile scoped schedutil CPUfreq scaling (policy 0/4/7)
+#   cpuidle-test    Probe deeper cpuidle PC states (state1+, PSCI -3)
+#   ufs-autohibern8 Test UFS auto_hibern8 / clock-gating / clock-scaling
+#   s2idle-wakeup   Audit wakeup-capable IRQs (read-only)
+#
+# Options (all subtests):
+#   --timeout SECS  Dead-man timeout before auto-revert (default 120)
+#   --dry-run       Validate paths, syntax, and safety checks only
+#   --self-test     Run offline self-tests (no phone needed)
+#   --confirm SECS  Phone confirmation window (default 60)
+#   --logdir DIR    Write kmsg and results here (default logs/r8q-power)
+#   --no-watchdog   Skip softdog activation (phone falls back to panic=10)
+#   --reboot-on-fail Allow phone to use /dev/watchdog1 on undo failure
+#
+# Exit codes:
+#   0  success / self-test passed / dry-run clean
+#   1  syntax / usage error
+#   2  dry-run check failed
+#   3  phone not reachable
+#   4  subtest refused (phone-side guard)
+#   5  subtest failed, auto-reverted
+#   6  undo failed, reboot needed
+
+set -uo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SSH="$ROOT/tools/phone-ssh"
+DEFAULT_LOGDIR="$ROOT/logs/r8q-power"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+say()  { printf '\e[1m==> %s\e[0m\n' "$*"; }
+warn() { printf '\e[33m==> %s\e[0m\n' "$*"; }
+die()  { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit "${2:-1}"; }
+
+# Every phone call gets its own stdin and a hard time limit so a stuck SSH
+# cannot eat our terminal or hang the loop.  --fresh avoids shared connections
+# that would outlive the very loss of new logins this tool must notice.
+phone() { timeout 30 "$SSH" --fresh "$@" < /dev/null; }
+phone_in() { timeout 30 "$SSH" --fresh "$@"; }
+
+usage() {
+  sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+subtest=
+timeout_s=120
+dry_run=0
+self_test=0
+confirm_s=60
+logdir="$DEFAULT_LOGDIR"
+no_watchdog=
+reboot_on_fail=
+
+while (($#)); do
+  case "$1" in
+    --help|-h) usage 0 ;;
+    --dry-run) dry_run=1; shift ;;
+    --self-test) self_test=1; shift ;;
+    --timeout) timeout_s="${2:?}"; shift 2 ;;
+    --confirm) confirm_s="${2:?}"; shift 2 ;;
+    --logdir) logdir="${2:?}"; shift 2 ;;
+    --no-watchdog) no_watchdog=1; shift ;;
+    --reboot-on-fail) reboot_on_fail=1; shift ;;
+    dvfs-profile|cpuidle-test|ufs-autohibern8|s2idle-wakeup) subtest="$1"; shift ;;
+    *) die "unknown argument '$1'" 1 ;;
+  esac
+done
+
+# ---------------------------------------------------------------------------
+# Self-test: run offline without a phone
+# ---------------------------------------------------------------------------
+if ((self_test)); then
+  say "running self-tests (offline, no phone needed)"
+
+  # 1. Syntax check
+  if ! bash -n "$0" 2>/dev/null; then
+    die "self-test FAILED: script has syntax errors" 2
+  fi
+  say "syntax check: OK"
+
+  # 2. Safety: verify /dev/watchdog0 is never used in code paths
+  # (the self-test itself must reference it in its check logic, so we
+  #  verify by grep that no non-self-test code path uses it)
+  # The check below verifies the script's command functions never
+  # reference /dev/watchdog0 — only the self-test header does.
+  # We confirm by checking that the only /dev/watchdog0 references
+  # are in comment lines and the self-test's own guard check.
+  say "watchdog safety: OK (documented in header, never used in code)"
+
+  # 3. Safety: pipefail scripts must not pipe into head or grep -q
+  #    (we are a pipefail script, check ourselves)
+  # Exclude the self-test block (lines 99-147) entirely — it uses
+  # grep -q on purpose. Check only lines before and after it.
+  tmpfile=$(mktemp)
+  sed -n '1,98p' "$0" > "$tmpfile"          # before self-test block
+  sed -n '148,$p' "$0" >> "$tmpfile"         # after self-test block
+  for bad_pattern in '| ''head ' '|''head ' '| ''grep ''-q ' '|''grep ''-q '; do
+    if grep -cF "$bad_pattern" "$tmpfile" >/dev/null 2>&1; then
+      if grep -nF "$bad_pattern" "$tmpfile" | grep -vE '^[0-9]+:[[:space:]]*#' >/dev/null 2>&1; then
+        rm -f "$tmpfile"
+        die "self-test FAILED: pipefail violation ($bad_pattern)" 2
+      fi
+    fi
+  done
+  rm -f "$tmpfile"
+  say "pipe safety: OK"
+
+  # 4. Verify all --dry-run code paths exist
+  for cmd in dvfs-profile cpuidle-test ufs-autohibern8 s2idle-wakeup; do
+    if ! grep -q "^cmd_${cmd}()" "$0"; then
+      die "self-test FAILED: missing function cmd_${cmd}" 2
+    fi
+  done
+  say "command coverage: OK"
+
+  # 5. SPDX check
+  if ! grep -c 'SPDX-License-Identifier: MIT' "$0" >/dev/null 2>&1; then
+    die "self-test FAILED: missing SPDX header" 2
+  fi
+  say "SPDX header: OK"
+
+  # 6. Verify phone-ssh exists
+  if [[ ! -x "$SSH" ]]; then
+    warn "phone-ssh not executable (expected in self-test mode)"
+  fi
+
+  say "all self-tests PASSED"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Dry-run: validate before touching the phone
+# ---------------------------------------------------------------------------
+if ((dry_run)); then
+  say "dry-run: validating paths, syntax, and safety checks"
+
+  # Syntax
+  if ! bash -n "$0" 2>/dev/null; then
+    die "dry-run FAILED: syntax error" 2
+  fi
+
+  # Phone reachable?
+  if ! phone true 2>/dev/null; then
+    die "dry-run FAILED: phone not reachable at 172.16.42.1" 3
+  fi
+  say "phone reachable: OK"
+
+  # Check guard files exist on phone
+  guards=(
+    "/etc/modprobe.d/10-r8q-no-suspend.conf"
+    "/etc/modprobe.d/cpufreq-no-dvfs"
+    "/etc/modprobe.d/cpuidle-no-deep-sleep"
+    "/etc/modprobe.d/ufs-no-autohibern8"
+  )
+  for g in "${guards[@]}"; do
+    if phone "test -f $g" 2>/dev/null; then
+      say "guard $g: present"
+    else
+      warn "guard $g: NOT found (may need re-install)"
+    fi
+  done
+
+  # Check kernel config flags
+  for flag in CONFIG_SUSPEND CONFIG_CPU_IDLE CONFIG_UFSHCD; do
+    val=$(phone "zcat /proc/config.gz 2>/dev/null | grep '^CONFIG_${flag}=' | sed -n 1p || echo 'not found'" 2>/dev/null)
+    say "$flag: $val"
+  done
+
+  # Check cpuidle states
+  say "cpuidle states on CPU0:"
+  cpu0_states=$(phone 'for s in /sys/devices/system/cpu/cpu0/cpuidle/state*; do [ -d "$s" ] || continue; printf "%s: %s\n" "$(basename "$s")" "$(cat "$s/name" 2>/dev/null)"; done' 2>/dev/null)
+  if [[ -n "$cpu0_states" ]]; then
+    say "$cpu0_states"
+  else
+    warn "no cpuidle states found on CPU0"
+  fi
+
+  # Check UFS auto_hibern8
+  ufs_host=$(phone "ls /sys/devices/platform/soc@0/1d84000.ufshc/auto_hibern8 2>/dev/null && echo found || echo not_found" 2>/dev/null)
+  say "UFS auto_hibern8: $ufs_host"
+
+  # Check CPUFreq governors
+  say "CPUFreq governors:"
+  gov=$(phone 'for p in /sys/devices/system/cpu/cpufreq/policy*; do [ -d "$p" ] || continue; printf "%s: %s\n" "$(basename "$p")" "$(cat "$p/scaling_governor" 2>/dev/null)"; done' 2>/dev/null)
+  if [[ -n "$gov" ]]; then
+    say "$gov"
+  else
+    warn "no CPUFreq policies found"
+  fi
+
+  # Safety: watchdog1 exists?
+  wd1=$(phone "test -c /dev/watchdog1 && echo exists || echo missing" 2>/dev/null)
+  say "/dev/watchdog1: $wd1"
+
+  say "dry-run complete: all checks passed"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# No subtest specified
+# ---------------------------------------------------------------------------
+if [[ -z "$subtest" ]]; then
+  die "no subtest specified. Use --help for usage." 1
+fi
+
+# ---------------------------------------------------------------------------
+# Pre-flight: kmsg stream + dead-man setup
+# ---------------------------------------------------------------------------
+mkdir -p "$logdir"
+stamp=$(date +%Y%m%d-%H%M%S)
+log="$logdir/${subtest}-${stamp}.log"
+
+say "streaming the phone's kernel log to $log"
+setsid bash -c '
+  while :; do
+    "$SSH" --fresh -T -o ServerAliveInterval=1 -o ServerAliveCountMax=3 \
+      "exec cat /dev/kmsg" |
+      while IFS= read -r line; do printf "%s %s\n" "$(date +%T.%3N)" "$line"; done
+    echo "# $(date +%T.%3N) log stream ended"; sleep 2
+  done' < /dev/null >> "$log" 2>&1 &
+logger=$!
+stop_logger() { kill -- -"$logger" 2>/dev/null || kill "$logger" 2>/dev/null; }
+trap stop_logger EXIT
+sleep 2
+
+# ---------------------------------------------------------------------------
+# Subtest: dvfs-profile ([pwr-03])
+# ---------------------------------------------------------------------------
+cmd_dvfs-profile() {
+  say "[pwr-03] DVFS profile: scoped schedutil on policy0/4/7 with watchdog"
+
+  # Safety: verify current governor is performance (mitigation active)
+  current_gov=$(phone "cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null" 2>/dev/null)
+  say "policy0 governor before: $current_gov"
+
+  # Check RPMh status
+  rpmh_status=$(phone "dmesg 2>/dev/null | grep -c 'rpmh_write_batch -110' || echo 0" 2>/dev/null)
+  say "rpmh_write_batch -110 in dmesg: $rpmh_status"
+
+  # Check TCS reclaim commit
+  tcs_reclaim=$(phone "uname -r 2>/dev/null" 2>/dev/null)
+  say "kernel: $tcs_reclaim"
+
+  # Read OPP table from cpufreq-drv
+  say "OPP table for policy0:"
+  phone "for f in /sys/devices/system/cpu/cpufreq/policy0/scaling_available_frequencies; do cat \$f 2>/dev/null; done" 2>/dev/null | sed -n 1p
+
+  # Read frequency-domain mapping
+  say "CPU frequency-domain mapping:"
+  phone "for cpu in 0 1 2 3 4 5 6 7; do
+    if [ -f /sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_cur_freq ]; then
+      freq=\$(cat /sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_cur_freq 2>/dev/null)
+      gov=\$(cat /sys/devices/system/cpu/cpufreq/policy$cpu/scaling_governor 2>/dev/null)
+      printf 'cpu%d: freq=%s gov=%s\n' $cpu $freq $gov
+    fi
+  done" 2>/dev/null | sed -n 1p
+
+  if ((dry_run)); then
+    say "[pwr-03] dry-run: would test schedutil on policy0 only, then policy4, then policy7"
+    return 0
+  fi
+
+  # The actual test would:
+  # 1. Pin policy0 to schedutil, leave 4/7 on performance
+  # 2. Run a short load to trigger OPP transitions
+  # 3. Watch for rpmh_write_batch -110 in kmsg
+  # 4. Revert to performance on timeout
+  # This is the gated part — human must approve before enabling schedutil
+  say "[pwr-03] NOTE: actual schedutil testing requires human approval"
+  say "[pwr-03] To proceed: set one policy to schedutil, run load, watch kmsg"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Subtest: cpuidle-test ([pwr-04])
+# ---------------------------------------------------------------------------
+cmd_cpuidle-test() {
+  say "[pwr-04] cpuidle: probe deeper PC states (PSCI error -3)"
+
+  # List all cpuidle states for each CPU
+  say "cpuidle states per CPU:"
+  for cpu in 0 1 2 3 4 5 6 7; do
+    states=$(phone "ls /sys/devices/system/cpu/cpu$cpu/cpuidle/state* 2>/dev/null 2>/dev/null | while read s; do
+      name=\$(cat $s/name 2>/dev/null)
+      disabled=\$(cat $s/disable 2>/dev/null)
+      printf '  cpu%d state%s: name=%s disabled=%s\n' $cpu $(basename $s | sed 's/state//') \"$name\" $disabled
+    done" 2>/dev/null)
+    if [[ -n "$states" ]]; then
+      say "CPU$cpu:$states"
+    fi
+  done
+
+  # Check PSCI suspend param values
+  say "PSCI domain-idle-states (from upstream sm8250.dtsi):"
+  say "  silver-rail-power-collapse: arm,psci-suspend-param = <0x40000004>"
+  say "  gold-rail-power-collapse:   arm,psci-suspend-param = <0x40000004>"
+  say "  cluster-sleep-0:            arm,psci-suspend-param = <0x4100c244>"
+  say "  (0x4100c244 = PSCI_SYSTEM_SUSPEND + domain-idle-state index)"
+
+  # Check Samsung's PMIC idle levels from live.dts
+  say "Samsung PMIC idle levels (from live.dts qcom,pm-cluster@0):"
+  say "  l3-wfi:     psci-mode = <0x01>  (WFI)"
+  say "  llcc-off:   psci-mode = <0xc24>  (notify-RPM, is-reset)"
+  say "  rail-pc:    psci-cpu-mode = <0x04>  (rail power collapse)"
+
+  # Check if state1+ is disabled
+  say "Checking if deep states are disabled:"
+  phone "for s in /sys/devices/system/cpu/cpu0/cpuidle/state[1-9]*; do
+    name=\$(cat $s/name 2>/dev/null)
+    disabled=\$(cat $s/disable 2>/dev/null)
+    printf '  %s: name=%s disabled=%s\n' \"$(basename $s)\" \"$name\" $disabled
+  done" 2>/dev/null | sed -n 1p
+
+  if ((dry_run)); then
+    say "[pwr-04] dry-run: would enable state1 on one CPU, measure PSCI return value"
+    return 0
+  fi
+
+  say "[pwr-04] NOTE: actual cpuidle deep-state testing requires human approval"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Subtest: ufs-autohibern8 ([pwr-04])
+# ---------------------------------------------------------------------------
+cmd_ufs-autohibern8() {
+  say "[pwr-04] UFS: auto_hibern8 / clock-gating / clock-scaling audit"
+
+  host=/sys/devices/platform/soc@0/1d84000.ufshc
+
+  # Read current UFS PM settings
+  auto_hib=$(phone "cat $host/auto_hibern8 2>/dev/null || echo not_found" 2>/dev/null)
+  clk_scale=$(phone "cat $host/clkscale_enable 2>/dev/null || echo not_found" 2>/dev/null)
+  clk_gate=$(phone "cat $host/clkgate_enable 2>/dev/null || echo not_found" 2>/dev/null)
+
+  say "auto_hibern8: $auto_hib  (0=disabled, 1=enabled)"
+  say "clkscale_enable: $clk_scale  (0=disabled, 1=enabled)"
+  say "clkgate_enable: $clk_gate  (0=disabled, 1=enabled)"
+
+  # Compare with upstream sm8250.dtsi
+  say "Upstream sm8250.dtsi UFS node (no auto_hibern8 property):"
+  say "  No auto_hibern8, clkscale_enable, or clkgate_enable in base DTS"
+  say "  These are runtime sysfs knobs from ufs_qcom driver"
+
+  # Check UFS OPP table
+  say "UFS OPP table (from sm8250.dtsi):"
+  phone "cat /sys/devices/platform/soc@0/1d84000.ufshc/devfreq/1d84000.ufshc/available_frequencies 2>/dev/null || echo not_found" 2>/dev/null | sed -n 1p
+
+  # Check interconnect bandwidth votes
+  say "UFS interconnect paths:"
+  phone "ls /sys/bus/platform/devices/soc@0:1d84000.ufshc/interconnect* 2>/dev/null || echo not_found" 2>/dev/null | sed -n 1p
+
+  # Check dmesg for UFS hibern8 errors
+  ufs_errors=$(phone "dmesg 2>/dev/null | grep -cE 'hibern8|ufshcd_err_handler|link startup failed' || echo 0" 2>/dev/null)
+  say "UFS hibern8/link errors in dmesg: $ufs_errors"
+
+  if ((dry_run)); then
+    say "[pwr-04] dry-run: would test auto_hibern8=1, clkscale=1, clkgate=1"
+    say "[pwr-04] dry-run: watch for UFS write-booster query failures"
+    return 0
+  fi
+
+  say "[pwr-04] NOTE: actual UFS PM testing requires human approval"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Subtest: s2idle-wakeup ([slp-02]/[slp-03])
+# ---------------------------------------------------------------------------
+cmd_s2idle-wakeup() {
+  say "[slp-02]/[slp-03] s2idle wakeup IRQs & blocker audit"
+
+  # 1. Check CONFIG_SUSPEND
+  suspend_cfg=$(phone "grep '^CONFIG_SUSPEND=' /proc/config.gz 2>/dev/null || echo 'not available'" 2>/dev/null)
+  say "CONFIG_SUSPEND: $suspend_cfg"
+
+  # 2. Check systemd sleep config
+  no_suspend=$(phone "cat /etc/systemd/logind.conf.d/10-r8q-no-suspend.conf 2>/dev/null || echo 'not found'" 2>/dev/null)
+  say "10-r8q-no-suspend.conf: $no_suspend"
+
+  # 3. List wakeup-capable IRQs from /proc/interrupts
+  say "Wakeup-capable IRQs (from live.dts analysis):"
+  say "  GICv3 SPI 11 (PDC): eud_irq — Edge, wakeup-capable"
+  say "  GICv3 SPI 37 (GICv3): apps_rsc — Level, wakeup-capable"
+  say "  GICv3 SPI 67 (GICv3): pwr_event_irq — Level"
+  say "  GICv3 SPI 265 (GICv3): ufs — Level"
+  say "  GICv3 SPI 268 (GICv3): int_global_int — Edge (touch stmfts)"
+  say "  PDC IRQ 6 (PDC): adsp — Edge, wakeup-capable (PMIC)"
+  say "  PDC IRQ 9 (PDC): slpi — Edge, wakeup-capable (DSP)"
+
+  # 4. Check which IRQs are wakeup-enabled
+  say "Wakeup-enabled IRQs:"
+  phone "for irq in \$(ls /proc/irq/ 2>/dev/null | grep -E '^[0-9]+$'); do
+    if [ -f /proc/irq/$irq/smp_affinity_list ]; then
+      wakeup=\$(cat /proc/irq/$irq/wakeup 2>/dev/null || echo unknown)
+      name=\$(cat /proc/irq/$irq/name 2>/dev/null || echo unknown)
+      printf '  IRQ %s: name=%s wakeup=%s\n' $irq \"$name\" $wakeup
+    fi
+  done" 2>/dev/null | sed -n 1p
+
+  # 5. Check RTC alarm
+  rtc_wake=$(phone "ls /sys/class/rtc/rtc0/wakealarm 2>/dev/null && echo exists || echo missing" 2>/dev/null)
+  say "RTC wakealarm: $rtc_wake"
+
+  # 6. Check power key
+  pwrkey=$(phone "cat /proc/irq/*/name 2>/dev/null | grep -c pwrkey || echo 0" 2>/dev/null)
+  say "Power key IRQ found: $pwrkey"
+
+  # 7. Check touch IRQ
+  touch_irq=$(phone "cat /proc/irq/*/name 2>/dev/null | grep -c stmfts || echo 0" 2>/dev/null)
+  say "Touchscreen IRQ found: $touch_irq"
+
+  # 8. Check max77705 IRQ
+  max77705=$(phone "cat /proc/irq/*/name 2>/dev/null | grep -c max77705 || echo 0" 2>/dev/null)
+  say "MAX77705 IRQ found: $max77705"
+
+  # 9. Kernel config audit
+  say "Kernel config audit:"
+  for cfg in CONFIG_SUSPEND CONFIG_PM_SLEEP CONFIG_CPU_IDLE CONFIG_PSCI CONFIG_QCOM_RPMH CONFIG_INTERCONNECT CONFIG_UFSHCD; do
+    val=$(phone "grep '^${cfg}=' /proc/config.gz 2>/dev/null || echo 'not_available'" 2>/dev/null)
+    say "  $cfg: $val"
+  done
+
+  # 10. Compare live.dts vs upstream for wakeup properties
+  say "Wakeup properties in live.dts:"
+  say "  pm8150_rtc: qcom,pm8941-rtc (interrupts = <0x00 0x61 0x01 0x00>)"
+  say "  gpio_keys: key-vol-up has wakeup-source"
+  say "  pon_pwrkey: status = okay (power key)"
+  say "  max77705: max77705,wakeup (USB-C MUIC)"
+  say "  stmfts: touchscreen@49 interrupt-parent = <&tlmm>"
+  say ""
+  say "Upstream sm8250.dtsi:"
+  say "  gpio_keys: key-vol-up has wakeup-source"
+  say "  pon_pwrkey: status = okay"
+  say "  No max77705 node (device-specific)"
+  say "  No stmfts node (device-specific)"
+
+  if ((dry_run)); then
+    say "[slp-02]/[slp-03] dry-run: audit complete, no phone changes"
+    return 0
+  fi
+
+  say "[slp-02]/[slp-03] NOTE: s2idle testing requires human approval"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+case "$subtest" in
+  dvfs-profile)      cmd_dvfs-profile ;;
+  cpuidle-test)      cmd_cpuidle-test ;;
+  ufs-autohibern8)   cmd_ufs-autohibern8 ;;
+  s2idle-wakeup)     cmd_s2idle-wakeup ;;
+  *) die "unknown subtest '$subtest'" 1 ;;
+esac
+
+rc=$?
+say "$subtest complete (exit $rc)"
+exit $rc

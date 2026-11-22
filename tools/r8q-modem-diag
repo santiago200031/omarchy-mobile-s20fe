@@ -468,8 +468,9 @@ def selftest():
           "LOG_DATA frame parse")
 
     # Test 5: Redaction
-    redacted = redact_string("IMEI: 123456789012345")
-    check("REDACTED" in redacted and "123456789012345" not in redacted,
+    sample_id = "0" * 15
+    redacted = redact_string("IMEI: " + sample_id)
+    check("REDACTED" in redacted and sample_id not in redacted,
           "Redaction: IMEI field redacted")
     clean = redact_string("normal log message")
     check(clean == "normal log message", "Redaction: clean string passes through")

@@ -1,0 +1,502 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# usbc-deadman-r8q-phone: the phone half of tools/usbc-deadman-r8q. Runs ONE
+# risky USB-C / charger bring-up step (device/r8q/USB-C-PLAN.md) detached
+# from SSH, and undoes it by itself unless the laptop confirms, over a fresh
+# SSH login, that the USB link still works:
+#
+#   1. refuse unless the preconditions hold (nothing is applied if not);
+#   2. arm the watchdog with a feeder that stops feeding at a deadline;
+#   3. save the registers the step touches, apply the step;
+#   4. wait CONFIRM seconds for /run/usbc-deadman-r8q/confirm (the laptop
+#      writes it);
+#   5. no confirmation: revert the step, and wait GRACE seconds for a
+#      confirmation again;
+#   6. still nothing: stop feeding the watchdog, so the phone resets (warm,
+#      so pstore keeps the log) and boots the same slot with every MAX77705
+#      driver blacklisted, i.e. the known-good USB setup. If the watchdog
+#      could not be armed, crash instead (panic=10 reboots).
+#
+# Every action is logged before it happens to /dev/kmsg (so pstore has it)
+# and to /var/log/usbc-deadman-r8q.log.
+#
+# Usage (normally through tools/usbc-deadman-r8q on the laptop):
+#   usbc-deadman-r8q-phone dump                 read-only register dump (no dead-man)
+#   usbc-deadman-r8q-phone rescue               re-enumerate the gadget now
+#   usbc-deadman-r8q-phone run STEP [options]   run STEP under the dead-man switch
+#   usbc-deadman-r8q-phone confirm              what the laptop runs to confirm
+#   usbc-deadman-r8q-phone undo STEP            revert a confirmed STEP by hand
+#
+# STEP: noop | replug | udc-rebind | otg-host | rescue
+# Options: --confirm SECS (default 90)  --grace SECS (default 60)
+#          --no-watchdog  --reboot-on-fail  --otg-vbus  --replug-wait S
+#          --duration S (otg-host: stay in host mode this long)
+
+set -u
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+D=/run/usbc-deadman-r8q
+LOG=/var/log/usbc-deadman-r8q.log
+CHG=0x69
+UDC_FILE=/sys/kernel/config/usb_gadget/g1/UDC
+confirm_s=90 grace_s=60 reboot_on_fail=0 otg_vbus=0
+otg_duration=15 pre_delay=0
+
+log() {
+  local m="usbc-deadman-r8q: $*"
+  echo "$m" > /dev/kmsg 2>/dev/null
+  echo "$(date '+%F %T') $m" >> "$LOG" 2>/dev/null
+  echo "$m"
+}
+
+# ---- board check ----
+board_ok() {
+  local c
+  c=$(tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | head -1)
+  case "$c" in
+    samsung,r8q|qcom,sm8250) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ---- I2C bus detection: Geni-I2C under i2c@980000 ----
+i2c_bus() {
+  local d
+  for d in /sys/bus/i2c/devices/i2c-*; do
+    if grep -qs "Geni-I2C" "$d/name" 2>/dev/null || \
+       readlink -f "$d" 2>/dev/null | grep -q "i2c@980000"; then
+      echo "${d##*-}"; return 0
+    fi
+  done
+  return 1
+}
+
+BUS=$(i2c_bus) || BUS=
+rd() { i2cget -f -y "$BUS" "$1" "$2" 2>/dev/null; }          # rd ADDR REG
+wr() { log "i2cset $1 reg $2 = $3"; i2cset -f -y "$BUS" "$1" "$2" "$3"; }
+
+udc_state() { cat /sys/class/udc/*/state 2>/dev/null || echo none; }
+udc_name()  { ls /sys/class/udc/ 2>/dev/null | head -1; }
+gadget_udc() { tr -d '\n' < "$UDC_FILE" 2>/dev/null || true; }
+
+role_file() {
+  local f
+  for f in /sys/class/usb_role/*/role; do
+    [[ -e "$f" ]] && { echo "$f"; return 0; }
+  done
+  return 1
+}
+
+# ---- charger helpers ----
+vbus_valid() {
+  # CNFG_00 (0xB7) bit0 CHG_EN: if set, charger is enabled
+  local v
+  v=$(rd $CHG 0xb7) || return 1
+  (( (v & 0x1) == 1 ))
+}
+
+cnfg00() { rd $CHG 0xb7; }
+
+# ---- gadget helpers ----
+udc_rebind() {
+  # Unbind then rebind the gadget to force re-enumeration and trigger
+  # dwc3_qcom_run_stop_notifier (QSCRATCH VBUS_VALID=1).
+  local target="${1:-$(udc_name)}"
+  [[ -n "$target" ]] || return 1
+  echo "" > "$UDC_FILE" 2>/dev/null || true
+  sleep 1
+  echo "$target" > "$UDC_FILE" 2>/dev/null
+  sleep 1
+}
+
+# ---- rescue: re-enumerate the gadget ----
+rescue() {
+  local udc
+  udc=$(udc_name)
+  if [[ -n "$udc" ]]; then
+    local state
+    state=$(udc_state)
+    log "rescue: UDC $udc state=$state, VBUS=$(vbus_valid && echo valid || echo invalid)"
+    udc_rebind "$udc"
+    log "rescue: gadget re-enumerated (UDC rebind done)"
+  else
+    log "rescue: no UDC found"
+  fi
+}
+
+# ---- dump ----
+list_dir_or_empty() {
+  local out
+  out=$(ls -A "$1" 2>/dev/null | tr '\n' ' ')
+  echo "${out:-empty}"
+}
+
+dump() {
+  echo "i2c bus ${BUS:-none}; udc $(udc_state); udc_name=$(udc_name)"
+  echo "modules: $(lsmod | awk '/max77705|dwc3/ {printf "%s ", $1}')"
+  echo "charger 0x$(printf %x $CHG):"
+  for r in 0xb0 0xb1 0xb2 0xb3 0xb4 0xb5 0xb6 0xb7 0xb8 0xb9 0xba 0xbb 0xbc \
+           0xbd 0xbe 0xbf 0xc0 0xc1 0xc2 0xc3 0xc4 0xc5 0xc6 0xc7 0xc8 0xc9 \
+           0xca 0xcb 0xcc; do
+    printf '  %s=%s' "$r" "$(rd $CHG $r || echo ERR)"
+  done
+  echo
+  local v
+  v=$(cnfg00) && echo "  CNFG_00 (0xb7) = $v (bit0=CHG_EN, bit1=OTG_EN, bit2=BUCK_EN, bit3=BOOST_EN, bit4=WDTEN)"
+  echo "gadget: $(gadget_udc)"
+  echo "debugfs mode: $(cat /sys/kernel/debug/usb/a600000.usb/mode 2>/dev/null || echo N/A)"
+  echo "dt dr_mode: $(tr -d '\0' < /sys/firmware/devicetree/base/soc@0/usb@a6f8800/usb@a600000/dr_mode 2>/dev/null || echo N/A)"
+  echo "extcon: $(list_dir_or_empty /sys/class/extcon)"
+  echo "typec: $(list_dir_or_empty /sys/class/typec)"
+  echo "usb_role: $(list_dir_or_empty /sys/class/usb_role)"
+  echo "i2cdetect 0x25: $(i2cdetect -y -r 0 0x25 0x25 2>/dev/null | tail -n +2 | xargs || echo no-response)"
+  for w in /sys/class/watchdog/watchdog*; do
+    [[ -d "$w" ]] || continue
+    echo "$(basename "$w"): state=$(cat "$w/state" 2>/dev/null || echo unknown) timeout=$(cat "$w/timeout" 2>/dev/null || echo unknown)"
+  done
+}
+
+# ---- steps: apply / revert ----
+
+save_state() {
+  # Save state before the step: bound UDC driver name + CNFG_00
+  local udc
+  udc=$(gadget_udc)
+  [[ -n "$udc" ]] || udc=$(udc_name)
+  echo "$udc" > "$D/udc.saved"
+  echo "$(cnfg00)" > "$D/cnfg00.saved"
+  log "saved state: udc=$(cat "$D/udc.saved"), cnfg00=$(cat "$D/cnfg00.saved")"
+}
+
+restore_state() {
+  # Restore bound UDC and CNFG_00 after the step
+  local udc_saved cnfg00_saved
+  udc_saved=$(cat "$D/udc.saved" 2>/dev/null)
+  cnfg00_saved=$(cat "$D/cnfg00.saved" 2>/dev/null)
+  if [[ -n "$udc_saved" ]]; then
+    udc_rebind "$udc_saved"
+  fi
+  if [[ -n "$cnfg00_saved" ]]; then
+    local cur
+    cur=$(rd $CHG 0xb7)
+    if [[ "$cur" == "$cnfg00_saved" ]]; then
+      log "CNFG_00 already matches saved value $cnfg00_saved"
+    else
+      wr $CHG 0xb7 "$cnfg00_saved"
+    fi
+  fi
+}
+
+set_usb_role() {
+  local want="$1" rf
+  if rf=$(role_file); then
+    echo "$want" > "$rf" 2>/dev/null && {
+      log "usb_role ($rf) -> $want"
+      return 0
+    }
+  fi
+  if [[ -w /sys/kernel/debug/usb/a600000.usb/mode ]]; then
+    echo "$want" > /sys/kernel/debug/usb/a600000.usb/mode 2>/dev/null && {
+      log "debugfs mode -> $want"
+      return 0
+    }
+  fi
+  return 1
+}
+
+apply() {
+  case "$1" in
+    noop)
+      log "step noop: nothing to apply"
+      return 0 ;;
+    replug)
+      save_state
+      log "replug: unplug the cable now, wait for disconnect, then plug it back in"
+      return 0 ;;
+    udc-rebind)
+      save_state
+      local target
+      target=$(cat "$D/udc.saved" 2>/dev/null)
+      [[ -n "$target" ]] || target=$(udc_name)
+      log "udc-rebind: unbinding then rebinding $target"
+      udc_rebind "$target" || return 1
+      log "udc-rebind: rebind complete, state=$(udc_state)"
+      return 0 ;;
+    otg-host)
+      local dr_mode
+      dr_mode=$(tr -d '\0' < /sys/firmware/devicetree/base/soc@0/usb@a6f8800/usb@a600000/dr_mode 2>/dev/null || true)
+      if [[ "$dr_mode" != "otg" ]] && ! role_file >/dev/null; then
+        log "otg-host: dr_mode=$dr_mode, no usb_role; usbc-otg-test overlay is needed"
+        return 1
+      fi
+      save_state
+      log "otg-host: switching to host mode (dr_mode=${dr_mode:-unknown})"
+      set_usb_role host || return 1
+      if ((otg_vbus)); then
+        local cur new
+        cur=$(cnfg00)
+        # MAX77705_OTG_CTRL (0x0A = OTG | BOOST) + BUCK (0x04), clearing CHG_EN (0x01)
+        new=$(printf '0x%02x' $(( (cur & 0xf0) | 0x0e )))
+        wr $CHG 0xb7 "$new"
+        log "otg-host: CNFG_00 $cur -> $new (OTG+BOOST+BUCK enabled)"
+      fi
+      return 0 ;;
+    rescue)
+      log "step rescue: re-enumerating the gadget"
+      rescue
+      return 0 ;;
+    *)
+      log "unknown step $1"; return 1 ;;
+  esac
+}
+
+revert() {
+  log "reverting step $1 (udc $(udc_state))"
+  case "$1" in
+    noop) ;;
+    replug)
+      local state
+      state=$(udc_state)
+      if [[ "$state" != "configured" ]]; then
+        log "revert replug: gadget not configured (state=$state), forcing UDC rebind"
+        udc_rebind
+      fi
+      restore_state ;;
+    udc-rebind)
+      restore_state
+      log "revert udc-rebind: restored UDC=$(cat "$D/udc.saved" 2>/dev/null), CNFG_00=$(cat "$D/cnfg00.saved" 2>/dev/null)" ;;
+    otg-host)
+      if ((otg_vbus)); then
+        local cur new
+        cur=$(cnfg00)
+        new=$(printf '0x%02x' $(( (cur & 0xf0) | 0x05 )))
+        wr $CHG 0xb7 "$new"
+        log "revert otg-host: CNFG_00 $cur -> $new (OTG boost disabled)"
+      fi
+      set_usb_role device || true
+      restore_state ;;
+    rescue) ;;
+  esac
+}
+
+# ---- watchdog ----
+# r8q: /dev/watchdog0 is held by systemd PID 1. Use /dev/watchdog1 (softdog)
+# only when --reboot-on-fail is passed.
+
+wd_arm() {
+  local wd_dev
+  if ((reboot_on_fail)); then
+    [[ -w /dev/watchdog1 ]] || { log "cannot open /dev/watchdog1"; return 1; }
+    wd_dev=/dev/watchdog1
+  else
+    log "no watchdog to arm (--no-watchdog or no --reboot-on-fail)"
+    return 0
+  fi
+  echo $(( $(date +%s) + confirm_s + 30 )) > "$D/deadline"
+  rm -f "$D/disarm" "$D/wd"
+  (
+    exec 3>$wd_dev || exit 1
+    echo armed > "$D/wd"
+    while :; do
+      if [[ -e "$D/disarm" ]]; then printf V >&3; echo disarmed > "$D/wd"; exit 0; fi
+      if (( $(date +%s) >= $(cat "$D/deadline" 2>/dev/null || echo 0) )); then
+        echo "usbc-deadman-r8q: watchdog deadline passed, no longer feeding: reset in ~100 s" > /dev/kmsg
+        sync
+        sleep 3600
+      fi
+      printf k >&3
+      sleep 2
+    done
+  ) &
+  sleep 1
+  [[ $(cat "$D/wd" 2>/dev/null) == armed ]]
+}
+
+wd_extend() { ((reboot_on_fail)) && echo $(( $(date +%s) + $1 )) > "$D/deadline"; }
+wd_disarm() {
+  ((reboot_on_fail)) || return 0
+  touch "$D/disarm"
+  sleep 3
+  log "watchdog: $(cat "$D/wd" 2>/dev/null || echo unknown)"
+}
+
+refuse() {
+  log "refusing: $*"
+  echo "refused: $*" > "$D/result"
+  return 1
+}
+
+final_reset() {
+  log "=== step $1: no link/confirm after grace either (udc $(udc_state))"
+  if ! ((reboot_on_fail)); then
+    log "--reboot-on-fail not set: trying final UDC rescue without rebooting"
+    rescue
+    echo "failed: step $1 did not confirm within confirm+grace (--reboot-on-fail disabled); see $LOG" > "$D/result"
+    return 1
+  fi
+  echo reset > "$D/result"
+  sync
+  wd_extend 0
+  sleep 110
+  log "still alive: rebooting via /usr/local/bin/reboot-to then sysrq"
+  sync
+  if [[ -x /usr/local/bin/reboot-to ]]; then
+    /usr/local/bin/reboot-to 2>/dev/null || true
+  fi
+  echo c > /proc/sysrq-trigger
+}
+
+wait_confirm() {   # wait_confirm SECS
+  local end=$(( $(date +%s) + $1 ))
+  while (( $(date +%s) < end )); do
+    [[ -e "$D/confirm" ]] && return 0
+    sleep 1
+  done
+  return 1
+}
+
+# ---- main run loop ----
+run() {
+  local step="$1"
+  mkdir -p "$D"
+  rm -f "$D/confirm" "$D/result"
+
+  # Preconditions
+  board_ok || { refuse "this is not a samsung,r8q or qcom,sm8250 device"; return 1; }
+  [[ -n "$BUS" ]] || { refuse "no i2c bus for Geni-I2C (i2c@980000)"; return 1; }
+  command -v i2cget >/dev/null || { refuse "i2c-tools missing"; return 1; }
+
+  # Check charger CNFG_00 (0xB7) is readable
+  local cnfg
+  cnfg=$(rd $CHG 0xb7)
+  [[ "$cnfg" =~ ^0x[0-9a-fA-F]{1,2}$ ]] || { refuse "cannot read charger CNFG_00 (0xB7), got '$cnfg'"; return 1; }
+
+  # Check UDC gadget exists
+  [[ -e "$UDC_FILE" ]] || { refuse "gadget g1/UDC not found"; return 1; }
+
+  if [[ "$step" == "otg-host" ]]; then
+    if ((otg_vbus)); then
+      refuse "--otg-vbus disabled on r8q: raw CNFG_00=0x0e without MAX77705 USBC (0x25) opcode caused PMIC reset without enabling 5V port VBUS"
+      return 1
+    fi
+    local dr_mode
+    dr_mode=$(tr -d '\0' < /sys/firmware/devicetree/base/soc@0/usb@a6f8800/usb@a600000/dr_mode 2>/dev/null || true)
+    if [[ "$dr_mode" != "otg" ]] && ! role_file >/dev/null; then
+      refuse "dr_mode=${dr_mode:-unknown} and no /sys/class/usb_role/*/role (boot with usbc-otg-test overlay)"
+      return 1
+    fi
+  fi
+
+  log "=== step $step: confirm ${confirm_s}s, grace ${grace_s}s; udc $(udc_state); cnfg00=$cnfg"
+
+  if ((pre_delay > 0)); then
+    log "step $step: waiting ${pre_delay}s before applying (safe cable swap window)"
+    sleep "$pre_delay"
+  fi
+
+  # Arm watchdog before applying if --reboot-on-fail was requested
+  if ((reboot_on_fail)); then
+    wd_arm || { refuse "cannot arm /dev/watchdog1; omit --reboot-on-fail or free watchdog1"; return 1; }
+    log "watchdog (/dev/watchdog1) armed"
+  fi
+
+  # Apply the step
+  if ! apply "$step"; then
+    log "apply failed: reverting now"
+    wd_extend $(( grace_s + 20 ))
+    revert "$step"
+    if wait_confirm "$grace_s"; then
+      wd_disarm
+      log "=== step $step FAILED to apply, undone (udc $(udc_state))"
+      echo "failed: step $step did not apply and was undone; see $LOG" > "$D/result"
+      return 1
+    fi
+    final_reset "$step"
+    return 1
+  fi
+
+  # Handle otg-host specially: observe host mode for --duration, log USB devices, then return to device + rebind
+  if [[ "$step" == "otg-host" ]]; then
+    log "otg-host: staying in host mode for ${otg_duration}s, then switching back"
+    wd_extend $(( otg_duration + confirm_s + 30 ))
+    local half=$(( otg_duration / 2 ))
+    (( half < 1 )) && half=1
+    sleep "$half"
+    if command -v lsusb >/dev/null 2>&1; then
+      lsusb 2>&1 | while IFS= read -r l; do log "otg-host lsusb: $l"; done
+    fi
+    dmesg | grep -iE "usb [0-9]|xhci|hub|hid|input|mass|scsi" | tail -n 15 | while IFS= read -r l; do
+      log "otg-host dmesg: $l"
+    done
+    sleep $(( otg_duration - half ))
+    if command -v lsusb >/dev/null 2>&1; then
+      lsusb 2>&1 | while IFS= read -r l; do log "otg-host lsusb(end): $l"; done
+    fi
+    revert "$step"
+    log "otg-host: switched back to device mode, UDC rebound (state=$(udc_state))"
+    if wait_confirm "$confirm_s"; then
+      wd_disarm
+      log "=== step $step CONFIRMED (udc $(udc_state))"
+      echo confirmed > "$D/result"
+      return 0
+    fi
+    log "no confirmation within ${confirm_s}s after otg-host return"
+    wd_extend $(( grace_s + 20 ))
+    revert "$step"
+    if wait_confirm "$grace_s"; then
+      wd_disarm
+      log "=== step $step REVERTED, link back (udc $(udc_state))"
+      echo reverted > "$D/result"
+      return 1
+    fi
+    final_reset "$step"
+    return 1
+  fi
+
+  # Wait for fresh-SSH confirmation from the laptop (or timeout -> revert)
+  if wait_confirm "$confirm_s"; then
+    wd_disarm
+    log "=== step $step CONFIRMED (udc $(udc_state)); left applied"
+    echo confirmed > "$D/result"
+    return 0
+  fi
+  log "no confirmation within ${confirm_s}s (udc $(udc_state))"
+  wd_extend $(( grace_s + 20 ))
+  revert "$step"
+  if wait_confirm "$grace_s"; then
+    wd_disarm
+    log "=== step $step REVERTED, link back (udc $(udc_state))"
+    echo reverted > "$D/result"
+    return 1
+  fi
+  final_reset "$step"
+}
+
+# ---- command dispatch ----
+cmd="${1:-}"; shift || true
+step=
+while (($#)); do
+  case "$1" in
+    --confirm) confirm_s="$2"; shift ;;
+    --grace) grace_s="$2"; shift ;;
+    --no-watchdog) reboot_on_fail=0 ;;
+    --reboot-on-fail) reboot_on_fail=1 ;;
+    --otg-vbus) otg_vbus=1 ;;
+    --replug-wait) shift ;;
+    --duration) otg_duration="$2"; shift ;;
+    --delay) pre_delay="$2"; shift ;;
+    -*) echo "unknown option $1" >&2; exit 2 ;;
+    *) step="$1" ;;
+  esac
+  shift
+done
+
+case "$cmd" in
+  dump) dump ;;
+  rescue) rescue ;;
+  confirm) mkdir -p "$D"; touch "$D/confirm"; echo "confirmed; result so far: $(cat "$D/result" 2>/dev/null || echo pending)" ;;
+  undo) [[ -n "$step" ]] || { echo "undo needs a STEP" >&2; exit 2; }; mkdir -p "$D"; revert "$step" ;;
+  run) [[ -n "$step" ]] || { echo "run needs a STEP" >&2; exit 2; }; run "$step" ;;
+  *) sed -n '/^# Usage/,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

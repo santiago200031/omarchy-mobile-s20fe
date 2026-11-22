@@ -1,0 +1,226 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# usbc-deadman-r8q: run one MAX77705 charger / USB-C bring-up step on a
+# Samsung Galaxy S20 FE (r8q, SM8250) under a dead-man switch.
+# USB is the only link to the phone, so the step runs DETACHED on the phone
+# (tools/usbc-deadman-r8q-phone, started with systemd-run) and undoes itself
+# unless this script gets back in over a NEW SSH login and confirms. If even
+# the undo does not bring USB back and --reboot-on-fail is set, the
+# software watchdog (/dev/watchdog1) triggers a reset back to RECOVERY
+# (/dev/sda24).
+#
+# Usage:
+#   tools/usbc-deadman-r8q install          copy the phone half to /usr/local/bin
+#   tools/usbc-deadman-r8q dump             read-only charger / gadget dump
+#   tools/usbc-deadman-r8q STEP [options]   run STEP under the dead-man switch
+#   tools/usbc-deadman-r8q undo STEP        revert a confirmed STEP by hand
+#   tools/usbc-deadman-r8q log              the phone's /var/log/usbc-deadman-r8q.log
+#
+# STEP: noop | replug | udc-rebind | otg-host | rescue
+#
+# Options:
+#   --confirm SECS   phone waits this long for our confirmation (default 90;
+#                    replug: 120; otg-host: 30)
+#   --grace SECS     after its undo, wait this long again (default 60)
+#   --no-watchdog    phone falls back to a crash (panic=10) instead of the
+#                    watchdog if the undo fails too
+#   --no-confirm     do not confirm until the phone has undone the step
+#                    (tests the undo path on purpose)
+#   --reboot-on-fail allow the phone to use /dev/watchdog1 (softdog) to
+#                    reset itself if the undo fails (default: never reboot)
+#   --replug-wait SECS  replug: wait this long for host SSH reconnect
+#                        after the cable is replugged (default 15)
+#   --otg-vbus          otg-host: also enable MAX77705 OTG+BOOST (CNFG_00 0x0E)
+#                        ONLY when unplugged from the laptop/host USB port!
+#   --duration SECS     otg-host: stay in host mode this long before
+#                        switching back (default 15)
+#   --delay SECS        wait SECS before applying STEP (useful for unplugging
+#                        laptop cable before --otg-vbus enables 5V boost)
+#
+# replug: confirms only after the link has gone down and come back, i.e.
+# after you unplugged and replugged the cable.
+#
+# otg-host: checks if dr_mode is otg (or usb_role exists); if not, refuses
+# with exit 5 telling the user usbc-otg-test overlay is needed. If otg/role
+# switch is present: switches to host mode, waits --duration S, then
+# AUTOMATICALLY switches back to peripheral mode + rebinds g1/UDC so laptop
+# SSH returns.
+#
+# Exit codes: 0 confirmed (or undone on purpose with --no-confirm),
+# 3 undone (no confirmation in time), 4 no answer from the phone,
+# 5 refused before applying anything (reason printed), 6 apply failed, undone.
+
+set -uo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SSH="$ROOT/tools/phone-ssh"
+LOGDIR="$ROOT/logs"
+
+say() { printf '\e[1m==> %s\e[0m\n' "$*"; }
+warn() { printf '\e[33m==> %s\e[0m\n' "$*"; }
+die() { printf '\e[31merror:\e[0m %s\n' "$*" >&2; exit 1; }
+usage() { sed -n '/^# Usage:/,/^# 5 refused/p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# Every call gets its own stdin and a hard time limit, so a stuck SSH can
+# neither eat our terminal nor hang the loop.
+# --fresh: a shared connection (OMAMOBILE_SSH_SHARE) would outlive the very
+# loss of new logins this tool must notice.
+phone() { timeout 30 "$SSH" --fresh "$@" < /dev/null; }
+phone_in() { timeout 30 "$SSH" --fresh "$@"; }   # with our stdin (file uploads)
+
+recovery() {
+  cat <<'EOF'
+Physical recovery on r8q, in order:
+  1. Wait ~90-120 s: the phone undoes the step (rebinds g1/UDC and restores
+     peripheral role / CNFG_00), bringing USB Ethernet back.
+  2. Unplug and replug the cable once after waiting a few seconds.
+  3. Force a restart: hold Power + Volume Down for ~7-10 s until the
+     screen turns off, release; a normal power-on boots RECOVERY (/dev/sda24).
+  4. If an experimental overlay DTB breaks USB at boot, enter Samsung
+     Download Mode (from power-off hold Volume Up + Volume Down and plug the
+     USB cable) and flash the known-good stable image from
+     device/r8q/stable-image.conf via tools/r8q-flash-recovery.
+EOF
+}
+
+install_phone() {
+  phone 'command -v i2cget >/dev/null' ||
+    die "i2c-tools missing on the phone: tools/phone-ssh 'pacman -S --needed --noconfirm i2c-tools'"
+  phone_in 'cat > /usr/local/bin/usbc-deadman-r8q-phone && chmod 755 /usr/local/bin/usbc-deadman-r8q-phone' \
+    < "$ROOT/tools/usbc-deadman-r8q-phone" || die "could not install the phone half"
+}
+
+cmd="${1:-}"; shift || true
+step= confirm= grace=60 nowd= noconfirm=0 reboot_on_fail=0 replug_wait=15
+otg_vbus=0 otg_duration=15 pre_delay=0
+case "$cmd" in
+  ''|-h|--help) usage ;;
+  install) install_phone; say "installed /usr/local/bin/usbc-deadman-r8q-phone"; exit 0 ;;
+  dump) install_phone; phone 'usbc-deadman-r8q-phone dump'; exit $? ;;
+  log) phone 'cat /var/log/usbc-deadman-r8q.log'; exit $? ;;
+  undo) install_phone; phone "usbc-deadman-r8q-phone undo ${1:?STEP}"; exit $? ;;
+  noop|replug|udc-rebind|otg-host|rescue) step="$cmd" ;;
+  *) usage 1 ;;
+esac
+while (($#)); do
+  case "$1" in
+    --confirm) confirm="${2:?}"; shift ;;
+    --grace) grace="${2:?}"; shift ;;
+    --no-watchdog) nowd=--no-watchdog ;;
+    --no-confirm) noconfirm=1 ;;
+    --reboot-on-fail) reboot_on_fail=1 ;;
+    --replug-wait) replug_wait="${2:?}"; shift ;;
+    --otg-vbus) otg_vbus=1 ;;
+    --duration) otg_duration="${2:?}"; shift ;;
+    --delay) pre_delay="${2:?}"; shift ;;
+    *) usage 1 ;;
+  esac
+  shift
+done
+[[ -n "$confirm" ]] || { [[ $step == replug ]] && confirm=120 || { [[ $step == otg-host ]] && confirm=30 || confirm=90; }; }
+[[ -n "$otg_duration" ]] || otg_duration=15
+
+phone true || die "phone not reachable at 172.16.42.1: nothing started"
+install_phone
+mkdir -p "$LOGDIR"
+stamp=$(date +%Y%m%d-%H%M%S)
+log="$LOGDIR/usbc-r8q-$step-$stamp.log"
+
+# Kernel log on the laptop while the link lasts; reconnects after a drop.
+# Its own session (setsid), with every fd pointed at the log, so stopping it
+# kills the whole group (loop, ssh, reader) and nothing keeps our stdout or
+# stderr open after we exit.
+say "streaming the phone's kernel log to $log"
+export SSH
+setsid bash -c '
+  while :; do
+    "$SSH" --fresh -T -o ServerAliveInterval=1 -o ServerAliveCountMax=3 \
+      "exec cat /dev/kmsg" |
+      while IFS= read -r line; do printf "%s %s\n" "$(date +%T.%3N)" "$line"; done
+    echo "# $(date +%T.%3N) log stream ended"; sleep 2
+  done' < /dev/null >> "$log" 2>&1 &
+logger=$!
+stop_logger() { kill -- -"$logger" 2>/dev/null || kill "$logger" 2>/dev/null; }
+trap stop_logger EXIT
+sleep 2
+
+unit="usbc-deadman-r8q-$step-$stamp"
+args="run $step --confirm $confirm --grace $grace $nowd"
+((reboot_on_fail)) && args+=" --reboot-on-fail"
+((otg_vbus)) && args+=" --otg-vbus"
+[[ $replug_wait -gt 0 ]] && args+=" --replug-wait $replug_wait"
+[[ $otg_duration -gt 0 ]] && args+=" --duration $otg_duration"
+[[ $pre_delay -gt 0 ]] && args+=" --delay $pre_delay"
+say "starting $step on the phone, detached (unit $unit): usbc-deadman-r8q-phone $args"
+phone "if command -v systemd-run >/dev/null; then
+         systemd-run --quiet --collect --unit=$unit /usr/local/bin/usbc-deadman-r8q-phone $args
+       else
+         setsid nohup /usr/local/bin/usbc-deadman-r8q-phone $args >/dev/null 2>&1 < /dev/null &
+       fi" || die "could not start the step (nothing applied)"
+
+if ((noconfirm)); then
+  warn "--no-confirm: not confirming for ${confirm}s, so the phone undoes the step; confirming after that"
+fi
+
+start=$(date +%s)
+extra=$pre_delay
+[[ $step == otg-host ]] && extra=$(( pre_delay + otg_duration ))
+delay=$(( grace > 20 ? 10 : (grace / 2 > 1 ? grace / 2 : 1) ))
+deadline=$(( start + extra + confirm + grace + 90 ))
+dropped=0 confirmed=0 result=
+sleep 5
+while (( $(date +%s) < deadline )); do
+  if phone true 2>/dev/null; then
+    if [[ $step == replug ]] && ((!dropped)); then
+      printf '.'; sleep 2; continue          # waiting for the unplug
+    fi
+    result=$(phone 'cat /run/usbc-deadman-r8q/result 2>/dev/null' 2>/dev/null)
+    case "$result" in confirmed|reverted|reset|refused*|failed*) break ;; esac
+    if (( $(date +%s) >= start + extra )) && ((!confirmed)) && { ((!noconfirm)) || (( $(date +%s) >= start + extra + confirm + delay )); }; then
+      if out=$(phone 'usbc-deadman-r8q-phone confirm' 2>/dev/null); then
+        confirmed=1
+        echo; say "confirmed over a new SSH login after $(( $(date +%s) - start ))s ($out)"
+      fi
+    fi
+    result=$(phone 'cat /run/usbc-deadman-r8q/result 2>/dev/null' 2>/dev/null)
+    case "$result" in confirmed|reverted|reset|refused*|failed*) break ;; esac
+  else
+    ((dropped)) || { echo; warn "link down (expected for replug and once for udc-rebind/otg-host); waiting"; }
+    dropped=1
+  fi
+  printf '.'
+  sleep 2
+done
+echo
+
+rc=1
+case "$result" in
+  confirmed)
+    rc=0
+    say "step $step CONFIRMED, it stays applied. State:"
+    phone 'usbc-deadman-r8q-phone dump; dmesg | grep -iE "max77705|dwc3|charger" | tail -25'
+    ;;
+  reverted)
+    rc=$(( noconfirm ? 0 : 3 ))
+    warn "step $step was UNDONE by the phone (no confirmation in time); the link is back"
+    phone 'tail -20 /var/log/usbc-deadman-r8q.log'
+    ;;
+  refused*)
+    rc=5
+    warn "the phone REFUSED to start $step, nothing was applied: ${result#refused: }"
+    ;;
+  failed*)
+    rc=6
+    warn "step $step FAILED to apply on the phone and was undone; the link is fine"
+    phone 'tail -20 /var/log/usbc-deadman-r8q.log'
+    ;;
+  *)
+    rc=4
+    warn "no result from the phone (result='${result}'). If it does not answer within 2 minutes:"
+    recovery
+    ;;
+esac
+stop_logger
+trap - EXIT
+say "kernel log: $log"
+exit $rc

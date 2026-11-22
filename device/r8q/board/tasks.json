@@ -344,12 +344,13 @@
         },
         {
           "id": "usb-03",
-          "title": "Test USB-C cable unplug/replug gadget recovery using tools/usbc-deadman",
-          "done": false,
+          "title": "Test USB-C cable unplug/replug gadget recovery using tools/usbc-deadman-r8q",
+          "done": true,
           "area": "kernel",
           "risk": "high",
           "requires_human": true,
-          "verify": "Fresh SSH login succeeds within 10s after physical cable replug"
+          "verify": "Fresh SSH login succeeds within 10s after physical cable replug",
+          "evidence": "2026-11-22 (7.3.0-rc6-omamobile-push1-g4d235a595f28): udc-rebind (exit 0, 5s) + live physical unplug/replug under tools/usbc-deadman-r8q replug confirmed fresh SSH recovery automatically (confirmed at 27s total including ~5s unplug, exit 0; g1/UDC=a600000.usb state=configured, CNFG_00=0x05)"
         },
         {
           "id": "usb-04",
@@ -358,7 +359,8 @@
           "area": "kernel",
           "risk": "high",
           "requires_human": true,
-          "verify": "OTG device enumerates in dmesg and peripheral role restores cleanly on unplug"
+          "verify": "OTG device enumerates in dmesg and peripheral role restores cleanly on unplug",
+          "evidence": "2026-11-22 partial pass: usbc-otg-test.dtso + tools/usbc-deadman-r8q otg-host --duration 15 cleanly switched a600000.usb-role-switch device->host (xhci-hcd.3.auto usb1/usb2 registered) and back to gadget SSH in 3s. Bus-powered hub/mouse test blocked: raw CNFG_00=0x0e without MAX77705 0x25 USBC/CCIC coordination resets without outputting 5V VBUS (needs max77705 0x25 USBC driver or externally powered USB-C hub)."
         }
       ]
     },

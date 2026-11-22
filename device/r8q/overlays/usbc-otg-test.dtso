@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay: enable OTG / dual-role on the dwc3 controller.
+ *
+ * Sets dr_mode = "otg", adds usb-role-switch, and sets the default role
+ * to peripheral so the gadget enumerates as a device on boot.
+ *
+ * Usage:
+ *   tools/r8q-boot pack --overlay usbc-otg-test
+ *   tools/r8q-flash-recovery
+ */
+/dts-v1/;
+/plugin/;
+
+&usb_1_dwc3 {
+	dr_mode = "otg";
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
+};

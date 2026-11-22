@@ -628,11 +628,13 @@
         {
           "id": "krn-03",
           "title": "Split ~/omamobile-kernel/wt-r8q into clean per-subsystem topic branches",
-          "done": false,
+          "done": true,
           "area": "upstream",
           "risk": "low",
           "requires_human": true,
-          "verify": "Separate branches (dts-native, touch, gpu-quiesce, modem-mhi, cameras) with no revert noise"
+          "verify": "Separate branches (dts-native, touch, gpu-quiesce, modem-mhi, cameras) with no revert noise",
+          "evidence": "All 8 topic branches rebuilt from r8q-base-dts-fold against origin/omamobile: topic/r8q-qcom-core (11), topic/r8q-dts (3), topic/r8q-touch (3), topic/r8q-panel (2), topic/r8q-audio (1), topic/r8q-gpu (12), topic/r8q-cameras (10), topic/r8q-modem (27). Zero [PATCH] prefix artifacts. Tree equivalence verified: merging all 8 branches produces r8q-base-dts-fold state for all r8q-specific files (r8q.dts, hi847.c, s5k3l6xx.c, irq-qcom-pci-msi.c, pci_generic.c, sm8250.c). See UPSTREAM-KERNEL-PLAN.md §3 for full verification results.",
+          "notes": "Branches created in wt-r8q-split (not touching omamobile, r8q-base-dts-fold, or r8q-usbc-max77705). Worktree at linux uses topic/r8q-modem."
         },
         {
           "id": "krn-04",
@@ -641,7 +643,8 @@
           "area": "ci",
           "risk": "low",
           "requires_human": false,
-          "verify": "Zero W=1 C errors, zero checkpatch errors, zero new dt-validate / dt_binding_check warnings"
+          "verify": "Zero W=1 C errors, zero checkpatch errors, zero new dt-validate / dt_binding_check warnings",
+          "notes": "checkpatch --strict --no-signoff passed (0 errors) across all 8 topic branches in omamobile-build:24.04; --build (W=1 C, dtbs_check, dt_binding_check) was skipped (builds #SKIP) and still needs to be run before marking krn-04 done."
         },
         {
           "id": "krn-05",

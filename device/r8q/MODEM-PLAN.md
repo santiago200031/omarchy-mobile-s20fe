@@ -2565,3 +2565,11 @@ Modem reached ONLINE: yes / no / N/A
 Notes: <free text>
 ```
 
+### Live Run (`2026-11-22`, native `/dev/sda36`)
+
+- **Kernel:** `7.3.0-rc6-omamobile-push1-g4d235a595f28` (`recovery-modem-sda36-test.img`, `sha256: 0def722487d077118147c797077cf2b1c645b56268417fdadf1badee15a46663`)
+- **Root & NV check:** `/dev/sda36 rw`; `14/14` NV partitions `SAME` against `nv-backup-20261117-full` before and after (`param` different as expected).
+- **PCIe2 / MHI / Sahara / Mission Mode:** `0002:01:00.0 SDX55` trained PCIe2 Gen.1 x2, exposed `/dev/qcom_rmtfs_mem1` and `/dev/wwan0sahara0`; started read-only `rmtfs -r` and `tqftpserv` cleanly, ran `tools/r8q-sahara`, transferred all 17 firmware/UFS images (`qdsp6sw.mbn`, `apps.mbn`, etc.), and reached `EE: MISSION MODE` (`ee=2`) at `90.55 s`, attaching `/dev/wwan0qcdm0`, `/dev/wwan0mbim0`, `/dev/wwan0qmi0`, and `/dev/wwan0at0`.
+- **Outcome:** Hit the known `ssr:AP:remotefs_sahara.c:850` assert +16 s into mission mode (`106.54 s`), returning `mhi0` to `EE: DISABLE` after warm AER reset. DIAG capture within the +16 s mission window remains to be run on a fresh boot (`tools/r8q-modem-diag`).
+- **Rollback:** Restored pinned `recovery-stable-20261122.img` (`sha256: f84a754ad5d28935998b396ab08e4b6051abcf0e3969e40897c611bd4fb3464e`).
+

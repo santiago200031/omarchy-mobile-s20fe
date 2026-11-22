@@ -174,10 +174,10 @@ if ((dry_run)); then
 
   # Check guard files exist on phone
   guards=(
-    "/etc/modprobe.d/10-r8q-no-suspend.conf"
-    "/etc/modprobe.d/cpufreq-no-dvfs"
-    "/etc/modprobe.d/cpuidle-no-deep-sleep"
-    "/etc/modprobe.d/ufs-no-autohibern8"
+    "/usr/lib/systemd/sleep.conf.d/10-r8q-no-suspend.conf"
+    "/usr/lib/omamobile/cpufreq-no-dvfs"
+    "/usr/lib/omamobile/cpuidle-no-deep-sleep"
+    "/usr/lib/omamobile/ufs-no-autohibern8"
   )
   for g in "${guards[@]}"; do
     if phone "test -f $g" 2>/dev/null; then
@@ -188,8 +188,8 @@ if ((dry_run)); then
   done
 
   # Check kernel config flags
-  for flag in CONFIG_SUSPEND CONFIG_CPU_IDLE CONFIG_UFSHCD; do
-    val=$(phone "zcat /proc/config.gz 2>/dev/null | grep '^CONFIG_${flag}=' | sed -n 1p || echo 'not found'" 2>/dev/null)
+  for flag in CONFIG_SUSPEND CONFIG_CPU_IDLE CONFIG_SCSI_UFSHCD; do
+    val=$(phone "zcat /proc/config.gz 2>/dev/null | grep -E '^${flag}=' || echo 'not found'" 2>/dev/null)
     say "$flag: $val"
   done
 
@@ -261,8 +261,8 @@ cmd_dvfs-profile() {
   say "policy0 governor before: $current_gov"
 
   # Check RPMh status
-  rpmh_status=$(phone "dmesg 2>/dev/null | grep -c 'rpmh_write_batch -110' || echo 0" 2>/dev/null)
-  say "rpmh_write_batch -110 in dmesg: $rpmh_status"
+  rpmh_status=$(phone "dmesg 2>/dev/null | grep -c 'rpmh_write_batch -110' || true" 2>/dev/null)
+  say "rpmh_write_batch -110 in dmesg: ${rpmh_status:-0}"
 
   # Check TCS reclaim commit
   tcs_reclaim=$(phone "uname -r 2>/dev/null" 2>/dev/null)
@@ -270,17 +270,17 @@ cmd_dvfs-profile() {
 
   # Read OPP table from cpufreq-drv
   say "OPP table for policy0:"
-  phone "for f in /sys/devices/system/cpu/cpufreq/policy0/scaling_available_frequencies; do cat \$f 2>/dev/null; done" 2>/dev/null | sed -n 1p
+  phone "cat /sys/devices/system/cpu/cpufreq/policy0/scaling_available_frequencies 2>/dev/null || true" 2>/dev/null
 
   # Read frequency-domain mapping
   say "CPU frequency-domain mapping:"
-  phone "for cpu in 0 1 2 3 4 5 6 7; do
-    if [ -f /sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_cur_freq ]; then
-      freq=\$(cat /sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_cur_freq 2>/dev/null)
-      gov=\$(cat /sys/devices/system/cpu/cpufreq/policy$cpu/scaling_governor 2>/dev/null)
-      printf 'cpu%d: freq=%s gov=%s\n' $cpu $freq $gov
+  phone 'for cpu in 0 1 2 3 4 5 6 7; do
+    if [ -f "/sys/devices/system/cpu/cpu${cpu}/cpufreq/cpuinfo_cur_freq" ]; then
+      freq=$(cat "/sys/devices/system/cpu/cpu${cpu}/cpufreq/cpuinfo_cur_freq" 2>/dev/null)
+      gov=$(cat "/sys/devices/system/cpu/cpu${cpu}/cpufreq/scaling_governor" 2>/dev/null)
+      printf "  cpu%d: freq=%s kHz gov=%s\n" "$cpu" "$freq" "$gov"
     fi
-  done" 2>/dev/null | sed -n 1p
+  done' 2>/dev/null
 
   if ((dry_run)); then
     say "[pwr-03] dry-run: would test schedutil on policy0 only, then policy4, then policy7"
@@ -307,13 +307,15 @@ cmd_cpuidle-test() {
   # List all cpuidle states for each CPU
   say "cpuidle states per CPU:"
   for cpu in 0 1 2 3 4 5 6 7; do
-    states=$(phone "ls /sys/devices/system/cpu/cpu$cpu/cpuidle/state* 2>/dev/null 2>/dev/null | while read s; do
-      name=\$(cat $s/name 2>/dev/null)
-      disabled=\$(cat $s/disable 2>/dev/null)
-      printf '  cpu%d state%s: name=%s disabled=%s\n' $cpu $(basename $s | sed 's/state//') \"$name\" $disabled
-    done" 2>/dev/null)
+    states=$(phone 'for s in /sys/devices/system/cpu/cpu'"$cpu"'/cpuidle/state*; do
+      [ -d "$s" ] || continue
+      name=$(cat "$s/name" 2>/dev/null)
+      disabled=$(cat "$s/disable" 2>/dev/null)
+      printf "  cpu%s %s: name=%s disabled=%s\n" "'"$cpu"'" "$(basename "$s")" "$name" "$disabled"
+    done' 2>/dev/null)
     if [[ -n "$states" ]]; then
-      say "CPU$cpu:$states"
+      say "CPU$cpu:"
+      printf '%s\n' "$states"
     fi
   done
 
@@ -332,11 +334,12 @@ cmd_cpuidle-test() {
 
   # Check if state1+ is disabled
   say "Checking if deep states are disabled:"
-  phone "for s in /sys/devices/system/cpu/cpu0/cpuidle/state[1-9]*; do
-    name=\$(cat $s/name 2>/dev/null)
-    disabled=\$(cat $s/disable 2>/dev/null)
-    printf '  %s: name=%s disabled=%s\n' \"$(basename $s)\" \"$name\" $disabled
-  done" 2>/dev/null | sed -n 1p
+  phone 'for s in /sys/devices/system/cpu/cpu0/cpuidle/state[1-9]*; do
+    [ -d "$s" ] || continue
+    name=$(cat "$s/name" 2>/dev/null)
+    disabled=$(cat "$s/disable" 2>/dev/null)
+    printf "  %s: name=%s disabled=%s\n" "$(basename "$s")" "$name" "$disabled"
+  done' 2>/dev/null
 
   if ((dry_run)); then
     say "[pwr-04] dry-run: would enable state1 on one CPU, measure PSCI return value"
@@ -371,15 +374,15 @@ cmd_ufs-autohibern8() {
 
   # Check UFS OPP table
   say "UFS OPP table (from sm8250.dtsi):"
-  phone "cat /sys/devices/platform/soc@0/1d84000.ufshc/devfreq/1d84000.ufshc/available_frequencies 2>/dev/null || echo not_found" 2>/dev/null | sed -n 1p
+  phone "cat /sys/devices/platform/soc@0/1d84000.ufshc/devfreq/1d84000.ufshc/available_frequencies 2>/dev/null || echo not_found" 2>/dev/null
 
   # Check interconnect bandwidth votes
   say "UFS interconnect paths:"
-  phone "ls /sys/bus/platform/devices/soc@0:1d84000.ufshc/interconnect* 2>/dev/null || echo not_found" 2>/dev/null | sed -n 1p
+  phone "ls -d /sys/bus/platform/devices/soc@0:1d84000.ufshc/interconnect* 2>/dev/null || echo not_found" 2>/dev/null
 
   # Check dmesg for UFS hibern8 errors
-  ufs_errors=$(phone "dmesg 2>/dev/null | grep -cE 'hibern8|ufshcd_err_handler|link startup failed' || echo 0" 2>/dev/null)
-  say "UFS hibern8/link errors in dmesg: $ufs_errors"
+  ufs_errors=$(phone "dmesg 2>/dev/null | grep -cE 'hibern8|ufshcd_err_handler|link startup failed' || true" 2>/dev/null)
+  say "UFS hibern8/link errors in dmesg: ${ufs_errors:-0}"
 
   if ((dry_run)); then
     say "[pwr-04] dry-run: would test auto_hibern8=1, clkscale=1, clkgate=1"
@@ -398,12 +401,13 @@ cmd_s2idle-wakeup() {
   say "[slp-02]/[slp-03] s2idle wakeup IRQs & blocker audit"
 
   # 1. Check CONFIG_SUSPEND
-  suspend_cfg=$(phone "grep '^CONFIG_SUSPEND=' /proc/config.gz 2>/dev/null || echo 'not available'" 2>/dev/null)
+  suspend_cfg=$(phone "zcat /proc/config.gz 2>/dev/null | grep '^CONFIG_SUSPEND=' || echo 'not available'" 2>/dev/null)
   say "CONFIG_SUSPEND: $suspend_cfg"
 
   # 2. Check systemd sleep config
-  no_suspend=$(phone "cat /etc/systemd/logind.conf.d/10-r8q-no-suspend.conf 2>/dev/null || echo 'not found'" 2>/dev/null)
-  say "10-r8q-no-suspend.conf: $no_suspend"
+  no_suspend=$(phone "cat /usr/lib/systemd/sleep.conf.d/10-r8q-no-suspend.conf 2>/dev/null || echo 'not found'" 2>/dev/null)
+  say "10-r8q-no-suspend.conf:"
+  printf '%s\n' "$no_suspend"
 
   # 3. List wakeup-capable IRQs from /proc/interrupts
   say "Wakeup-capable IRQs (from live.dts analysis):"
@@ -416,35 +420,35 @@ cmd_s2idle-wakeup() {
   say "  PDC IRQ 9 (PDC): slpi — Edge, wakeup-capable (DSP)"
 
   # 4. Check which IRQs are wakeup-enabled
-  say "Wakeup-enabled IRQs:"
-  phone "for irq in \$(ls /proc/irq/ 2>/dev/null | grep -E '^[0-9]+$'); do
-    if [ -f /proc/irq/$irq/smp_affinity_list ]; then
-      wakeup=\$(cat /proc/irq/$irq/wakeup 2>/dev/null || echo unknown)
-      name=\$(cat /proc/irq/$irq/name 2>/dev/null || echo unknown)
-      printf '  IRQ %s: name=%s wakeup=%s\n' $irq \"$name\" $wakeup
-    fi
-  done" 2>/dev/null | sed -n 1p
+  say "Wakeup-enabled IRQs (/sys/kernel/irq):"
+  phone 'for irq in /sys/kernel/irq/*; do
+    [ -d "$irq" ] || continue
+    wakeup=$(cat "$irq/wakeup" 2>/dev/null || echo unknown)
+    [ "$wakeup" = "enabled" ] || continue
+    actions=$(cat "$irq/actions" 2>/dev/null || echo unknown)
+    printf "  IRQ %s: actions=%s wakeup=%s\n" "$(basename "$irq")" "$actions" "$wakeup"
+  done' 2>/dev/null
 
   # 5. Check RTC alarm
   rtc_wake=$(phone "ls /sys/class/rtc/rtc0/wakealarm 2>/dev/null && echo exists || echo missing" 2>/dev/null)
   say "RTC wakealarm: $rtc_wake"
 
   # 6. Check power key
-  pwrkey=$(phone "cat /proc/irq/*/name 2>/dev/null | grep -c pwrkey || echo 0" 2>/dev/null)
+  pwrkey=$(phone "grep -ch pwrkey /sys/kernel/irq/*/actions 2>/dev/null | awk '{s+=\$1} END{print s+0}'" 2>/dev/null)
   say "Power key IRQ found: $pwrkey"
 
   # 7. Check touch IRQ
-  touch_irq=$(phone "cat /proc/irq/*/name 2>/dev/null | grep -c stmfts || echo 0" 2>/dev/null)
+  touch_irq=$(phone "grep -ch stmfts /sys/kernel/irq/*/actions 2>/dev/null | awk '{s+=\$1} END{print s+0}'" 2>/dev/null)
   say "Touchscreen IRQ found: $touch_irq"
 
   # 8. Check max77705 IRQ
-  max77705=$(phone "cat /proc/irq/*/name 2>/dev/null | grep -c max77705 || echo 0" 2>/dev/null)
+  max77705=$(phone "grep -ch max77705 /sys/kernel/irq/*/actions 2>/dev/null | awk '{s+=\$1} END{print s+0}'" 2>/dev/null)
   say "MAX77705 IRQ found: $max77705"
 
   # 9. Kernel config audit
   say "Kernel config audit:"
   for cfg in CONFIG_SUSPEND CONFIG_PM_SLEEP CONFIG_CPU_IDLE CONFIG_PSCI CONFIG_QCOM_RPMH CONFIG_INTERCONNECT CONFIG_UFSHCD; do
-    val=$(phone "grep '^${cfg}=' /proc/config.gz 2>/dev/null || echo 'not_available'" 2>/dev/null)
+    val=$(phone "zcat /proc/config.gz 2>/dev/null | grep '^${cfg}=' || echo 'not_available'" 2>/dev/null)
     say "  $cfg: $val"
   done
 

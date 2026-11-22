@@ -22,13 +22,26 @@
 /dts-v1/;
 /plugin/;
 
-/* Enable the MAX77705 MUIC/USBC block */
+/* Enable the MAX77705 MUIC/USBC block and wire its role-switch graph to dwc3 */
 &max77705_muic {
 	status = "okay";
+
+	port {
+		max77705_muic_ep: endpoint {
+			remote-endpoint = <&usb_1_dwc3_hs_out>;
+		};
+	};
 };
 
-/* Enable OTG / dual-role on dwc3 with extcon wiring */
+&usb_1_dwc3_hs_out {
+	remote-endpoint = <&max77705_muic_ep>;
+};
+
+/*
+ * Enable OTG / dual-role on dwc3. Keep usb-role-switch (from base DTS) and do
+ * NOT add extcon= here: extcon-max77705 is a module loaded after early boot,
+ * and an extcon phandle on dwc3 would -EPROBE_DEFER USB gadget in initramfs.
+ */
 &usb_1_dwc3 {
 	dr_mode = "otg";
-	extcon = <&max77705_muic>;
 };

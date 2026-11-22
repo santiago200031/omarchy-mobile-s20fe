@@ -822,31 +822,43 @@ commits applied in order: **dt-bindings → driver → DTS**.
 | `./tools/pr-check` | **No commits** to check against origin/main (branch based on r8q-base-dts-fold) |
 | DT overlay syntax (`dtc -@`) | **usbc-otg-test.dtso compiles cleanly** |
 
-### 6.4 DT wiring verified
+### 6.4 DT wiring verified (`5cd87a8f5` + `usbc-otg-test.dtso`)
 
+```dts
+/* Base DTS (sm8250-samsung-common.dtsi) */
+&usb_1_dwc3 {
+    dr_mode = "peripheral";
+    usb-role-switch;
+    role-switch-default-mode = "peripheral";
+};
+
+/* Base DTS (sm8250-samsung-r8q.dts) */
+max77705_muic: muic {
+    compatible = "maxim,max77705-muic";
+    interrupt-parent = <&max77705>;
+    interrupts = <3>;
+    status = "disabled";
+};
+
+/* Overlay (usbc-otg-test.dtso): OF graph port avoids initramfs -EPROBE_DEFER */
+&max77705_muic {
+    status = "okay";
+    port {
+        max77705_muic_ep: endpoint {
+            remote-endpoint = <&usb_1_dwc3_hs_out>;
+        };
+    };
+};
+&usb_1_dwc3_hs_out { remote-endpoint = <&max77705_muic_ep>; };
+&usb_1_dwc3 { dr_mode = "otg"; };
 ```
-Base DTS (sm8250-samsung-common.dtsi):
-  &usb_1_dwc3 {
-      dr_mode = "peripheral";
-      usb-role-switch;              ← dwc3 core registers usb_role_switch
-      role-switch-default-mode = "peripheral";
-  };
 
-Base DTS (sm8250-samsung-r8q.dts):
-  max77705: pmic@66 {
-      max77705_muic: muic {
-          compatible = "maxim,max77705-muic";
-          status = "disabled";
-      };
-  };
+### 6.5 Live hardware test (`2026-11-22`, `7.3.0-rc6-omamobile-push1-g61efacc62a48-dirty`)
 
-Overlay (usbc-otg-test.dtso):
-  &max77705_muic { status = "okay"; };
-  &usb_1_dwc3 {
-      dr_mode = "otg";
-      extcon = <&max77705_muic>;    ← dwc3 auto-detects role from extcon
-  };
-```
+- Built cleanly (`wt-r8q-usbc` -> `out-r8q-usbc`), `checkpatch.pl` `0` errors/`0` warnings on `extcon-max77705.c`, packed `--overlay usbc-otg-test` (`sha256: 03ff23110da88bc7253e647c61d14c422889dd91e78e32af97a5eba6836d8ce3`), flashed `/dev/sda24`, pushed modules (`extcon-max77705.ko`, `msm.ko`).
+- **Live probe:** `extcon0` (`max77705-muic`) registered, `i2cdetect 0x25 = UU`, `role_sw=yes`, `USB=1`, `role=device`, `/dev/dri/renderD128` active, `tools/phone-smoke` all hardware checks `ok`.
+- **OTG switch test:** `tools/usbc-deadman-r8q otg-host --duration 12 --confirm 30 --grace 15` switched `device -> host` (`xhci-hcd.3.auto` registered `usb1` + `usb2`) and restored `device` + SSH login cleanly in `16 s`. (Physical external USB peripheral attach/unplug remains open.)
+- **Rollback:** Restored pinned `recovery-stable-20261122.img` (`sha256: f84a754ad5d28935998b396ab08e4b6051abcf0e3969e40897c611bd4fb3464e`) and confirmed `tools/r8q-stable-check --phone`.
 
 ### 6.5 Safe gated test runbook (online, requires phone)
 

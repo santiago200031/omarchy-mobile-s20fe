@@ -1592,3 +1592,13 @@ This closes `[doc-04]` (Stage U2 → 4/4 = 100.0%). Repo progress: **Overall 50/
 | **Chip identification** | Stock `CONFIG_NFC_FEATURE_SN100U` in shared defconfig was misleading: extracted vendor files (`sec_s3nrn4v_firmware.bin`, `sec_nfc_v2.c` `SEC_NFC_PW_ON=0`) and raw `/dev/i2c-15` NCI probing (`VEN` `gpio8` `1->0`, `WAKE` `gpio9=1`, `0x27` `CORE_RESET` `20000101` -> `400001 00` + `CLK_REQ`/`IRQ`) proved `r8q` carries a **Samsung S3NRN4V (`s3fwrn5` NCI)** controller. |
 | **Overlay & driver** | Added [`device/r8q/overlays/nfc.dtso`](overlays/nfc.dtso) (`compatible = "samsung,s3fwrn5-i2c"`, `reg = <0x27>`, `en-gpios = <&tlmm 8 0>`, `wake-gpios = <&tlmm 9 0>`, `interrupts = <31 1>`, `vreg_l1c_1p8` `1.8 V`) and tested live on `recovery-usbc-nfc-test.img` (`sha256: 5177174d3230bf7c6ad296e3fbdcd8352ec03a0a6bed7b58175dbf4fe5cc1aba`, `7.3.0-rc6-omamobile-push1-g5cd87a8f5128-dirty`). |
 | **Live probe & NCI poll** | `15-0027` bound `s3fwrn5_i2c` cleanly and exposed `/sys/class/nfc/nfc0`; `nfctool -d nfc0 -p -t 3000` started initiator polling (`Powered: Yes`, `Protocols: [ Felica MIFARE Jewel ISO-DEP ISO-15693 ]`), incrementing IRQs `0 -> 6` on `msmgpio 31 Edge s3fwrn5_i2c` (`0 -> 22` on `884000.i2c`); `neard.service` (`NEAR daemon version 0.20`) started and stayed `active`. |
+
+## 60. Stage 13 `[slp-02]` single `s2idle` pass & `[slp-03]` Cycle 2/10 soak hard-lock (`2026-11-23`)
+
+Tested on [`recovery-slp-test.img`](POWER-SLEEP-PLAN.md) (`7.3.0-rc6-omamobile-push1-g4d235a595f28`, `CONFIG_SUSPEND=y`, `sha256: 1189b3ed5d5fb589b6e4343d9e3aa82eba8dc49924e368dfc0dd1af4def28de5`) with `1822` modules staged:
+
+| Item | Result / Evidence |
+| --- | --- |
+| **`pm_test` ladder** | `pm_test=devices` (`135 ms` suspend / `242 ms` resume) and `pm_test=platform` (`619 ms` early / `357 ms` resume, `mhi0`/`ath11k_pci`/`wlp1s0` restored) both succeeded (`fail: 0`). |
+| **`[slp-02]` Single `s2idle` (`rtcwake -d /dev/rtc0 -m freeze -s 8`)** | **PASS (`1/1`)** in both default `WFI` (`state1 disable=1`) and `cpuidle state1` (`state1 disable=0`: `Timekeeping suspended for 8.995 seconds`, `cpu{0,4,7}` `state1` active, woken by `pm8xxx_rtc_alarm` IRQ `183`, `wlp1s0` associated, USB `1d6b:0104` restored; `qcom_stats` `aosd`/`cxsd` stayed `0`). |
+| **`[slp-03]` 10-cycle soak (`rtcwake -m freeze -s 3`, `state1=0`, `DSI-1 On`)** | **FAIL at `2/10`:** Cycle `1/10` passed (`Timekeeping suspended for 4.370 seconds`, `succ=5`, `wifi=1`, `dsi=enabled/On`, `touch=ok`, `ro24=1`, `root=rw`); Cycle `2/10` hard-locked after `Freezing user space processes` (`NO_PHONE_USB`, `0` pstore files, required `Volume Down + Power`). Kept `# CONFIG_SUSPEND is not set` in `device/r8q/kernel.config` and `AllowSuspend=no` in `10-r8q-no-suspend.conf`. |

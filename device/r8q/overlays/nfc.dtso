@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Bring-up overlay: enable Samsung S3NRN4V NFC controller (sec-nfc@27 in stock)
+ * on QUPv3 SE15 I2C (i2c@884000 / &i2c15) using mainline s3fwrn5_i2c.
+ *
+ * Wiring from stock live.dts + vendor sec_nfc_v2 (HARDWARE-DISCOVERY §6):
+ *   - I2C bus:    qupv3_se15_i2c (&i2c15, 400 kHz, addr 0x27)
+ *   - IRQ GPIO:   TLMM GPIO 31 (rising edge)
+ *   - EN GPIO:    TLMM GPIO 8  (active-high reset/off; SEC_NFC_PW_ON = 0)
+ *   - WAKE GPIO:  TLMM GPIO 9  (active-high wake / fw download)
+ *   - CLK_REQ:    TLMM GPIO 7  (input pull-down)
+ *   - Supply:     PM8150L LDO1 (L1C, 1.8 V)
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/rsc@18200000/regulators-1} {
+	vreg_l1c_1p8: ldo1 {
+		regulator-name = "vreg_l1c_1p8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-initial-mode = <3>; /* RPMH_REGULATOR_MODE_HPM */
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&tlmm {
+	nfc_clk_req_default: nfc-clk-req-state {
+		pins = "gpio7";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	nfc_irq_default: nfc-irq-state {
+		pins = "gpio31";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	nfc_ven_default: nfc-ven-state {
+		pins = "gpio8";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	nfc_firm_default: nfc-firm-state {
+		pins = "gpio9";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+};
+
+&i2c15 {
+	status = "okay";
+	clock-frequency = <400000>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	nfc@27 {
+		compatible = "samsung,s3fwrn5-i2c";
+		reg = <0x27>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <31 1>; /* IRQ_TYPE_EDGE_RISING */
+		en-gpios = <&tlmm 8 0>; /* GPIO_ACTIVE_HIGH */
+		wake-gpios = <&tlmm 9 0>; /* GPIO_ACTIVE_HIGH */
+		pinctrl-names = "default";
+		pinctrl-0 = <&nfc_clk_req_default &nfc_irq_default
+			     &nfc_ven_default &nfc_firm_default>;
+	};
+};

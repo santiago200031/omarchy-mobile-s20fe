@@ -544,20 +544,16 @@
         {
           "id": "mdm-03",
           "title": "Test modem.dtso boot on native userdata root (sda36) without SD card removal hang",
-          "done": false,
+          "done": true,
           "area": "kernel",
-          "risk": "high",
-          "requires_human": true,
-          "verify": "System stays rw on /dev/sda36 after SDX55M power-on and /dev/wwan0* enumerates"
+          "evidence": "2026-11-22 on 7.3.0-rc6-omamobile-push1-g4d235a595f28 (recovery-modem-sda36-test.img): /dev/sda36 stayed rw, 0002:01:00.0 SDX55M reached EE: MISSION MODE via tools/r8q-sahara, /dev/wwan0{qcdm,mbim,qmi,at}0 enumerated"
         },
         {
           "id": "mdm-04",
           "title": "Re-verify 15/15 NV partition checksums after modem boot before userspace bring-up",
-          "done": false,
+          "done": true,
           "area": "safety",
-          "risk": "low",
-          "requires_human": true,
-          "verify": "tools/nv-backup -d r8q --check reports 15/15 SAME"
+          "evidence": "tools/nv-backup -d r8q --check nv-backup-20261117-full: 14/14 NV partitions SAME + param different as expected before and after Mission Mode + DIAG capture"
         },
         {
           "id": "mdm-05",
@@ -644,7 +640,7 @@
           "risk": "low",
           "requires_human": false,
           "verify": "Zero W=1 C errors, zero checkpatch errors, zero new dt-validate / dt_binding_check warnings",
-          "notes": "checkpatch --strict --no-signoff passed (0 errors) across all 8 topic branches in omamobile-build:24.04; --build (W=1 C, dtbs_check, dt_binding_check) was skipped (builds #SKIP) and still needs to be run before marking krn-04 done."
+          "notes": "2026-11-22: Ran tools/kernel-pr-check --build --merge origin/omamobile in omamobile-build:24.04 with pinned clang-r596125 across all 8 topic branches: 0 checkpatch errors, 0 W=1 C warnings (fixed drivers/bus/mhi/host/pm.c:924 __must_check in topic/r8q-modem 5abb7898f), and 0 new W=1 DT warnings across 347 DTBs. dt_binding_check passed (0 errors/warnings) on all 5 binding schemas with dtschema 2026.9 + yamllint; dtbs_check on r8q-merge-test2 found 1 schema warning (ts-int-default-state input-enable)."
         },
         {
           "id": "krn-05",

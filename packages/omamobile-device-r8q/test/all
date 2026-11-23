@@ -180,6 +180,9 @@ grep -q '70-omamobile-dma-heap.rules' PKGBUILD
 grep -q 'SUBSYSTEM=="dma_heap"' 70-omamobile-dma-heap.rules
 grep -q '20-r8q-torch.rules' PKGBUILD
 grep -q 'white:torch' 20-r8q-torch.rules
+grep -q '99-r8q-udisks-ignore.rules' PKGBUILD
+grep -q '1d84000.ufshc' 99-r8q-udisks-ignore.rules
+grep -q 'UDISKS_IGNORE' 99-r8q-udisks-ignore.rules
 grep -q '70-r8q-libcamera.conf' PKGBUILD
 grep -qx 'LIBCAMERA_SOFTISP_MODE=cpu' 70-r8q-libcamera.conf
 grep -q 'omacam-lenses.toml' PKGBUILD

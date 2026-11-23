@@ -151,6 +151,8 @@ package() {
     "$pkgdir/usr/lib/udev/rules.d/70-omamobile-dma-heap.rules"
   install -Dm644 "$startdir/20-r8q-torch.rules" \
     "$pkgdir/usr/lib/udev/rules.d/20-r8q-torch.rules"
+  install -Dm644 "$startdir/99-r8q-udisks-ignore.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/99-r8q-udisks-ignore.rules"
   install -Dm644 "$startdir/70-r8q-libcamera.conf" \
     "$pkgdir/usr/lib/environment.d/70-r8q-libcamera.conf"
   install -Dm644 "$startdir/omacam-lenses.toml" \

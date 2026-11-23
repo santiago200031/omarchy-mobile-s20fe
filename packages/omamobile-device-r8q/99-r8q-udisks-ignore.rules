@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Keep udisks2 away from internal Android UFS partitions and virtual disks,
+# while allowing external USB storage drives to mount cleanly in Files.
+SUBSYSTEM=="block", DEVPATH=="*/1d84000.ufshc/*", ENV{UDISKS_IGNORE}="1", ENV{UDISKS_AUTO}="0"
+SUBSYSTEM=="block", KERNEL=="zram*|loop*", ENV{UDISKS_IGNORE}="1", ENV{UDISKS_AUTO}="0"

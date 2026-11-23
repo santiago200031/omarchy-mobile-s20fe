@@ -281,8 +281,8 @@ Each step must pass its stop conditions before proceeding. No step is automatic.
 |---|---|---|
 | `pwr-03` — Profile scoped schedutil | **done: true** | High |
 | `pwr-04` — PSCI -3 / UFS auto_hibern8 | **done: true** | High |
-| `slp-02` — Attended single s2idle test | **done: false** | High |
-| `slp-03` — 10-cycle soak + unmask sleep.target | **done: false** | High |
+| `slp-02` — Attended single s2idle test | **done: true** | High |
+| `slp-03` — 10-cycle soak + unmask sleep.target | **done: false** (Cycle 2/10 hard-lock) | High |
 
 ---
 
@@ -295,4 +295,5 @@ Each step must pass its stop conditions before proceeding. No step is automatic.
 | `[pwr-03]` Staged + continuous **15-min** `schedutil` soak (`policy0` `10ms` -> `policy0+4` `20ms` -> `policy0+4+7` `20ms` -> 900 s burst/idle soak) | `g5cd87a8f5128-dirty` | **PASS (15-min)** | 5-min ramp: +12,196 transitions; continuous 15-min soak: `policy0 7426->23826` (+16,400), `policy4 3899->14415` (+10,516), `policy7 2296->9880` (+7,584) = **34,500 OPP transitions**; `0` `rpmh_write_batch -110`, `0` TCS reclaims, `0` stalls; reverted to `performance` |
 | `[pwr-04b]` UFS `/dev/sda36` (`auto_hibern8=150000`, `clkscale_enable=1`, `clkgate_enable=1`, 3x 64 MB `O_DIRECT` W/R + 15 s idle rounds) | `g5cd87a8f5128-dirty` | **PASS (soak)** | Cleanly scaled `cur_freq` `300000000 <-> 37500000` across all 3 active/idle rounds with `0` hibern8/UFS/RPMh errors; reverted all 3 knobs to `0` |
 | `[pwr-04a]` Multi-core `cpuidle state1` (`cpu0..3` 30 s -> `cpu4..7` 30 s -> ALL `cpu0..7` 45 s with idle + load) | `g5cd87a8f5128-dirty` | **PASS (all-8)** | All 8 cores entered real rail/core PC residency (`t=23–63 s` across steps, `r=0..1`, zero PSCI `-3` failures, zero RCU/lockup stalls); reverted cleanly to `disable=1` |
-| `[slp-02]` `/sys/power/state` & kernel config audit | **BLOCKED (kernel config)** | `# CONFIG_SUSPEND is not set` in [kernel.config](kernel.config); `/sys/power/state` exposes `disk` only and `/sys/kernel/irq/*/wakeup` is `disabled`. Requires enabling `CONFIG_SUSPEND=y` in a test kernel build first |
+| `[slp-02]` `pm_test=devices` & `pm_test=platform` + single `rtcwake -d /dev/rtc0 -m freeze -s 8` (`recovery-slp-test.img`, `1189b3ed…`) | `g4d235a595f28` (`CONFIG_SUSPEND=y`) | **PASS (1/1)** | `pm_test=devices` (`135 ms`/`242 ms`), `pm_test=platform` (`mhi0`/`ath11k_pci` resume), and single `rtcwake -m freeze -s 8` passed in both `WFI` (`state1=1`) and `cpu-sleep` (`state1=0`, `Timekeeping suspended for 8.995 seconds`, woken by `pm8xxx_rtc_alarm` IRQ `183`; `wlp1s0` re-associated, USB `1d6b:0104` restored; `qcom_stats` `aosd`/`cxsd` stayed `0`) |
+| `[slp-03]` 10-cycle `rtcwake -d /dev/rtc0 -m freeze -s 3` soak (`cpuidle state1=0`, `DSI-1 enabled/On`) | `g4d235a595f28` (`CONFIG_SUSPEND=y`) | **FAIL at 2/10** | Cycle `1/10` passed (`Timekeeping suspended for 4.370 seconds`, `succ=5`, `wifi=1`, `dsi=enabled/On`, `touch=ok`, `ro24=1`, `root=rw`); **Cycle `2/10` hard-locked inside `s2idle` (`NO_PHONE_USB`, `0` pstore entries, required `Volume Down + Power`)**. Keep `# CONFIG_SUSPEND is not set` + `10-r8q-no-suspend.conf` (`AllowSuspend=no`) |

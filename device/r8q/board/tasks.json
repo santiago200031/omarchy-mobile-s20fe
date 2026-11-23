@@ -386,8 +386,8 @@
       "stage": "13",
       "track": "bringup",
       "title": "Suspend (s2idle)",
-      "milestone_status": "disabled",
-      "plan": "device/r8q/board/failed/02-suspend-cpuidle-dvfs-ufspm.md",
+      "milestone_status": "partial",
+      "plan": "device/r8q/POWER-SLEEP-PLAN.md",
       "tasks": [
         {
           "id": "slp-01",
@@ -399,11 +399,12 @@
         {
           "id": "slp-02",
           "title": "Run attended single s2idle test with RTC wake + watchdog safety net",
-          "done": false,
+          "done": true,
           "area": "kernel",
           "risk": "high",
           "requires_human": true,
-          "verify": "Device enters freeze and wakes cleanly on Power button or RTC without hardlockup"
+          "verify": "Device enters freeze and wakes cleanly on Power button or RTC without hardlockup",
+          "evidence": "2026-11-23 on recovery-slp-test.img (7.3.0-rc6-omamobile-push1-g4d235a595f28, CONFIG_SUSPEND=y, sha256 1189b3ed...): pm_test=devices/platform and single rtcwake -d /dev/rtc0 -m freeze -s 8 both passed in WFI and cpuidle state1 (Timekeeping suspended 8.995s, woken by pm8xxx_rtc_alarm IRQ 183, wlp1s0 + USB gadget restored)"
         },
         {
           "id": "slp-03",
@@ -412,7 +413,8 @@
           "area": "package",
           "risk": "high",
           "requires_human": true,
-          "verify": "10/10 s2idle cycles resume SSH, DSI-1, touch, and Wi-Fi cleanly; remove 10-r8q-no-suspend.conf"
+          "verify": "10/10 s2idle cycles resume SSH, DSI-1, touch, and Wi-Fi cleanly; remove 10-r8q-no-suspend.conf",
+          "evidence": "2026-11-23 soak on recovery-slp-test.img (cpuidle state1=0, DSI-1 On): Cycle 1/10 passed (Timekeeping suspended 4.370s, wifi=1, dsi=enabled/On, touch=ok, ro24=1, root=rw), Cycle 2/10 hard-locked in s2idle (NO_PHONE_USB, required Volume Down + Power force-restart); AllowSuspend=no and # CONFIG_SUSPEND is not set remain in place."
         }
       ]
     },

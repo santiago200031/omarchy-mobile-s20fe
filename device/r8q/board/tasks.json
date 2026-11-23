@@ -565,7 +565,7 @@
           "title": "Audit GNSS (modem PDS/QMI) and NFC controller nodes in stock live.dts",
           "done": true,
           "area": "dts",
-          "evidence": "HARDWARE-DISCOVERY §6: sec-nfc@27 (NXP SN100U on i2c@884000, gpio31/8/9/7, L1C 1.8V; nxp-nci_i2c.ko built); GNSS uses SDX55M QMI PDS"
+          "evidence": "HARDWARE-DISCOVERY §6 + NOTES §59: Samsung S3NRN4V (sec-nfc@27, i2c15 0x27, gpio31/8/9/7, L1C 1.8V) wired via device/r8q/overlays/nfc.dtso (samsung,s3fwrn5-i2c) and verified live (s3fwrn5_i2c -> nfc0, 6 msmgpio-31 IRQs, nfctool -d nfc0 -p Powered: Yes, neard 0.20); GNSS uses SDX55M QMI PDS"
         }
       ]
     },

@@ -37,6 +37,11 @@
 	remote-endpoint = <&max77705_muic_ep>;
 };
 
+/* Wire optional extcon phandle so max77705-charger supplies 5V OTG VBUS */
+&max77705_charger {
+	extcon = <&max77705_muic>;
+};
+
 /*
  * Enable OTG / dual-role on dwc3. Keep usb-role-switch (from base DTS) and do
  * NOT add extcon= here: extcon-max77705 is a module loaded after early boot,

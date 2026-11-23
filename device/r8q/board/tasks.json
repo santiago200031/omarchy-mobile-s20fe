@@ -304,20 +304,16 @@
         {
           "id": "pwr-03",
           "title": "Profile scoped schedutil CPUfreq scaling with watchdog + kmsg capture",
-          "done": false,
+          "done": true,
           "area": "kernel",
-          "risk": "high",
-          "requires_human": true,
-          "verify": "Isolate which cluster/OPP triggers RPMh -110 timeout or pass 15-min soak"
+          "evidence": "2026-11-23 (7.3.0-rc6-omamobile-push1-g5cd87a8f5128-dirty): 5-min staged soak (+12,196 OPP transitions) followed by continuous 15-min (900 s) all-cluster schedutil soak (policy0 rate_limit_us=10000, policy4/7 20000; 34,500 OPP transitions across policy0/4/7): 0 rpmh_write_batch -110 timeouts, 0 TCS reclaims, 0 stalls; reverted cleanly to performance"
         },
         {
           "id": "pwr-04",
           "title": "Investigate deeper cpuidle PC states (PSCI error -3) and UFS auto-hibern8 on sda36",
-          "done": false,
+          "done": true,
           "area": "kernel",
-          "risk": "high",
-          "requires_human": true,
-          "verify": "No RCU stalls or UFS timeouts across idle transitions"
+          "evidence": "2026-11-23 (7.3.0-rc6-omamobile-push1-g5cd87a8f5128-dirty): cpuidle state1 passed 30 s Silver (cpu0..3), 30 s Gold/Prime (cpu4..7), and 45 s all-8-core mix (t=23-63 s real PC residency, 0 stalls, 0 PSCI errors); UFS auto_hibern8=150000 + clkscale_enable=1 + clkgate_enable=1 passed 3x64 MB O_DIRECT R/W + 15 s idle scaling 300<->37.5 MHz with 0 errors; reverted cleanly"
         },
         {
           "id": "pwr-05",
@@ -381,7 +377,7 @@
           "risk": "high",
           "requires_human": true,
           "verify": "OTG device enumerates in dmesg and peripheral role restores cleanly on unplug",
-          "evidence": "2026-11-22 partial pass: usbc-otg-test.dtso + tools/usbc-deadman-r8q otg-host --duration 15 cleanly switched a600000.usb-role-switch device->host (xhci-hcd.3.auto usb1/usb2 registered) and back to gadget SSH in 3s. Bus-powered hub/mouse test blocked: raw CNFG_00=0x0e without MAX77705 0x25 USBC/CCIC coordination resets without outputting 5V VBUS (needs max77705 0x25 USBC driver or externally powered USB-C hub)."
+          "evidence": "2026-11-23 partial pass (g5cd87a8f5128-dirty + usbc-otg-test.dtso + omamobile-device-r8q 0.1.37): extcon-max77705 + max77705-charger extcon devlink + dwc3 usb_role-switch confirmed; tools/usbc-deadman-r8q otg-host registered USB 2.0 + USB 3.1 SuperSpeed xhci-hcd root hubs and auto-restored peripheral gadget SSH cleanly; udisks2 unmasked/started with 99-r8q-udisks-ignore.rules keeping 100% of UFS/zram/loop devices HintIgnore=true and UFS guard 79/79 ro=1 intact. Final plug-in check with external USB flash drive + hub remains open until physical attachment."
         }
       ]
     },

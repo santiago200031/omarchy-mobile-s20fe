@@ -279,19 +279,20 @@ Each step must pass its stop conditions before proceeding. No step is automatic.
 
 | Task | Status | Risk |
 |---|---|---|
-| `pwr-03` — Profile scoped schedutil | **done: false** | High |
-| `pwr-04` — PSCI -3 / UFS auto_hibern8 | **done: false** | High |
+| `pwr-03` — Profile scoped schedutil | **done: true** | High |
+| `pwr-04` — PSCI -3 / UFS auto_hibern8 | **done: true** | High |
 | `slp-02` — Attended single s2idle test | **done: false** | High |
 | `slp-03` — 10-cycle soak + unmask sleep.target | **done: false** | High |
 
 ---
 
-## Live Probe Results (`2026-11-22`, kernel `7.3.0-rc6-omamobile-push1-g4d235a595f28`)
+## Live Probe Results (`2026-11-22` / `2026-11-23`)
 
-| Probe | Result | Observed |
-|---|---|---|
-| `[pwr-03]` Silver `policy0` (`cpu0`–`cpu3`) `schedutil` (`rate_limit_us=1000`, 13 s + load) | **PASS (short)** | `total_trans: 560 -> 1073` (+513 transitions); `0` `rpmh_write_batch -110` errors; reverted cleanly to `performance` |
-| `[pwr-03]` Gold `policy4` (`rate_limit_us=50000`, 7 s + load) & Prime `policy7` (`50000`, 7 s + load) | **PASS (short)** | `policy4: 537 -> 584` (+47 trans), `policy7: 297 -> 322` (+25 trans); `0` `rpmh_write_batch -110` errors; reverted to `performance` (`15-min` soak still open) |
-| `[pwr-04b]` UFS `/dev/sda36` (`auto_hibern8=150000`, `clkscale_enable=1`, `clkgate_enable=1`, 32 MB `O_DIRECT` write+read on `/var/tmp`) | **PASS (short)** | Completed write/read cleanly with `0` hibern8, write-booster, or RPMh errors (`cur_freq=300000000`); reverted all three knobs to `0` |
-| `[pwr-04a]` `cpu1` `state1` (`silver-rail-power-collapse`, `disable=0` for 8 s) | **PASS (single-CPU short)** | `usage: 123 -> 341` (+218 entries, `6.12 s` residency), `rejected: 0 -> 0`; reverted cleanly to `disable=1` (`cpu4`/`cpu7` also show `state1` at `disable=1`) |
+| Probe | Kernel | Result | Observed |
+|---|---|---|---|
+| `[pwr-03]` Silver `policy0` (`cpu0`–`cpu3`) `schedutil` (`rate_limit_us=1000`, 13 s + load) | `g4d235a595f28` | **PASS (short)** | `total_trans: 560 -> 1073` (+513 transitions); `0` `rpmh_write_batch -110` errors; reverted cleanly to `performance` |
+| `[pwr-03]` Gold `policy4` (`rate_limit_us=50000`, 7 s + load) & Prime `policy7` (`50000`, 7 s + load) | `g4d235a595f28` | **PASS (short)** | `policy4: 537 -> 584` (+47 trans), `policy7: 297 -> 322` (+25 trans); `0` `rpmh_write_batch -110` errors; reverted to `performance` |
+| `[pwr-03]` Staged + continuous **15-min** `schedutil` soak (`policy0` `10ms` -> `policy0+4` `20ms` -> `policy0+4+7` `20ms` -> 900 s burst/idle soak) | `g5cd87a8f5128-dirty` | **PASS (15-min)** | 5-min ramp: +12,196 transitions; continuous 15-min soak: `policy0 7426->23826` (+16,400), `policy4 3899->14415` (+10,516), `policy7 2296->9880` (+7,584) = **34,500 OPP transitions**; `0` `rpmh_write_batch -110`, `0` TCS reclaims, `0` stalls; reverted to `performance` |
+| `[pwr-04b]` UFS `/dev/sda36` (`auto_hibern8=150000`, `clkscale_enable=1`, `clkgate_enable=1`, 3x 64 MB `O_DIRECT` W/R + 15 s idle rounds) | `g5cd87a8f5128-dirty` | **PASS (soak)** | Cleanly scaled `cur_freq` `300000000 <-> 37500000` across all 3 active/idle rounds with `0` hibern8/UFS/RPMh errors; reverted all 3 knobs to `0` |
+| `[pwr-04a]` Multi-core `cpuidle state1` (`cpu0..3` 30 s -> `cpu4..7` 30 s -> ALL `cpu0..7` 45 s with idle + load) | `g5cd87a8f5128-dirty` | **PASS (all-8)** | All 8 cores entered real rail/core PC residency (`t=23–63 s` across steps, `r=0..1`, zero PSCI `-3` failures, zero RCU/lockup stalls); reverted cleanly to `disable=1` |
 | `[slp-02]` `/sys/power/state` & kernel config audit | **BLOCKED (kernel config)** | `# CONFIG_SUSPEND is not set` in [kernel.config](kernel.config); `/sys/power/state` exposes `disk` only and `/sys/kernel/irq/*/wakeup` is `disabled`. Requires enabling `CONFIG_SUSPEND=y` in a test kernel build first |

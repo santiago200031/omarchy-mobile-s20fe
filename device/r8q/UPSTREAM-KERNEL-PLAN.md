@@ -155,21 +155,23 @@ This plan documents the audit and split of `~/omamobile-kernel/wt-r8q` branch `r
 | topic/r8q-cameras | 10 | 0 errors, 0 warnings |
 | topic/r8q-modem | 27 | 0 errors, 0 warnings |
 
-### kernel-pr-check (2026-11-22, inside omamobile-build:24.04)
-**Result: ALL PASS** (with expected warnings — no errors)
+### kernel-pr-check, dt_binding_check & dtbs_check (2026-11-22)
+**Result:**
+1. With pinned Android clang (`clang-r596125`) mounted at `/opt/omamobile/clang` inside `omamobile-build:24.04` and `--build ... --merge origin/omamobile`, all 8 branches merge cleanly, pass `checkpatch --strict` (0 errors), pass policy checks, pass `W=1` C builds (0 warnings across all touched C files after fixing `drivers/bus/mhi/host/pm.c:924` `-Wunused-result` in `topic/r8q-modem` commit `5abb7898f`), and build all 347 DTBs with `W=1` (0 new warnings). Only `no human Signed-off-by` fails (expected until `[krn-02]`).
+2. With `dtschema` (`dt-validate 2026.9`) and `yamllint` on `r8q-merge-test2`, **`dt_binding_check` passed cleanly (`0` errors, `0` warnings)** across all 5 touched/new binding schemas (`display/msm/gpu.yaml`, `display/panel/samsung,s6e3fc3-p10.yaml`, `interrupt-controller/qcom,pci-msi.yaml`, `media/i2c/hynix,hi847.yaml`, `media/i2c/samsung,s5k3l6xx.yaml`), and `dtbs_check` on `qcom/sm8250-samsung-r8q.dtb` reported **1 schema warning** (`pinctrl@f100000: ts-int-default-state: 'oneOf' conditional failed` due to forbidden `input-enable` under `qcom,sm8250-pinctrl.yaml`).
 
-| Branch | Result |
-|--------|--------|
-| topic/r8q-qcom-core | ok - checkpatch, ok - policy, ok - builds # SKIP |
-| topic/r8q-dts | ok - checkpatch, ok - policy, ok - builds # SKIP |
-| topic/r8q-touch | ok - checkpatch, ok - policy, ok - builds # SKIP |
-| topic/r8q-panel | ok - checkpatch, ok - policy, ok - builds # SKIP |
-| topic/r8q-audio | ok - checkpatch, ok - policy, ok - builds # SKIP |
-| topic/r8q-gpu | ok - checkpatch, ok - policy, ok - builds # SKIP |
-| topic/r8q-cameras | ok - checkpatch, ok - policy, ok - builds # SKIP |
-| topic/r8q-modem | ok - checkpatch, ok - policy, ok - builds # SKIP |
+| Branch | W=1 C files | 347 DTBs (W=1) | Result (`--build --merge`) |
+|--------|-------------|----------------|----------------------------|
+| topic/r8q-qcom-core | 9 ok (0 warn) | skip (no DTS) | ok except missing Signed-off-by |
+| topic/r8q-dts | skip (no C) | ok (0 new warn) | ok except missing Signed-off-by; `dtbs_check`: 1 schema warn (`ts-int-default-state` `input-enable`) |
+| topic/r8q-touch | 1 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by; `dtbs_check`: 1 schema warn (`ts-int-default-state` `input-enable`) |
+| topic/r8q-panel | 1 ok (0 warn) | skip (no DTS) | ok except missing Signed-off-by; `dt_binding_check`: pass |
+| topic/r8q-audio | 1 ok (0 warn) | skip (no DTS) | `EXIT:0` (all active checks pass) |
+| topic/r8q-gpu | 7 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by; `dt_binding_check`: pass |
+| topic/r8q-cameras | 2 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by; `dt_binding_check`: pass |
+| topic/r8q-modem | 9 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by (`5abb7898f` fixed `pm.c:924` `-Wunused-result`); `dt_binding_check`: pass |
 
-Notes: kernel-pr-check reports warnings (COMMIT_MESSAGE missing description, UNDOCUMENTED_DT_STRING, FILE_PATH_CHANGES, PREFER_LORE_ARCHIVE, etc.) but zero errors. These are informational and do not block PR submission. The panel branch shows a sign-off warning (expected — no Signed-off-by per AGENTS.md rules).
+Notes: `kernel-pr-check` still reports non-blocking checkpatch warnings (`COMMIT_MESSAGE`, `UNDOCUMENTED_DT_STRING`, `FILE_PATH_CHANGES`, `PREFER_LORE_ARCHIVE`, etc.) with zero checkpatch errors. Removing `input-enable;` from `ts-int-default-state` resolves the remaining `dtbs_check` warning before `[krn-04]` sign-off.
 
 ### Tree Equivalence Verification
 **Result: VERIFIED** — Merging all 8 topic branches onto `origin/omamobile` produces a tree that matches `r8q-base-dts-fold` for all r8q-specific files:

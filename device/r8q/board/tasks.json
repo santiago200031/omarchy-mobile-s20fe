@@ -414,7 +414,7 @@
           "risk": "high",
           "requires_human": true,
           "verify": "10/10 s2idle cycles resume SSH, DSI-1, touch, and Wi-Fi cleanly; remove 10-r8q-no-suspend.conf",
-          "evidence": "2026-11-23 soak on recovery-slp-test.img (cpuidle state1=0, DSI-1 On): Cycle 1/10 passed (Timekeeping suspended 4.370s, wifi=1, dsi=enabled/On, touch=ok, ro24=1, root=rw), Cycle 2/10 hard-locked in s2idle (NO_PHONE_USB, required Volume Down + Power force-restart); AllowSuspend=no and # CONFIG_SUSPEND is not set remain in place."
+          "evidence": "2026-11-23 bisection on recovery-slp-test.img (CONFIG_SUSPEND=y): pm_test=platform passed 10/10; WFI-only (cpuidle state1=1) passed 10/10 with 4s settle (wifi=1, touch=1, ro24=1, bluetoothctl Powered:yes) and woke on Power button (pm8941_pwrkey IRQ 128 -> 9.1s, ~1s resume lag + slpi crash/recovery, aosd/cxsd=0); cpuidle state1=0 hard-locked Cycle 1/10 even with DSI-1 Off + hci_uart unloaded (Cycle 2/10 earlier). AllowSuspend=no and # CONFIG_SUSPEND is not set remain in place."
         }
       ]
     },

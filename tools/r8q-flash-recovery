@@ -48,6 +48,12 @@ REMOTE="${REMOTE:-root@172.16.42.1}"
 
 SSH=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
      -o ConnectTimeout=8 -o ServerAliveInterval=5 -q)
+# Honor OMAMOBILE_SSH_CONFIG=/dev/null (and friends) so the tool works on
+# hosts whose /etc/ssh/ssh_config.d files are unreadable by the caller.
+SSH_CONFIG="${OMAMOBILE_SSH_CONFIG:-}"
+if [[ -n "$SSH_CONFIG" ]]; then
+  SSH+=(-F "$SSH_CONFIG")
+fi
 SSH_KEY="${OMAMOBILE_SSH_KEY:-$HOME/.ssh/omamobile-r8q}"
 if [[ -f "$SSH_KEY" ]]; then
   SSH+=(-i "$SSH_KEY" -o IdentitiesOnly=yes)

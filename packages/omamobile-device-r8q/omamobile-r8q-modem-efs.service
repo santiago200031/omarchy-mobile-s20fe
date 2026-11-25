@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Opt-in Sahara/EFS writeback listener for SDX55M over /dev/wwan0sahara1.
+# Handles AP-hosted EFS table reads/writes in RAM only (NV partitions stay ro=1).
+[Unit]
+Description=Omarchy Mobile: r8q SDX55M Sahara EFS listener
+After=local-fs.target rmtfs.service tqftpserv.service
+Wants=rmtfs.service tqftpserv.service
+ConditionPathExists=/lib/firmware/qcom/sdx55m/apps.mbn
+
+[Service]
+Type=simple
+RuntimeDirectory=omamobile
+Environment=R8Q_MEMDUMP_MODULE=/usr/lib/omamobile/r8q/run17_diag.py
+ExecStart=/usr/bin/python3 /usr/lib/omamobile/r8q/r8q-sahara -d /dev/wwan0sahara1 --probe 0 --wait 1800 --idle 0 --dump-dir /run/omamobile/sdx55-efs
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

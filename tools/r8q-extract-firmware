@@ -185,8 +185,10 @@ def main():
     if os.path.exists(f"{ath_dir}/board-2.bin"):
         os.remove(f"{ath_dir}/board-2.bin")
 
-    # 6. Modem: SDX55 / r8q CP firmware
+    # 6. Modem: SDX55 / r8q CP firmware + carrier MCFG (modem_pr)
     say("Pulling modem firmware from /vendor/firmware-modem...")
+    run(f"adb shell \"sh -c 'cd /vendor/firmware-modem/image && tar -cf - sdx55m'\" | tar -C {qcom_dir}/ -xf - 2>/dev/null || true")
+    run(f"adb shell \"sh -c 'cd /vendor/firmware-modem/image && tar -cf - modem_pr'\" | tar -C {dsp_target_dir}/ -xf - 2>/dev/null || true")
     run(f"adb pull /vendor/firmware-modem/image/sdx55m/qdsp6sw.mbn {dsp_target_dir}/modem.mbn >/dev/null 2>&1 || true")
     run(f"adb pull /vendor/firmware-modem/image/sdx55m/modemr.jsn {dsp_target_dir}/modemr.jsn >/dev/null 2>&1 || true")
     run(f"cp {dsp_target_dir}/modem.mbn {sm8250_dir}/modem.mbn 2>/dev/null || true")

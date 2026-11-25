@@ -392,6 +392,19 @@ def parse_debug_table(blob, is64):
 # The walker r8q-sahara calls
 # ---------------------------------------------------------------------------
 
+def _is_efs_table(entries):
+    """True when the MEMORY_DEBUG table carries only runtime m9kefs writebacks.
+
+    apps.mbn's remotefs_sahara (MHI ch 10/11 EFS) serves only the m9kefs buffer
+    and asserts (remotefs_sahara.c:850) on out-of-range crash-dump extra reads or
+    a DONE packet; it expects RESET directly after reading the EFS region.
+    """
+    return bool(entries) and all(
+        os.path.basename(fname or "").startswith("m9kefs")
+        for _, _, _, _, fname in entries
+    )
+
+
 def dump_memory_table(fd, is64, payload, outdir):
     """Serve one Sahara MEMORY_DEBUG session: table, regions, extras, DONE.
 
@@ -468,9 +481,15 @@ def dump_memory_table(fd, is64, payload, outdir):
             log("saved %s (%d bytes)" % (outpath, len(data)))
             scan_region(base, data, hits)
 
+        efs_only = _is_efs_table(entries)
         # Targeted DDR slices: apps.mbn ULog list, contexts, smem, tz_data.
-        files_saved, bytes_saved = _dump_extras(
-            fd, is64, outdir, state, hits, files_saved, bytes_saved)
+        if efs_only:
+            log("EFS writeback table detected; skipping crash-dump extras")
+        elif env_flag("R8Q_MEMDUMP_EXTRAS", default=True):
+            files_saved, bytes_saved = _dump_extras(
+                fd, is64, outdir, state, hits, files_saved, bytes_saved)
+        else:
+            log("extras disabled (R8Q_MEMDUMP_EXTRAS=0)")
     except (SaharaTargetError, EOFError, OSError) as e:
         log("WARN dump aborted: %s" % e)
     finally:
@@ -481,7 +500,10 @@ def dump_memory_table(fd, is64, payload, outdir):
                 log("crash-reason hits written to %s" % path)
         except OSError as e:
             log("WARN could not write crash-reasons.txt: %s" % e)
-        _close_session(fd)
+        if not locals().get("efs_only", False):
+            _close_session(fd)
+        else:
+            log("EFS writeback table detected; skipping DONE (caller sends RESET)")
     return files_saved, bytes_saved
 
 
@@ -1008,7 +1030,7 @@ _SUMMARY_PAYLOAD = b"".join([
     b"APPS crash reason:\n",
     b"TZ reset reason : (6) : TZBSP_ERR_FATAL_NOC_ERROR\n",
     b"AOSS_CC_RESET_STATUS from SDI: (0x803) : SECURE_WDOG_EXPIRE\n",
-    b"ChipSerial: 0x00BADA1DBADA1D\n",
+    b"ChipSerial: 0x00FAKEBADA1D01\n",
     b"PS_HOLD warm PON\n",
 ]).ljust(0x1000, b"\0")
 
@@ -1170,7 +1192,7 @@ def selftest(outdir):
            "crash-reasons.txt carries the recorded TZ reset reason")
     _check(results, "remotefs_sahara.c:850" in reasons,
            "crash-reasons.txt carries the SFR assert string")
-    _check(results, "0x00BADA1DBADA1D" not in reasons
+    _check(results, "0x00FAKEBADA1D01" not in reasons
            and "ChipSerial: <REDACTED>" in reasons,
            "identity fields redacted in the extraction")
     dones = [c for c in calls if c[0] == "done"]
@@ -1212,6 +1234,33 @@ def selftest(outdir):
            "16-byte region split into 8+8 (EOI-sized request avoided)")
     _check(results, (0x3000, CHUNK) in reads and (0x3000 + CHUNK, 0x9000) in reads,
            "100 KiB region read in two chunks")
+
+    # Stage 3: runtime EFS writeback (m9kefs* table) skips extras and DONE.
+    stage3 = os.path.join(outdir, "stage3")
+    EFS_TABLE_ADDR = 0x60000
+    efs_blob = b"EFS!" + bytes(4092)
+    mem3 = {0x80200000: efs_blob}
+    table3 = struct.pack("<III20s20s", 0x0, 0x80200000, len(efs_blob),
+                         b"", b"m9kefs2")
+    mem3[EFS_TABLE_ADDR] = table3
+    calls3 = []
+    host_fd, devsock = _sockpair()
+    t = threading.Thread(target=_selftest_device, args=(devsock, mem3, calls3))
+    t.daemon = True
+    t.start()
+    efs_files, efs_bytes = dump_memory_table(
+        host_fd, False, struct.pack("<II", EFS_TABLE_ADDR, len(table3)), stage3)
+    os.close(host_fd)
+    devsock.close()
+    t.join(timeout=10)
+    reads3 = [c[1] for c in calls3 if c[0] == "mem_read"]
+    _check(results, efs_files == 3 and efs_bytes == len(efs_blob),
+           "EFS table saves only table.json + m9kefs2 + crash-reasons.txt")
+    _check(results, PCIE_OSAL_LOG_CTX_VA not in reads3
+           and SMEM_HEAD_VA not in reads3,
+           "EFS table skips crash-dump extras")
+    _check(results, not any(c[0] in ("done", "reset") for c in calls3),
+           "EFS table skips DONE so caller sends RESET")
 
     failed = [label for ok, label in results if not ok]
     log("selftest: %d/%d checks passed%s"

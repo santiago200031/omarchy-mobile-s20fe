@@ -13,3 +13,7 @@ journal for RRQ/WRQ to learn which files the modem asks for
 ([MODEM-USERSPACE.md](../../device/r8q/MODEM-USERSPACE.md)).
 
 The unit is shipped **unenabled**: the first run is manual.
+
+`0001-qrtr-version-env.patch` adds `TQFTP_QRTR_VERSION` (default `1`) so a
+device unit drop-in can publish QRTR TFTP service `4096` version `3` when a
+modem (such as Samsung `r8q` SDX55M) requires `0x0003`.

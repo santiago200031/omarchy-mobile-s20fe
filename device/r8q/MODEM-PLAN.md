@@ -2,9 +2,9 @@
 
 # Modem & Cellular — Samsung Galaxy S20 FE (r8q)
 
-**Status:** **THE MODEM REACHES AMSS ON MAINLINE (2026-11-18).** The SDX55M runs its full flashless boot: PCIe2 enumerates, the kernel BHI-loads `sbl1`, the SBL's complete 14-image SAHARA set is served over one open MHI channel, and the modem jumps to mission mode by itself (`Mission mode doorbell offsets: CHDBOFF=0x300 ERDBOFF=0x700`, `EE: MISSION MODE`), exposing `mhi0_QMI/MBIM/IPCR/IP_HW0/IP_SW0` and `/dev/wwan0{qmi,mbim,qcdm,at}0`. Three fixes got there: the `qcom,pci-msi` doorbell with GIC-hwirq message data; the ported MHI SBL/AMSS support (SBL power-up, context-register zeroing, M0 at SBL, mission-mode doorbell re-read); and AP2MDM_STATUS (gpio56) driven high with one SAHARA channel per boot. Rich history: §8 (Stage 3A failure), §9 (design), §10 (Stage 4 runs, the AMSS result and the exact image). Next for daily use: SIM/QMI through userspace on the Arch root (qrtr-ns, ModemManager), and a kernel release with the three commits signed off.
-**Safety:** All 77 UFS partitions read-only (`ro=1`); single-slot recovery boot (`sda24`) leaves LineageOS untouched; 15/15 NV partitions match the full off-repo backup; no NV partition has ever been written by this work
-**Last Updated:** 2026-11-18
+**Status:** **`[mdm-05]` HARDWARE + OPT-IN PACKAGE VERIFIED (2026-11-25).** On `7.3.0-rc6-omamobile-push1-g84e3a3589fc8-dirty`, aligning `r8q` SDX55M MHI channels with stock (`EFS 10/11`, `QMI1 16/17`, `IP_CTRL 18/19` DTR, `IP_HW0 100/101` + `ER4/ER5`) plus `mhi_pci_recovery_work()` `poll_work` rescheduling, `tqftpserv` `TQFTP_QRTR_VERSION=3` serving `modem_pr` (`549_7_0.mbn`, `mcfg_hw/sw`), `rmtfs -r`, and the `r8q-sahara` EFS listener on `/dev/wwan0sahara1` keeps `SDX55M` stable in `EE: MISSION MODE` with zero `remotefs_sahara.c:850` NOC resets. SIM `PIN1` unlock, `ModemManager` detection (`/org/freedesktop/ModemManager1/Modem/0`, `registered`, `lte`, `52%`), and LTE packet data over `mhi_hwip0` (`ping 1.1.1.1` `22.0 ms`, `mux-id=0,ep-type=pcie,ep-iface-number=4`) are all verified with NV/modem partitions `ro=1`. Packaged opt-in in `omamobile-device-r8q` `0.1.38` + `tqftpserv` `1.2-2` (`omamobile-r8q-modem-{sahara,efs}.service` unenabled). Rich history: §8, §9, §10, and the `[mdm-05]` live run at the end.
+**Safety:** All NV/calibration partitions stay read-only (`ro=1`); `rmtfs -r` reads only, and EFS writeback handling stays in RAM/tmpfs; off-repo NV backup matches.
+**Last Updated:** 2026-11-25
 
 **Normal boot (2026-11-18): the modem reaches SBL, but the modem power-on
 removes the SD card.** With the normal `recovery-modem.img` (kernel
@@ -2595,4 +2595,25 @@ Notes: <free text>
     - **Remaining `[mdm-05]` blockers:** `rmtfs -r` still receives zero requests and `apps.mbn` still resets at `+11.34–18.60 s` with `TZBSP_ERR_FATAL_NOC_ERROR` + `ssr:AP:remotefs_sahara.c:850` (stock `IP_HW0`/`qcom,ipa-mpm`/QRTR `Service 49 IPA` remain unbridged in mainline); SIM power/UIM detection and QMI/MBIM data remain blocked until Mission Mode holds without the APSS NOC reset.
     - **NV check:** `tools/nv-backup -d r8q --check ~/omamobile-kernel/reference-r8q/nv-backup-20261117-full` confirmed `14/14` NV partitions `SAME` (`param` expected-diff), all `ro=1`.
 - **Rollback:** Restore pinned `recovery-stable-20261122.img` (`sha256: f84a754ad5d28935998b396ab08e4b6051abcf0e3969e40897c611bd4fb3464e`).
+
+### Live Run (`2026-11-25`, `[mdm-05]` SIM unlock, `ModemManager`, & `mhi_hwip0` LTE data)
+
+- **Kernel:** `7.3.0-rc6-omamobile-push1-g84e3a3589fc8-dirty` (`wt-r8q-modem-qrtr` commits `f7704e3a2`, `0a18fd0eb`, `2163a657a`)
+- **Kernel fixes:**
+  1. `drivers/bus/mhi/host/pci_generic.c`: aligned `mhi_samsung_r8q_sdx55_channels` with stock (`EFS 10/11`, `QMI1 16/17`, `IP_CTRL 18/19`, `IP_HW0 100/101`) + `ER4` (`1024`) / `ER5` (`2048`) `MHI_EVENT_CONFIG_HW_DATA`, and updated `mhi_pci_recovery_work()` to cancel/reschedule `poll_work` across link/AER recovery so polled event rings survive.
+  2. `drivers/net/wwan/mhi_wwan_ctrl.c`: mapped `EFS` -> `WWAN_PORT_SAHARA` (`/dev/wwan0sahara1`), bound `IP_CTRL` internally without exposing a userspace port, and sent the 20-byte `MHI_IP_CTRL_CMD_SER` DTR set/clear message over `IP_CTRL` on `WWAN_PORT_QMI` open/close.
+- **Userspace & Sahara/QRTR/TFTP:**
+  - All NV/modem/efs/persist partitions verified `ro=1`.
+  - With `rmtfs -r -v -P -o /var/lib/rmtfs`, `tqftpserv -d` (`TQFTP_QRTR_VERSION=3`, wire `0x0003` + `/lib/firmware/qcom/sm8250/samsung/r8q/modem_pr`), and `r8q-sahara` on `/dev/wwan0sahara1` (`--probe 0 --wait 1800`):
+    - Sahara SBL transfer -> `EE: MISSION MODE` (`[46.533]`), zero `remotefs_sahara.c:850` crashes across repeated `m9kefs2` writebacks (`t=87s`), zero `Failed to queue buffer` errors.
+    - `tqftpserv` served `so/549_7_0.mbn`, `mcfg.tmp`, `mcfg_hw/mbn_hw.dig`, `mcfg_sw/mbn_sw.dig` to `Node 3`.
+- **SIM, `ModemManager`, & `mhi_hwip0` data verification:**
+  - `qmicli -p -d /dev/wwan0qmi0`: `Mode: 'online'` automatically on boot, full `gsm/wcdma/lte` bands (`1,2,3,4,5,7,8,12,13,17,20,26,28,32,38,40,41,66`), `ROW_Commercial` active, SIM `PIN1` verified -> `Registration state: 'registered'`, `CS: 'attached'`, `PS: 'attached'`.
+  - `ModemManager` (`1.24.2-2`) with `wwan*sahara*` ignored (`ID_MM_PORT_IGNORE=1`): `/org/freedesktop/ModemManager1/Modem/0`, `primary port: wwan0qmi0`, `ports: mhi_hwip0 (net), wwan0at0 (at), wwan0qcdm0 (ignored), wwan0qmi0 (qmi)`, `state: registered`, `access tech: lte`, `signal quality: 52%`, `packet service state: attached`. (Upstream MM 1.24.2 does not pass `QMI_WDS_BIND_MUX_DATA_PORT` for `multiplex=none` and segfaults on a second `multiplex=requested` bearer.)
+  - LTE packet data verified over `mhi_hwip0`: `qmicli -p -d /dev/wwan0qmi0 --wds-bind-mux-data-port="mux-id=0,ep-type=pcie,ep-iface-number=4"` + `--wds-start-network="3gpp-profile=1,ip-type=4"` + `mhi_hwip0` UP (`MTU 1500`) -> `ping -c 3 1.1.1.1`: `2 received` (`49.7 ms`, `22.0 ms`, `RX: 168 bytes (2 packets)`, `TX: 1128 bytes (16 packets)`).
+- **Opt-in packaging (`tqftpserv 1.2-2`, `omamobile-device-r8q 0.1.38`, `tools/r8q-extract-firmware`):**
+  - `packages/tqftpserv`: added `0001-qrtr-version-env.patch` (`TQFTP_QRTR_VERSION`, default `1`).
+  - `packages/omamobile-device-r8q`: added `77-mm-r8q-ignore.rules`, `10-r8q-tqftpserv.conf` (`TQFTP_QRTR_VERSION=3`), `/usr/lib/omamobile/r8q/{r8q-sahara,run17_diag.py}`, and opt-in unenabled `omamobile-r8q-modem-{sahara,efs}.service` (`ConditionPathExists=/lib/firmware/qcom/sdx55m/apps.mbn`).
+  - `tools/r8q-extract-firmware`: extracts `sdx55m/` to `qcom/sdx55m/` and `modem_pr/` directly to `qcom/sm8250/samsung/r8q/modem_pr/`.
+
 

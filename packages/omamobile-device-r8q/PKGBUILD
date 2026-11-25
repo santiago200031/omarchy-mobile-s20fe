@@ -153,6 +153,21 @@ package() {
     "$pkgdir/usr/lib/udev/rules.d/20-r8q-torch.rules"
   install -Dm644 "$startdir/99-r8q-udisks-ignore.rules" \
     "$pkgdir/usr/lib/udev/rules.d/99-r8q-udisks-ignore.rules"
+  # External SDX55M modem opt-in support (mdm-05): keep ModemManager off
+  # Sahara channels, advertise QRTR TFTP version 3 for Samsung modem_pr
+  # fetches, and ship opt-in Sahara/EFS listener units (unenabled).
+  install -Dm644 "$startdir/77-mm-r8q-ignore.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/77-mm-r8q-ignore.rules"
+  install -Dm644 "$startdir/10-r8q-tqftpserv.conf" \
+    "$pkgdir/usr/lib/systemd/system/tqftpserv.service.d/10-r8q.conf"
+  install -Dm755 "$startdir/r8q-sahara" \
+    "$pkgdir/usr/lib/omamobile/r8q/r8q-sahara"
+  install -Dm755 "$startdir/run17_diag.py" \
+    "$pkgdir/usr/lib/omamobile/r8q/run17_diag.py"
+  install -Dm644 "$startdir/omamobile-r8q-modem-sahara.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-modem-sahara.service"
+  install -Dm644 "$startdir/omamobile-r8q-modem-efs.service" \
+    "$pkgdir/usr/lib/systemd/system/omamobile-r8q-modem-efs.service"
   install -Dm644 "$startdir/70-r8q-libcamera.conf" \
     "$pkgdir/usr/lib/environment.d/70-r8q-libcamera.conf"
   install -Dm644 "$startdir/omacam-lenses.toml" \

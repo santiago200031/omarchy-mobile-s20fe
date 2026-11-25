@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Opt-in Sahara SBL/APPS firmware loader for SDX55M over /dev/wwan0sahara0.
+# Unenabled by default; reads extracted vendor firmware read-only.
+[Unit]
+Description=Omarchy Mobile: r8q SDX55M Sahara firmware loader
+After=local-fs.target rmtfs.service tqftpserv.service
+Wants=rmtfs.service tqftpserv.service
+ConditionPathExists=/lib/firmware/qcom/sdx55m/apps.mbn
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+RuntimeDirectory=omamobile
+Environment=R8Q_MEMDUMP_MODULE=/usr/lib/omamobile/r8q/run17_diag.py
+ExecStart=/usr/bin/python3 /usr/lib/omamobile/r8q/r8q-sahara -d /dev/wwan0sahara0 --probe 3 --wait 60 --idle 20 --dump-dir /run/omamobile/sdx55-crash
+
+[Install]
+WantedBy=multi-user.target

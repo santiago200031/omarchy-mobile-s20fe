@@ -6,7 +6,7 @@
 
 pkgname=tqftpserv
 pkgver=1.2
-pkgrel=1
+pkgrel=2
 pkgdesc='QRTR TFTP service for Qualcomm modems (serves firmware files, writes only to its state directory)'
 arch=(aarch64)
 url='https://github.com/linux-msm/tqftpserv'
@@ -14,9 +14,16 @@ license=(BSD-3-Clause)
 depends=(glibc qrtr zstd)
 makedepends=(meson ninja)
 source=("$pkgname-$pkgver.tar.gz::https://github.com/linux-msm/tqftpserv/archive/refs/tags/v$pkgver.tar.gz"
-        tqftpserv.service)
+        tqftpserv.service
+        0001-qrtr-version-env.patch)
 sha256sums=('a3850c34e48f23b7bc360d70f1e91700de2f8c60af003eda93e14182f8cf6af1'
-            'SKIP')
+            'SKIP'
+            '8aad86ac11392dc6e105832a44d884834d7e6aa3a1bab8a917694a31b4767f0d')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  patch -Np1 -i "$srcdir/0001-qrtr-version-env.patch"
+}
 
 build() {
   arch-meson "$pkgname-$pkgver" build

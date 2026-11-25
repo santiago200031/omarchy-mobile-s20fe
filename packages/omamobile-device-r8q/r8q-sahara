@@ -1,0 +1,501 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Serve Sahara image transfers over an MHI WWAN SAHARA port (r8q / SDX55M).
+
+This is a *read-only* loader: every image source is opened O_RDONLY, and the
+only writes performed are to the Sahara WWAN character device (host -> modem).
+No UFS partition, NV file, or firmware file is ever modified.
+
+Protocol constants and packet layouts follow the upstream Linux Sahara
+implementation (drivers/accel/qaic/sahara.c, GPL-2.0-only, Qualcomm).
+The image-ID map below was observed in this device's own vendor loader
+(lib64/libmdmimgload.so, `sahara_map_arr`) and is used only as a lookup table.
+"""
+
+import argparse
+import errno
+import os
+import select
+import struct
+import sys
+import time
+
+# --- Sahara v2 protocol (upstream include, see drivers/accel/qaic/sahara.c) ---
+HELLO_CMD = 0x1
+HELLO_RESP_CMD = 0x2
+READ_DATA_CMD = 0x3
+END_OF_IMAGE_CMD = 0x4
+DONE_CMD = 0x5
+DONE_RESP_CMD = 0x6
+RESET_CMD = 0x7
+RESET_RESP_CMD = 0x8
+MEM_DEBUG_CMD = 0x9          # Sahara memory-debug table (32-bit addressing)
+MEM_READ_CMD = 0xa           # host -> target: read target memory (32-bit)
+MEM_DEBUG64_CMD = 0x10       # memory-debug table (64-bit addressing)
+MEM_READ64_CMD = 0x11        # host -> target: read target memory (64-bit)
+READ_DATA64_CMD = 0x12       # 64-bit image read (image-transfer mode only)
+
+HELLO_LENGTH = 0x30          # 48 bytes on the wire (24 used + 24 reserved)
+READ_DATA_LENGTH = 0x14      # 20 bytes
+END_OF_IMAGE_LENGTH = 0x10   # 16 bytes
+DONE_LENGTH = 0x8            # header only
+
+SAHARA_VERSION = 2
+SAHARA_SUCCESS = 0
+MODE_IMAGE_TX_PENDING = 0x0
+MODE_IMAGE_TX_COMPLETE = 0x1
+MODE_MEMORY_DEBUG = 0x2
+
+# mhi_wwan_ctrl caps a single write at MHI_WWAN_MAX_MTU (0x8000).
+CHUNK = 0x8000
+
+CMD_NAMES = {
+    HELLO_CMD: "HELLO", HELLO_RESP_CMD: "HELLO_RESP",
+    READ_DATA_CMD: "READ_DATA", READ_DATA64_CMD: "READ_DATA64",
+    END_OF_IMAGE_CMD: "END_OF_IMAGE",
+    DONE_CMD: "DONE", DONE_RESP_CMD: "DONE_RESP",
+    RESET_CMD: "RESET", RESET_RESP_CMD: "RESET_RESP",
+    MEM_DEBUG_CMD: "MEM_DEBUG", MEM_READ_CMD: "MEM_READ",
+    MEM_DEBUG64_CMD: "MEM_DEBUG64", MEM_READ64_CMD: "MEM_READ64",
+}
+
+# Image IDs observed in the r8q vendor Sahara map. Values are either files in
+# /lib/firmware/qcom/sdx55m/ or UFS partitions found by PARTNAME (read-only).
+FIRMWARE_DIR = "/lib/firmware/qcom/sdx55m"
+IMAGE_MAP = {
+    6:  ("apps.mbn", "file:apps.mbn"),
+    8:  ("qdsp6sw.mbn", "file:qdsp6sw.mbn"),
+    9:  ("mdmddr", "part:mdmddr"),
+    16: ("mdm1m9kefs1", "part:mdm1m9kefs1"),
+    17: ("mdm1m9kefs2", "part:mdm1m9kefs2"),
+    20: ("mdm1m9kefs3", "part:mdm1m9kefs3"),
+    21: ("sbl1.mbn", "file:sbl1.mbn"),
+    23: ("aop.mbn", "file:aop.mbn"),
+    25: ("tz.mbn", "file:tz.mbn"),
+    28: ("dsp2.mbn", "file:dsp2.mbn"),
+    29: ("acdb.mbn", "file:acdb.mbn"),
+    30: ("sdi.mbn", "file:sdi.mbn"),
+    31: ("mba.mbn", "file:mba.mbn"),
+    33: ("hyp.mbn", "file:hyp.mbn"),
+    34: ("mdmddr.mbn", "part:mdmddr"),
+    36: ("multi_image_qti.mbn", "file:multi_image_qti.mbn"),
+    37: ("multi_image.mbn", "file:multi_image.mbn"),
+    38: ("xbl_cfg.elf", "file:xbl_cfg.elf"),
+    40: ("apdp.mbn", "file:apdp.mbn"),
+    41: ("devcfg.mbn", "file:devcfg.mbn"),
+    42: ("sec.elf", "file:sec.elf"),
+}
+
+# IDs present in the vendor lib's map but belonging to its other platforms
+# (mdm9x55 / sdx50m), not to r8q's sdx55m image set. Not staged on this phone.
+# If the modem ever requests one, serving stops rather than guessing a file.
+CROSS_PLATFORM_IDS = {28, 30, 31, 37}
+
+
+def log(msg):
+    print("[r8q-sahara %9.3f] %s" % (time.monotonic(), msg), flush=True)
+
+
+def load_memdump_module():
+    """Load run17_diag.py for the Sahara mode=2 memory-debug table walker.
+
+    The walker (dump_memory_table + sahara_mem_read) is maintained and
+    battle-tested in run17_diag.py; loading it avoids a second copy of the
+    protocol here. Deployed next to this tool as /usr/local/bin/run17_diag.py.
+    """
+    path = os.environ.get("R8Q_MEMDUMP_MODULE")
+    if not path:
+        sibling = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run17_diag.py")
+        path = sibling if os.path.exists(sibling) else "/usr/local/bin/run17_diag.py"
+    if not os.path.exists(path):
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("run17_diag_memdump", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def find_partition(name):
+    """Resolve a UFS partition by PARTNAME in /sys/class/block/*/uevent."""
+    base = "/sys/class/block"
+    for entry in sorted(os.listdir(base)):
+        try:
+            with open(os.path.join(base, entry, "uevent"), "r") as f:
+                for line in f:
+                    if line.strip() == "PARTNAME=" + name:
+                        return "/dev/" + entry
+        except OSError:
+            continue
+    return None
+
+
+class Source:
+    """A read-only image source with size() and pread()-style read()."""
+
+    def __init__(self, path, fd, size):
+        self.path = path
+        self.fd = fd
+        self.size_bytes = size
+
+    def size(self):
+        return self.size_bytes
+
+    def read(self, offset, length):
+        data = os.pread(self.fd, length, offset)
+        if len(data) != length:
+            raise IOError("short read from %s: %d/%d bytes" %
+                          (self.path, len(data), length))
+        return data
+
+    def close(self):
+        os.close(self.fd)
+
+
+def open_source(spec):
+    """Open an image-map spec as a read-only source, or return None."""
+    try:
+        kind, value = spec.split(":", 1)
+    except ValueError:
+        return None
+    if kind == "file":
+        path = os.path.join(FIRMWARE_DIR, value)
+    elif kind == "part":
+        path = find_partition(value)
+        if path is None:
+            return None
+    else:
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+    except OSError as e:
+        log("cannot open %s: %s" % (path, e))
+        return None
+    # st_size is 0 for block devices; SEEK_END reports their byte size.
+    size = os.fstat(fd).st_size
+    if size == 0:
+        size = os.lseek(fd, 0, os.SEEK_END)
+    return Source(path, fd, size)
+
+
+def recv_exact(port, length):
+    """Read exactly length bytes from the WWAN port (or return b'' on EOF)."""
+    chunks = []
+    got = 0
+    while got < length:
+        try:
+            data = os.read(port, length - got)
+        except OSError as e:
+            # Keep the errno: the caller reopens the channel on EIO/ENODEV
+            # (a fresh bind can expose the node before the channel is ready).
+            raise OSError(e.errno, "read failed: %s" % e.strerror)
+        if not data:
+            return b""
+        chunks.append(data)
+        got += len(data)
+    return b"".join(chunks)
+
+
+def send_all(port, data):
+    view = memoryview(data)
+    while view:
+        n = os.write(port, view[:CHUNK])
+        if n <= 0:
+            raise IOError("write returned %d" % n)
+        view = view[n:]
+
+
+def send_hello_resp(port, mode):
+    # cmd=HELLO_RESP, length=0x30, version=2, compat=2, status=0, mode=<mode>
+    # plus the 24 reserved bytes the upstream implementation also sends.
+    pkt = struct.pack("<6I", HELLO_RESP_CMD, HELLO_LENGTH,
+                      SAHARA_VERSION, SAHARA_VERSION, SAHARA_SUCCESS, mode)
+    send_all(port, pkt + bytes(HELLO_LENGTH - len(pkt)))
+
+
+def send_done(port):
+    send_all(port, struct.pack("<2I", DONE_CMD, DONE_LENGTH))
+
+
+def parse_header(pkt):
+    if len(pkt) < 8:
+        return None, None
+    cmd, length = struct.unpack_from("<2I", pkt, 0)
+    return cmd, length
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("-d", "--device", default="/dev/wwan0sahara0",
+                    help="Sahara WWAN character device (default: %(default)s)")
+    ap.add_argument("--wait", type=int, default=60, metavar="SECONDS",
+                    help="wait up to SECONDS for the port to appear (default: 60)")
+    ap.add_argument("--max-images", type=int, default=0, metavar="N",
+                    help="serve at most N images, then exit (0 = unlimited)")
+    ap.add_argument("--idle", type=int, default=20, metavar="SECONDS",
+                    help="with no packet for SECONDS, close the channel and exit "
+                         "(default: 20); the SBL sends the next HELLO on the same "
+                         "open channel, so do not reopen it per image")
+    ap.add_argument("--dump-dir", default="/tmp/sdx55-crash", metavar="DIR",
+                    help="where a Sahara mode=2 memory-debug dump is written "
+                         "(default: %(default)s)")
+    ap.add_argument("--probe", type=int, default=3, metavar="SECONDS",
+                    help="before the first HELLO, reopen the port every SECONDS "
+                         "to restart the channel (default: 3; 0 keeps the port "
+                         "open without reopening) until --wait expires")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="verify image sources only; do not open or write the port")
+    args = ap.parse_args()
+
+    if args.dry_run:
+        missing = []
+        for image_id, (name, spec) in sorted(IMAGE_MAP.items()):
+            src = open_source(spec)
+            if src is None:
+                if image_id not in CROSS_PLATFORM_IDS:
+                    missing.append("%d %s" % (image_id, name))
+                continue
+            log("id %-3d %-22s %-40s %d bytes" %
+                (image_id, name, src.path, src.size()))
+            src.close()
+        if missing:
+            log("MISSING required sources: " + ", ".join(missing))
+        else:
+            log("all r8q image sources present and readable")
+        log("cross-platform IDs (not staged, only an issue if requested): " +
+            ", ".join("%d %s" % (i, IMAGE_MAP[i][0])
+                      for i in sorted(CROSS_PLATFORM_IDS)))
+        return 0 if not missing else 2
+
+    deadline = time.monotonic() + args.wait
+    while not os.path.exists(args.device):
+        if time.monotonic() >= deadline:
+            log("port %s did not appear within %ds" % (args.device, args.wait))
+            return 2
+        time.sleep(0.5)
+
+    port = os.open(args.device, os.O_RDWR | os.O_CLOEXEC)
+    log("listening on %s" % args.device)
+
+    served = 0
+    active_source = None
+    session_started = False
+    diag = None
+    try:
+        while True:
+            # Keep one open channel across the whole image set: after DONE_RESP
+            # the SBL sends the next HELLO on this fd. Reopening the device per
+            # image resets the channel (STOP/RESET/START) and the SBL gives up
+            # before the AMSS images (2026-11-18).
+            if session_started:
+                timeout = None if args.idle <= 0 else args.idle
+            else:
+                remaining = max(0.0, deadline - time.monotonic())
+                timeout = min(args.probe, remaining) if args.probe > 0 else remaining
+            try:
+                ready, _, _ = select.select([port], [], [], timeout)
+            except OSError:
+                ready = [port]
+            if not ready:
+                if not session_started and time.monotonic() < deadline:
+                    if args.probe <= 0:
+                        continue
+                    # Opening the WWAN port starts the Sahara channel. If the
+                    # SBL's service was not up for the first START, restart it
+                    # until it answers with HELLO.
+                    try:
+                        os.close(port)
+                    except OSError:
+                        pass
+                    time.sleep(0.2)
+                    port = os.open(args.device, os.O_RDWR | os.O_CLOEXEC)
+                    continue
+                log("no packet within %ds; closing the channel" % timeout)
+                return 0
+            # A Sahara packet is at most HELLO_LENGTH bytes on the wire.
+            # Opening the WWAN port starts the Sahara channel. On a fresh
+            # bind the device node can appear a moment before the channel is
+            # ready, and the first read then fails with EIO: reopen and keep
+            # waiting until the --wait deadline instead of giving up.
+            try:
+                pkt = recv_exact(port, 8)
+            except OSError as e:
+                if e.errno not in (errno.EIO, errno.ENODEV, errno.EBADF) or \
+                        time.monotonic() >= deadline:
+                    raise
+                # EIO here covers both a not-yet-ready fresh bind and the
+                # SBL -> AMSS EE transition. The channel table keeps SAHARA
+                # valid in AMSS (ee_mask SBL|AMSS), so the MHI core re-creates
+                # the port at mission-mode entry: reopening re-attaches to
+                # the AMSS port and this loader keeps serving whatever the
+                # modem offers next. Keep the channel OPEN across the whole
+                # lifecycle like stock's mdm_helper - closing it at the jump
+                # (Run 20) unprepared the channels mid-boot and the modem
+                # died at the handoff.
+                log("port went away (%s); reopening" % e.strerror)
+                log("channel not ready (%s); reopening" % e.strerror)
+                try:
+                    os.close(port)
+                except OSError:
+                    pass
+                while time.monotonic() < deadline:
+                    try:
+                        port = os.open(args.device, os.O_RDWR | os.O_CLOEXEC)
+                        break
+                    except OSError as e2:
+                        if e2.errno not in (errno.ENOENT, errno.EIO, errno.ENODEV):
+                            raise
+                        time.sleep(0.2)
+                else:
+                    log("could not reopen %s within the wait" % args.device)
+                    return 2
+                continue
+            if not pkt:
+                log("port closed by peer")
+                return 0
+            cmd, length = parse_header(pkt)
+            rest = recv_exact(port, length - 8) if length >= 8 else b""
+            if len(rest) != length - 8:
+                log("truncated packet for cmd %s" % CMD_NAMES.get(cmd, cmd))
+                return 2
+            pkt += rest
+
+            if cmd == HELLO_CMD:
+                version, compat, maxlen, mode = struct.unpack_from("<4I", pkt, 8)
+                log("HELLO version=%d compat=%d maxlen=%#x mode=%d" %
+                    (version, compat, maxlen, mode))
+                if length != HELLO_LENGTH:
+                    log("WARNING: HELLO length %#x (expected %#x)" %
+                        (length, HELLO_LENGTH))
+                session_started = True
+                resp_mode = mode
+                if mode == MODE_MEMORY_DEBUG:
+                    # A mode=2 HELLO offers the MEMORY_DEBUG session: the
+                    # SBL-phase offer carries the previous boot's stale
+                    # table, the AMSS one (apps.mbn remotefs_sahara) carries
+                    # the live crash data. Serve it with run17_diag.py's
+                    # walker instead of declining: declining only lets the
+                    # SBL continue its boot, while the AMSS client asserts
+                    # (remotefs_sahara.c:850) and resets the whole modem.
+                    if diag is None:
+                        diag = load_memdump_module()
+                    if diag is None:
+                        log("mode=2 offered but no dump module "
+                            "(R8Q_MEMDUMP_MODULE); declining")
+                        resp_mode = 0
+                    else:
+                        log("HELLO mode=2 (MEMORY_DEBUG) - accepting, "
+                            "will serve the dump into %s" % args.dump_dir)
+                send_hello_resp(port, resp_mode)
+                log("sent HELLO_RESP (version=%d, mode=%d%s)" %
+                    (SAHARA_VERSION, resp_mode,
+                     "; accepted memory-debug"
+                     if mode == MODE_MEMORY_DEBUG and resp_mode == mode else ""))
+
+            elif cmd == READ_DATA_CMD:
+                image_id, offset, data_len = struct.unpack_from("<3I", pkt, 8)
+                if active_source is not None:
+                    active_source.close()
+                    active_source = None
+                if image_id not in IMAGE_MAP:
+                    log("UNKNOWN IMAGE ID %d (no map entry) - stopping" % image_id)
+                    return 2
+                name, spec = IMAGE_MAP[image_id]
+                src = open_source(spec)
+                if src is None:
+                    log("IMAGE ID %d (%s): source %s unavailable - stopping" %
+                        (image_id, name, spec))
+                    return 2
+                active_source = src
+                if offset + data_len > src.size():
+                    log("IMAGE ID %d (%s): request %#x+%#x exceeds size %#x - stopping" %
+                        (image_id, name, offset, data_len, src.size()))
+                    return 2
+                log("IMAGE ID %d (%s): offset=%#x length=%#x from %s" %
+                    (image_id, name, offset, data_len, src.path))
+                send_all(port, src.read(offset, data_len))
+                log("IMAGE ID %d: sent %d bytes" % (image_id, data_len))
+                served += 1
+                if args.max_images and served >= args.max_images:
+                    log("reached --max-images=%d; exiting" % args.max_images)
+                    return 0
+
+            elif cmd == END_OF_IMAGE_CMD:
+                image_id, status = struct.unpack_from("<2I", pkt, 8)
+                log("END_OF_IMAGE image=%d status=%d" % (image_id, status))
+                if status != SAHARA_SUCCESS:
+                    log("WARNING: modem reported non-zero EOI status")
+                if active_source is not None:
+                    active_source.close()
+                    active_source = None
+                send_done(port)
+                log("sent DONE")
+
+            elif cmd == DONE_RESP_CMD:
+                log("DONE_RESP received - transfer complete; keeping the channel open")
+                continue
+
+            elif cmd == RESET_CMD:
+                log("RESET received - stopping")
+                return 1
+
+            elif cmd == RESET_RESP_CMD:
+                # Reply to the RESET we sent to end a memory-debug session:
+                # the target is resetting (fresh SBL for the crashdload
+                # flow, SSR continuation in AMSS). Keep listening; the
+                # channel may go down when the target resets and the
+                # reopen path re-attaches to whatever comes next.
+                log("RESET_RESP received - target resetting; keeping the channel open")
+                continue
+
+            elif cmd in (MEM_DEBUG_CMD, MEM_DEBUG64_CMD):
+                # The memory-debug table: run17_diag.py's walker reads the
+                # table over MEMORY_READ(64), saves every region, and walks
+                # the ULog list, mhi/pcie contexts, smem and tz_data.
+                if diag is None:
+                    diag = load_memdump_module()
+                if diag is None:
+                    log("MEMORY_DEBUG table with no dump module - stopping")
+                    return 2
+                is64 = (cmd == MEM_DEBUG64_CMD)
+                os.makedirs(args.dump_dir, exist_ok=True)
+                files_saved, bytes_saved = diag.dump_memory_table(
+                    port, is64, rest, args.dump_dir)
+                log("memory-debug dump complete: %d files, %d bytes -> %s" %
+                    (files_saved, bytes_saved, args.dump_dir))
+                # End the session like stock's ks does: after collecting the
+                # dump the host asks the target to RESET. Without it the SBL
+                # crashdload client waits forever (Run 21: no packets for the
+                # whole idle window and no boot), and the AMSS client's
+                # remotefs_sahara needs the same session end to continue its
+                # SSR handling instead of asserting.
+                log("sending RESET to end the memory-debug session")
+                send_all(port, struct.pack("<2I", RESET_CMD, DONE_LENGTH))
+                continue
+
+            elif cmd == DONE_CMD:
+                # In memory-debug mode the device closes the session with
+                # DONE; answer DONE_RESP and keep the channel open.
+                log("DONE received; sending DONE_RESP")
+                send_all(port, struct.pack("<2I", DONE_RESP_CMD, DONE_LENGTH))
+                continue
+
+            else:
+                log("unexpected cmd %s (length %#x) - stopping" %
+                    (CMD_NAMES.get(cmd, cmd), length))
+                return 2
+    finally:
+        if active_source is not None:
+            active_source.close()
+        os.close(port)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (IOError, OSError) as e:
+        log("I/O error: %s" % e)
+        sys.exit(2)
+    except KeyboardInterrupt:
+        log("interrupted")
+        sys.exit(130)

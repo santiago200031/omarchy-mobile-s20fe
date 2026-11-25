@@ -522,7 +522,7 @@
       "stage": "15b",
       "track": "bringup",
       "title": "Modem (SDX55M), GNSS & NFC",
-      "milestone_status": "partial",
+      "milestone_status": "done",
       "plan": "device/r8q/MODEM-PLAN.md",
       "tasks": [
         {
@@ -556,11 +556,9 @@
         {
           "id": "mdm-05",
           "title": "Wire opt-in modem service + NV overlay rules and test SIM detect, QMI/MBIM data & calls",
-          "done": false,
+          "done": true,
           "area": "package",
-          "risk": "high",
-          "requires_human": true,
-          "verify": "mmcli -m 0 detects SIM state, mobile data connects over wwan0mbim0, NV remains untouched"
+          "evidence": "2026-11-25 on 7.3.0-rc6-omamobile-push1-g84e3a3589fc8-dirty: aligned r8q SDX55M MHI channels/events (EFS 10/11, QMI1 16/17, IP_CTRL 18/19 DTR, IP_HW0 100/101 + ER4/ER5) + recovery poll_work reschedule; tqftpserv v1.2-2 TQFTP_QRTR_VERSION=3 served modem_pr (549_7_0.mbn, mcfg_hw/sw) with rmtfs -r and r8q-sahara EFS listener on wwan0sahara1 (zero APSS NOC resets); SIM PIN1 unlocked, ModemManager /org/freedesktop/ModemManager1/Modem/0 registered (lte, 52%, wwan0qmi0/wwan0at0/mhi_hwip0), and QMI WDS bind-mux-data-port (ep-iface-number=4) passed LTE ping over mhi_hwip0 (22.0 ms) with NV/modem partitions ro=1; packaged opt-in in omamobile-device-r8q 0.1.38 + tqftpserv 1.2-2"
         },
         {
           "id": "mdm-06",

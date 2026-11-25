@@ -1,0 +1,30 @@
+--- a/tqftpserv.c
++++ b/tqftpserv.c
+@@ -919,6 +919,8 @@ int main(int argc, char **argv)
+ 	int opcode;
+ 	int opt;
+ 	int ret;
++	unsigned long qrtr_ver = 1;
++	const char *ver_env;
+ 	int fd;
+ 
+ 	while ((opt = getopt(argc, argv, "dh")) != -1) {
+@@ -946,7 +948,17 @@ int main(int argc, char **argv)
+ 		exit(1);
+ 	}
+ 
+-	ret = qrtr_publish(fd, 4096, 1, 0);
++	ver_env = getenv("TQFTP_QRTR_VERSION");
++	if (ver_env && *ver_env) {
++		char *end = NULL;
++
++		qrtr_ver = strtoul(ver_env, &end, 0);
++		if (end == ver_env || *end != '\0' || qrtr_ver > 0xffff) {
++			fprintf(stderr, "invalid TQFTP_QRTR_VERSION: %s\n", ver_env);
++			exit(1);
++		}
++	}
++	ret = qrtr_publish(fd, 4096, (uint16_t)qrtr_ver, 0);
+ 	if (ret < 0) {
+ 		fprintf(stderr, "failed to publish service registry service\n");
+ 		exit(1);

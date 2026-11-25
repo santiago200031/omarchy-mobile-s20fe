@@ -26,19 +26,18 @@ As of **`2026-11-22`** (`7.3.0-rc6-omamobile-push1-g4d235a595f28`, `omamobile-se
 | `13` | Suspend (`s2idle`) | `1/3` | `33.3%` | ❌ Disabled | `[slp-02]` attended single `s2idle` w/ watchdog; `[slp-03]` 10-cycle soak |
 | `14` | Remoteprocs, Sensors & Audio (`ADSP`/`SLPI`/`CS35L41`/`DMIC3`) | `6/6` | `100.0%` | ✅ Achieved | — (speaker + earpiece + `DMIC3` `pw-record` verified) |
 | `15a` | Cameras (`CAMSS` / `libcamera`) | `4/5` | `80.0%` | ⚠️ Partial | `[cam-05]` IMX555 (rear 1x) + IMX616 (front) drivers (`omacam` `0.5x <-> 3x` verified) |
-| `15b` | Modem (`SDX55M`), GNSS & NFC | `3/6` | `50.0%` | ⚠️ Partial | `[mdm-03..05]` native `sda36` `modem.dtso` boot test, NV re-check, opt-in SIM/QMI/MBIM |
+| `15b` | Modem (`SDX55M`), GNSS & NFC | `6/6` | `100.0%` | ✅ Achieved | — (`[mdm-05]` SIM unlock, `ModemManager`, `mhi_hwip0` LTE data, `omamobile-device-r8q` `0.1.38` + `tqftpserv` `1.2-2` opt-in) |
 | `16` | Fingerprint | `2/2` | `100.0%` | ⏸️ Deferred (TZ/QSEE) | — ([FINGERPRINT-PLAN.md](../FINGERPRINT-PLAN.md): deferred, XPU/QSEE/`qseecom` blockers) |
 | `U1` | Kernel Branch Hygiene & Upstream DCO (`wt-r8q`) | `1/5` | `20.0%` | 🔧 Open | `[krn-02..05]` human `Signed-off-by:` on 42 commits, split topic branches, `kernel-pr-check`, upstream PRs |
 | `U2` | Repo Registry & Stable Pin | `4/4` | `100.0%` | ✅ Achieved | — |
 
 ## Complete Step-by-Step Queue (`13` Remaining Atomic Tasks)
 
-### High-Risk / Hardware Bring-Up (`9` tasks — human gate for flashes/reboots)
-1. `[mdm-03]` -> `[mdm-05]` *(human-gate + NV checksum check)* Test `modem.dtso` on native `sda36` root (confirm no SD-card brownout hang), verify `15/15` NV checksums, test SIM/QMI/MBIM data & calls.
-2. `[usb-04]` *(human-gate via `tools/usbc-deadman-r8q`)* Port GPL `max77705` `0x25` USBC/CCIC driver (or test with externally powered hub) for full USB host OTG VBUS + Type-C role reporting.
-3. `[pwr-03]` & `[pwr-04]` *(human-gate w/ watchdog)* Scope CPUfreq `schedutil` trace and deeper `cpuidle` / UFS PM.
-4. `[slp-02]` & `[slp-03]` *(human-gate w/ watchdog)* Attended single `s2idle` wake, then soak 10 sleep cycles before removing `10-r8q-no-suspend.conf`.
-5. `[cam-05]` *(human-gate)* Implement mainline V4L2 subdev drivers & DT nodes for IMX555 (rear wide) and IMX616 (front) from clean GPL/mainline specs.
+### High-Risk / Hardware Bring-Up (`6` tasks — human gate for flashes/reboots)
+1. `[usb-04]` *(human-gate via `tools/usbc-deadman-r8q`)* Port GPL `max77705` `0x25` USBC/CCIC driver (or test with externally powered hub) for full USB host OTG VBUS + Type-C role reporting.
+2. `[pwr-03]` & `[pwr-04]` *(human-gate w/ watchdog)* Scope CPUfreq `schedutil` trace and deeper `cpuidle` / UFS PM.
+3. `[slp-02]` & `[slp-03]` *(human-gate w/ watchdog)* Attended single `s2idle` wake, then soak 10 sleep cycles before removing `10-r8q-no-suspend.conf`.
+4. `[cam-05]` *(human-gate)* Implement mainline V4L2 subdev drivers & DT nodes for IMX555 (rear wide) and IMX616 (front) from clean GPL/mainline specs.
 
 ### Kernel Upstream Submission (`4` tasks — `CONTRIBUTING.md` §6.2)
 6. `[krn-02]` *(human-only DCO)* Human maintainer adds `Signed-off-by: Santiago Villavicencio` to all **42** unsigned commits in `~/omamobile-kernel/wt-r8q` (`origin/omamobile..HEAD`).

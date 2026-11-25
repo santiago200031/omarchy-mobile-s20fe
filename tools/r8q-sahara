@@ -103,7 +103,10 @@ def load_memdump_module():
     battle-tested in run17_diag.py; loading it avoids a second copy of the
     protocol here. Deployed next to this tool as /usr/local/bin/run17_diag.py.
     """
-    path = os.environ.get("R8Q_MEMDUMP_MODULE", "/usr/local/bin/run17_diag.py")
+    path = os.environ.get("R8Q_MEMDUMP_MODULE")
+    if not path:
+        sibling = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run17_diag.py")
+        path = sibling if os.path.exists(sibling) else "/usr/local/bin/run17_diag.py"
     if not os.path.exists(path):
         return None
     import importlib.util
@@ -238,7 +241,8 @@ def main():
                          "(default: %(default)s)")
     ap.add_argument("--probe", type=int, default=3, metavar="SECONDS",
                     help="before the first HELLO, reopen the port every SECONDS "
-                         "to restart the channel (default: 3) until --wait expires")
+                         "to restart the channel (default: 3; 0 keeps the port "
+                         "open without reopening) until --wait expires")
     ap.add_argument("--dry-run", action="store_true",
                     help="verify image sources only; do not open or write the port")
     args = ap.parse_args()
@@ -283,13 +287,19 @@ def main():
             # the SBL sends the next HELLO on this fd. Reopening the device per
             # image resets the channel (STOP/RESET/START) and the SBL gives up
             # before the AMSS images (2026-11-18).
-            timeout = args.idle if session_started else args.probe
+            if session_started:
+                timeout = None if args.idle <= 0 else args.idle
+            else:
+                remaining = max(0.0, deadline - time.monotonic())
+                timeout = min(args.probe, remaining) if args.probe > 0 else remaining
             try:
                 ready, _, _ = select.select([port], [], [], timeout)
             except OSError:
                 ready = [port]
             if not ready:
                 if not session_started and time.monotonic() < deadline:
+                    if args.probe <= 0:
+                        continue
                     # Opening the WWAN port starts the Sahara channel. If the
                     # SBL's service was not up for the first START, restart it
                     # until it answers with HELLO.

@@ -216,3 +216,18 @@ test -f "$wp"
 printf '%s\n%s\n' omarchy-wifi-powersave.conf "${wp##*/}" | LC_ALL=C sort -c
 grep -q 'etc/NetworkManager/conf.d/zz-omamobile-wifi-powersave.conf' PKGBUILD
 echo ok wifi-powersave
+# SDX55M modem opt-in package hooks (mdm-05): udev ignore + tqftpserv v3 + unenabled units.
+cmp r8q-sahara ../../tools/r8q-sahara
+cmp run17_diag.py ../../tools/run17_diag.py
+python3 -m py_compile r8q-sahara run17_diag.py
+grep -q 'wwan\*sahara\*.*ID_MM_PORT_IGNORE' 77-mm-r8q-ignore.rules
+grep -qx 'Environment=TQFTP_QRTR_VERSION=3' 10-r8q-tqftpserv.conf
+grep -q 'ConditionPathExists=/lib/firmware/qcom/sdx55m/apps.mbn' omamobile-r8q-modem-sahara.service
+grep -q 'ConditionPathExists=/lib/firmware/qcom/sdx55m/apps.mbn' omamobile-r8q-modem-efs.service
+grep -q '/dev/wwan0sahara1.*--idle 0' omamobile-r8q-modem-efs.service
+for f in 77-mm-r8q-ignore.rules 10-r8q-tqftpserv.conf r8q-sahara run17_diag.py omamobile-r8q-modem-sahara.service omamobile-r8q-modem-efs.service; do
+  grep -q "$f" PKGBUILD
+done
+! grep -q 'omamobile-r8q-modem-sahara\.service.*wants\|wants/omamobile-r8q-modem-sahara\.service' PKGBUILD
+! grep -q 'omamobile-r8q-modem-efs\.service.*wants\|wants/omamobile-r8q-modem-efs\.service' PKGBUILD
+echo ok modem-optin

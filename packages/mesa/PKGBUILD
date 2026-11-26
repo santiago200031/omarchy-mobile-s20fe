@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: 0BSD
 #
-# Omarchy Mobile build of Mesa for:
+# Omamobile build of Mesa for:
 #  - Pixel 7 Pro (Mali-G710 on Panthor), Pixel 6/6 Pro (Mali-G78 on Panfrost),
 #    Pixel 9a (Mali-G715 on Panthor)
 #  - Samsung Galaxy S20 FE (Adreno 650 on Freedreno/Turnip)
@@ -10,7 +10,7 @@
 # Derived from Arch Linux's mesa PKGBUILD, tag 1-26.2.4-1
 # (https://gitlab.archlinux.org/archlinux/packaging/packages/mesa, 0BSD),
 # which Arch Linux ARM also builds, with ALARM's documented differences
-# (intel-rt off). Omarchy Mobile changes:
+# (intel-rt off). Omamobile changes:
 #  - 0001-panfrost-add-Mali-G710-to-the-model-table.patch (sent upstream,
 #    see UPSTREAM.md); drop it once Mesa ships the entry.
 #  - 0002-panfrost-don-t-make-image-BOs-private-on-panthor.patch: panthor
@@ -31,7 +31,10 @@
 #  - pkgrel 2.0: added freedreno (Gallium msm + Turnip Vulkan) for Adreno
 #    630/640/650 (SM8150/SM8250); the shared Vulkan implicit layers keep
 #    their own split (vulkan-mesa-implicit-layers), now a dependency of
-#    both vulkan-panfrost and vulkan-freedreno.
+#    both vulkan-panfrost and vulkan-freedreno. makepkg only allows
+#    integer[.integer], so the Omamobile marker lives in the VERSION
+#    string (".omamobile5"), which shows up in GL_VERSION and the
+#    libgallium file name.
 #
 # Maintainers of the original: Laurent Carlier, Felix Yan, Jan Alexander
 # Steffens (heftig); contributors Jan de Groot, Andreas Radke.
@@ -48,7 +51,7 @@ _pkgver=${pkgver/[a-z]/-&}
 pkgrel=2.0
 _omamobile=omamobile5
 epoch=1
-pkgdesc="Open-source OpenGL drivers (Omarchy Mobile: Mali-G710, Mali-G78, Mali-G715, Adreno 630/640/650)"
+pkgdesc="Open-source OpenGL drivers (Omamobile: Mali-G710, Mali-G78, Mali-G715, Adreno 630/640/650)"
 url="https://www.mesa3d.org/"
 arch=(aarch64)
 license=("MIT AND BSD-3-Clause AND SGI-B-2.0")
@@ -268,7 +271,7 @@ package_mesa() {
 }
 
 package_vulkan-panfrost() {
-  pkgdesc="Open-source Vulkan driver for Mali GPUs (Omarchy Mobile: Mali-G710)"
+  pkgdesc="Open-source Vulkan driver for Mali GPUs (Omamobile: Mali-G710)"
   depends=(
     expat
     glibc

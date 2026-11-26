@@ -2,8 +2,8 @@
 
 # On-Device AI & Accelerator Probe — Samsung Galaxy S20 FE (r8q)
 
-**Status:** `omamobile-ai` supervisor (CPU, `LFM3-1.7B`) verified end-to-end; Stage 4 `[gpu-03..05]` closed (`802d3d3bc` fixes `-p 512` hangcheck timeout; `power-profiles-daemon` `performance` unlocks `2.42/2.84 GHz` -> **`70.18 t/s` `pp512` / `12.48` `tg128`** on `Q8_0` `4-6` vs **`23.39` `pp512` / `1.36` `tg128`** on Turnip Vulkan); `GPU_LAYERS=0` stays default
-**Last Updated:** 2026-11-21
+**Status:** `omamobile-ai` supervisor (CPU, `LFM3-1.7B`) verified end-to-end; Stage 4 `[gpu-03..05]` closed (`802d3d3bc` fixes `-p 512` hangcheck timeout; `omamobile-ai 0.1.2` + `10-sm8250.conf` add `LOAD_MODE=none`, `PARALLEL=2`, `KV_UNIFIED=1` cutting peak RSS `4.04 -> 2.65 GiB`, and offline-merged `LFM3-1.7B-pi-Q8_0.gguf` reaches `11.57 tok/s` `c1` / `13.34` `c2` / `70.9 tok/s` `pp1K` / `252 ms` short TTFT); `GPU_LAYERS=0` stays default
+**Last Updated:** 2026-11-26
 
 The supported design is the `omamobile-ai` supervisor package: one small Rust
 process that owns `llama-server`, starts it lazily on the first request, proxies
@@ -113,11 +113,13 @@ pins inference to the three Gold cores.
 
 | Key | r8q value | Meaning |
 |---|---|---|
-| `MODEL_PATH` | `/usr/share/omamobile-ai/models/LFM3-1.7B-Q8_0.gguf` (`20-pi-tuned.conf`) | GGUF to serve (`Q4_K_M` base default) |
+| `MODEL_PATH` | `/usr/share/omamobile-ai/models/LFM3-1.7B-pi-Q8_0.gguf` (`20-pi-tuned.conf`) | GGUF to serve (`Q4_K_M` base default) |
 | `MODEL_ID` | `LFM3-1.7B` | Name clients ask for |
 | `THREADS` | `4` | llama.cpp threads (`10-sm8250.conf`, one per Cortex-A77 core) |
 | `CPU_AFFINITY` | `4-7` | 3x Gold (`2.42 GHz`) + 1x Prime (`2.84 GHz`); 0-3 stay with desktop/system |
 | `CTX_SIZE` | `32768` | Context window |
+| `LOAD_MODE` | `none` | Skip keeping `mmap` duplicate alongside `CPU_REPACK` (`-1.3 GiB` RAM, zero swap) |
+| `PARALLEL` / `KV_UNIFIED` | `2` / `1` | Two concurrent slots sharing unified KV with full `32768` context per slot |
 | `GPU_LAYERS` | `0` | CPU inference (CPU beats Adreno 650 on `LFM3-1.7B` by `2.4x-3.2x` `pp512` and `9.2x-11.6x` `tg128`) |
 | `IDLE_TIMEOUT` | `180` | Seconds of inactivity (TTL) before `llama-server` is stopped and RAM freed |
 | `LISTEN_HOST` / `LISTEN_PORT` | `0.0.0.0` (drop-in) / `8080` | Supervisor on the USB link; the base config alone listens on loopback |
@@ -139,6 +141,20 @@ Measured on live hardware (`LFM3-1.7B`, `-p 512 -n 128 -r 2` unless noted). Unlo
 | **Vulkan `Q8_0`** (`-ngl 99 -ub 64`) | Turnip a650 | `23.71 ± 0.00` | `1.04` (`-n 16`) |
 
 With `DRM_MSM_HANGCHECK_PROGRESS_RETRIES=31` (`802d3d3bc`), bare `llama-bench -ngl 99 -p 64,128,256,512 -n 16` passes cleanly at default `hangcheck_period_ms=250` (`30.26 / 30.17 / 27.24 / 23.39 t/s`, `tg16 1.37 ± 0.00`, `0` GPU errors), but CPU remains `GPU_LAYERS=0` default.
+
+### 2.4 `2026-11-26` End-to-End Server & Memory Optimisation (`omamobile-ai 0.1.2` + `omamobile-device-r8q 0.1.39`)
+
+Hardware ceiling probes on `performance` (`1.80 / 2.42 / 2.84 GHz`) measured **`23.62 GB/s`** read-only DRAM bandwidth (`3T cpu4-6`; `23.55 GB/s` on `4-7`) and **`617.6 GIOP/s`** `INT8 vdotq_s32` (`4T cpu4-7`). Noise-controlled A/B server runs (`bench.py`, `--reps 6`, `c2`, cold prefill `1024 / 4096`, `LFM3-1.7B` `1.73B` hybrid ShortConv+GQA) found and fixed two bottlenecks:
+
+| Variant | Config | `c1` (`t/s`) | `c2` agg (`t/s`) | Prefill 1K / 4K | Short TTFT | Peak Mem |
+|---|---|---:|---:|---:|---:|---:|
+| **Shipped control** (`Q8_0 + --lora`) | `mmap` (`auto`) + `-np auto` (`4`), `performance` | `10.50–10.80` | `7.82–12.17` | `47.0–51.4 / 48.6–50.9` | `351–393 ms` | `4.03–4.04 GiB` |
+| **Memory/slot fix** (`+ -lm none -np 2 --kv-unified`) | Drops `CPU_REPACK` + `mmap` duplicate; full `32K` ctx | `10.55–10.62` | `11.76–11.92` | `49.4–52.1 / 48.3–51.1` | `336–343 ms` | **`2.72–2.73 GiB`** |
+| **Winner (`pi-Q8_0`, fused LoRA offline)** | `llama-export-lora` + `Q8_0`, `-lm none -np 2 --kv-unified` | **`11.50–11.57`** | **`12.41–13.34`** | **`66.7–70.9 / 65.5–68.1`** | **`247–263 ms`** | **`2.65–2.67 GiB`** |
+| **Throughput quant trade (`pi-Q4_K_M`)** | Merged `Q4_K_M` (`1.1G`, `5.05 BPW`) | **`16.14`** | **`16.24`** | `47.8 / 47.4` | `334 ms` | **`1.91 GiB`** |
+
+- Rejected/plateaued levers: `0-7 -t 8` (Cortex-A55 barrier drag), `--repack 0` (`-53%` prefill), `--spec-type ngram-{simple,map-k,mod}` (`10.5–10.9` vs `11.07` `none`), `-t 3 -Cr 4-6 -tb 4 -Crb 4-7` (`-3.4%` `c2`), and `-fa on` / `-ub 1024` / `--poll 100 --prio 2`.
+- Acceptance gates on live `omamobile-ai 0.1.2` (`http://172.16.42.1:8080`, `pi-Q8_0`): Load (`4.24 s`), Chat (`stop`), Reasoning separation (`410`), Tool calling round-trip (`COBALT-9482`), and Long-context needle retrieval (`3/3` exact at `10,790` tokens and `3/3` exact at `26,175` tokens with `max_tokens=1024`) all passed.
 
 Routes: `/health`, `/v1/models`, `/v1/chat/completions`, `/v1/unload`, and the
 llama.cpp router surface (`/models`, `/props`, `/models/load`, ...) so a client

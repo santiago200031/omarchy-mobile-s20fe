@@ -32,10 +32,13 @@ and keeps running.
 Base defaults live in `/etc/omamobile-ai.conf`; a device package drops
 overrides into `/etc/omamobile-ai.conf.d/`. Keys: `MODEL_PATH`, `MODEL_ID`,
 `LLAMA_BIN`, `LISTEN_HOST`, `LISTEN_PORT`, `LLAMA_PORT`, `CPU_AFFINITY`,
-`THREADS`, `CTX_SIZE`, `GPU_LAYERS`, `IDLE_TIMEOUT`.
+`THREADS`, `CTX_SIZE`, `GPU_LAYERS`, `LOAD_MODE`, `PARALLEL`, `KV_UNIFIED`,
+`IDLE_TIMEOUT`.
 
-The r8q drop-in (`omamobile-device-r8q`) pins inference to the three Gold
-cores (`CPU_AFFINITY=4-6`, `THREADS=3`) and opens the USB listener.
+The r8q drop-in (`omamobile-device-r8q`) pins inference to the four
+Cortex-A77 cores (`CPU_AFFINITY=4-7`, `THREADS=4`), sets `LOAD_MODE=none`
+and `PARALLEL=2` + `KV_UNIFIED=1` to fit 32K unified context in `<2.7 GiB`,
+and opens the USB listener.
 
 ## Status and control
 

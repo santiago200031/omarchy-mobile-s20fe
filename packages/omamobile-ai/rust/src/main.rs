@@ -52,6 +52,9 @@ struct Config {
     listen_port: u16,
     llama_port: u16,
     llama_bin: String,
+    load_mode: Option<String>,
+    parallel: Option<u32>,
+    kv_unified: bool,
     usb_boost: bool,
     usb_idle_timeout_secs: i64,
     boost_idle_timeout_secs: i64,
@@ -73,6 +76,9 @@ impl Default for Config {
             listen_port: 8080,
             llama_port: 18080,
             llama_bin: "llama-server".into(),
+            load_mode: None,
+            parallel: None,
+            kv_unified: false,
             usb_boost: false,
             usb_idle_timeout_secs: 0,
             boost_idle_timeout_secs: 60,
@@ -139,6 +145,21 @@ fn _apply_setting(key: &str, value: &str, config: &mut Config, path: &Path) {
         "IDLE_TIMEOUT" => _set_number(value, path, key, |n| config.idle_timeout_secs = n),
         "LISTEN_PORT" => _set_number(value, path, key, |n| config.listen_port = n),
         "LLAMA_PORT" => _set_number(value, path, key, |n| config.llama_port = n),
+        "LOAD_MODE" => {
+            config.load_mode = if value.is_empty() {
+                None
+            } else {
+                Some(value.into())
+            }
+        }
+        "PARALLEL" => {
+            if value.is_empty() {
+                config.parallel = None;
+            } else {
+                _set_number(value, path, key, |n| config.parallel = Some(n));
+            }
+        }
+        "KV_UNIFIED" => _set_bool(value, path, key, &mut config.kv_unified),
         "USB_BOOST" => _set_bool(value, path, key, &mut config.usb_boost),
         "USB_IDLE_TIMEOUT" => _set_number(value, path, key, |n| config.usb_idle_timeout_secs = n),
         "BOOST_IDLE_TIMEOUT" => {
@@ -507,6 +528,20 @@ fn _llama_args(config: &Config) -> Vec<String> {
     if config.gpu_layers > 0 {
         args.push("-ngl".into());
         args.push(config.gpu_layers.to_string());
+    }
+
+    if let Some(mode) = &config.load_mode {
+        args.push("--load-mode".into());
+        args.push(mode.clone());
+    }
+
+    if let Some(np) = config.parallel {
+        args.push("-np".into());
+        args.push(np.to_string());
+    }
+
+    if config.kv_unified {
+        args.push("--kv-unified".into());
     }
 
     args
@@ -922,5 +957,18 @@ mod tests {
         assert!(_usb_connected_at(&tmp));
         assert!(_thermal_hot_at(&tmp, 78000));
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn _test_llama_args_memory_and_slots() {
+        let mut cfg = Config::default();
+        let p = Path::new("/tmp/test.conf");
+        _apply_setting("LOAD_MODE", "none", &mut cfg, p);
+        _apply_setting("PARALLEL", "2", &mut cfg, p);
+        _apply_setting("KV_UNIFIED", "1", &mut cfg, p);
+        let args = _llama_args(&cfg);
+        assert!(args.windows(2).any(|w| w == ["--load-mode", "none"]));
+        assert!(args.windows(2).any(|w| w == ["-np", "2"]));
+        assert!(args.iter().any(|a| a == "--kv-unified"));
     }
 }

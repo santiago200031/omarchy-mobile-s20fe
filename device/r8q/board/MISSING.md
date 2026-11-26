@@ -28,7 +28,7 @@ As of **`2026-11-26`** (`omamobile-device-r8q 0.1.39-1`, `omamobile-ai 0.1.2-1`,
 | `15a` | Cameras (`CAMSS` / `libcamera`) | `4/5` | `80.0%` | ⚠️ Partial | `[cam-05]` IMX555 (rear 1x) + IMX616 (front) drivers (`omacam` `0.5x <-> 3x` verified) |
 | `15b` | Modem (`SDX55M`), GNSS & NFC | `6/6` | `100.0%` | ✅ Achieved | — (`[mdm-05]` SIM unlock, `ModemManager`, `mhi_hwip0` LTE data, `omamobile-device-r8q` `0.1.38` + `tqftpserv` `1.2-2` opt-in) |
 | `16` | Fingerprint | `2/2` | `100.0%` | ⏸️ Deferred (TZ/QSEE) | — ([FINGERPRINT-PLAN.md](../FINGERPRINT-PLAN.md): deferred, XPU/QSEE/`qseecom` blockers) |
-| `U1` | Kernel Branch Hygiene & Upstream DCO (`linux` / `wt-r8q-split`) | `2/5` | `40.0%` | 🔧 In Progress | `[krn-02]` human `Signed-off-by:` (64/74 branch commits across 7 topics), `[krn-04]` post-SoB `kernel-pr-check` + `ts-int-default-state` DT schema fix, `[krn-05]` upstream PRs |
+| `U1` | Kernel Branch Hygiene & Upstream DCO (`linux` / `wt-r8q-split`) | `2/5` | `40.0%` | 🔧 In Progress | `[krn-02]` human `Signed-off-by:` (`60` unique unsigned commits across 7 topics on `cf22a9090`), `[krn-04]` attended touch re-check (`ts-int-default-state output-disable;`) + post-SoB `kernel-pr-check`, `[krn-05]` upstream PRs |
 | `U2` | Repo Registry & Stable Pin | `4/4` | `100.0%` | ✅ Achieved | — |
 
 ## Complete Step-by-Step Queue (`6` Remaining Atomic Tasks)
@@ -39,8 +39,8 @@ As of **`2026-11-26`** (`omamobile-device-r8q 0.1.39-1`, `omamobile-ai 0.1.2-1`,
 3. `[cam-05]` *(human-gate for CCI probe flash & GPL source review)* Complete IMX555 (rear wide 1x) and IMX616 (front) V4L2 drivers from clean GPL/mainline specs ([`CAMERA-PLAN.md`](../CAMERA-PLAN.md) §8.7).
 
 ### Kernel Upstream Submission (`3` tasks — `CONTRIBUTING.md` §6.2, [`UPSTREAM-KERNEL-PLAN.md`](../UPSTREAM-KERNEL-PLAN.md))
-4. `[krn-02]` *(human-only DCO)* Human maintainer adds `Signed-off-by: Santiago Villavicencio` to all **64** unsigned commits across 7 of the 8 topic branches (`topic/r8q-audio` already passes 100%).
-5. `[krn-04]` Drop `input-enable;` on `ts-int-default-state` (`sm8250-samsung-r8q.dts:558`, only `CHECK_DTBS` schema warning) with on-phone touch re-check, then re-run `tools/kernel-pr-check --build --merge origin/omamobile` on all signed topic branches (`dt_binding_check` already `5/5` clean).
+4. `[krn-02]` *(human-only DCO)* Human maintainer adds `Signed-off-by: Santiago Villavicencio` to all **60** unique unsigned commits across 7 of the 8 topic branches (`topic/r8q-audio` already passes 100%).
+5. `[krn-04]` Run attended phone flash/boot touch re-check for `ts-int-default-state output-disable;` (`CHECK_DTBS=y` and `dt_binding_check` `5/5` already `0` `r8q` warnings), then re-run `tools/kernel-pr-check --build --merge origin/omamobile` on all signed topic branches.
 6. `[krn-05]` *(human-gate)* Push signed topic branches to user kernel fork and open PRs against `derekross/linux-omarchy-mobile:omamobile`.
 
 ---

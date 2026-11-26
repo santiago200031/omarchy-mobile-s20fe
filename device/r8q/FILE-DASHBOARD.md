@@ -44,7 +44,7 @@ Verified on `2026-11-22` (`NOTES §57` on `recovery-stable-20261122.img`, `sha25
 | **Overall (Hardware + Upstream)** | **91.0% (61/67 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
 | **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **94.8% (55/58)** | Stages 1–11, 14, 15b achieved; 12, 13, 15a partial; Stage 16 deferred ([`FINGERPRINT-PLAN.md`](FINGERPRINT-PLAN.md)) |
 | **Daily Core (Stages 1–8 + UI)** | **100.0% (22/22)** | Usable daily phone on desk (`120 Hz`, haptics + torch, full-duplex audio, `0.5x`/`3x` cams, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI `84.2 pp512 / 12.69 tg128` at `4-7`, `LOAD_MODE=none`) |
-| **Upstream & Docs (U1–U2)** | **66.7% (6/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1, `DEVICES.md`, & 8 topic branch split pass; 64 commits across 7 unsigned branches await human `Signed-off-by:` |
+| **Upstream & Docs (U1–U2)** | **66.7% (6/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1, `DEVICES.md`, & 8 topic branch split pass (`0` checkpatch errors, `0` `r8q` DT schema warnings); 60 unique commits across 7 unsigned branches await human `Signed-off-by:` |
 
 | Column | Count | Last Updated |
 | --- | --- | --- |
@@ -85,10 +85,10 @@ Verified on `2026-11-22` (`NOTES §57` on `recovery-stable-20261122.img`, `sha25
 
 ## 🔲 MISSING — Atomic Queue ([board/MISSING.md](board/MISSING.md) · `tools/r8q-progress`)
 
-> **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **64** commits across 7 of the 8 split topic branches (`topic/r8q-audio` is 100% signed) await Santiago's sign-off (`UPSTREAM-KERNEL-PLAN.md` §5).
+> **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **60** unique unsigned commits across 7 of the 8 split topic branches (`topic/r8q-audio` is 100% signed) await Santiago's sign-off (`UPSTREAM-KERNEL-PLAN.md` §5).
 
 1. **High-Risk Hardware Bring-Up (`3` open):** `[usb-04]` OTG host (`max77705` `0x25` USBC/CCIC driver or powered hub via `usbc-deadman`), `[slp-03]` WFI `s2idle` soak decision vs `state1` TZ lockup before removing `10-r8q-no-suspend.conf`, `[cam-05]` IMX555/IMX616 drivers (`CAMERA-PLAN.md` §8.7).
-2. **Kernel Upstream (`3` open):** `[krn-02]` Human `Signed-off-by:` on 64 commits across 7 topic branches, `[krn-04]` drop `ts-int-default-state input-enable;` + re-run `tools/kernel-pr-check --build --merge origin/omamobile`, `[krn-05]` push fork & open PRs.
+2. **Kernel Upstream (`3` open):** `[krn-02]` Human `Signed-off-by:` on 60 unique unsigned commits across 7 topic branches, `[krn-04]` attended phone touch verify for `ts-int-default-state output-disable;` + post-signoff `tools/kernel-pr-check --build --merge origin/omamobile` pass, `[krn-05]` push fork & open PRs.
 
 ---
 
@@ -218,10 +218,10 @@ Verified on `2026-11-22` (`NOTES §57` on `recovery-stable-20261122.img`, `sha25
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Worktree | ⚠️ | `~/omamobile-kernel/linux` (8 clean `topic/r8q-*` branches, 74 branch commits, 64 missing human `Signed-off-by:`), `~/omamobile-kernel/wt-r8q-split` (`r8q-merge-test2` merged cleanly) |
+| Worktree | ⚠️ | `~/omamobile-kernel/linux` (8 clean `topic/r8q-*` branches on `cf22a9090`, `68` unique / `74` branch commits, `60` unique missing human `Signed-off-by:`), `~/omamobile-kernel/wt-r8q-split` (`r8q-merge-test2` merged cleanly) |
 | Output | ✅ | `~/omamobile-kernel/out-r8q` (`recovery-stable-20261122.img` pin), `~/omamobile-kernel/out-r8q-modem-qrtr` (`[mdm-05]` live kernel) |
-| HEAD | ✅ | `4d235a595f28` (`recovery-stable-20261122.img` rollback pin); `topic/r8q-modem` `ebee87d80` |
-| Upstream prep | ⏳ | 8 topic branches pass `kernel-pr-check --build --merge` (`W=1` C/DT + `checkpatch --strict` 0 errors) & `dt_binding_check` 5/5; drop `ts-int-default-state` `input-enable;` + add human `Signed-off-by:` (`UPSTREAM-KERNEL-PLAN.md`) |
+| HEAD | ✅ | `4d235a595f28` (`recovery-stable-20261122.img` rollback pin); `topic/r8q-modem` `d58aa3698` |
+| Upstream prep | ⏳ | All 8 topic branches pass `kernel-pr-check --build --merge origin/omamobile` (`W=1` C/DT + `checkpatch --strict` 0 errors), `dt_binding_check` 5/5, & `CHECK_DTBS=y` (`0` `r8q` schema warnings); add human `Signed-off-by:` + flash touch check for `ts-int-default-state output-disable;` (`UPSTREAM-KERNEL-PLAN.md`) |
 
 ---
 

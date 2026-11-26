@@ -13,7 +13,7 @@ This board tracks the hardware bring-up and upstreaming state of the **Samsung G
 | **Overall (Hardware + Upstream)** | **91.0% (61/67)** | Full SM8250 hardware bring-up + kernel DCO/PR readiness |
 | **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **94.8% (55/58)** | Native root, 120 Hz display, Vulkan GPU (`5/5`), Wi-Fi/BT (`3/3`), haptics & torch (`4/4`), full-duplex audio, `0.5x`/`3x` cams, SDX55M modem + NFC (`6/6`), USB AI boost + Wi-Fi PS, FP assessed |
 | **Daily Core (Stages 1–8 + UI)** | **100.0% (22/22)** | Usable daily palmtop on desk with `omamobile-settings 0.1.3` + `LFM3-1.7B` AI (`84.2 pp512 / 12.69 tg128` in `performance`, `LOAD_MODE=none`) |
-| **Upstream & Docs (U1–U2)** | **66.7% (6/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1, `DEVICES.md`, & 8 topic branch split done; 64 commits across 7 unsigned branches await human `Signed-off-by:` |
+| **Upstream & Docs (U1–U2)** | **66.7% (6/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1, `DEVICES.md`, & 8 topic branch split clean (`cf22a9090`, `0` checkpatch errors, `0` `r8q` DT schema warnings); 60 unique commits across 7 unsigned branches await human `Signed-off-by:` |
 
 ## Board Columns
 

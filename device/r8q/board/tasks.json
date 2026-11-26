@@ -625,7 +625,7 @@
           "risk": "low",
           "requires_human": true,
           "verify": "Separate branches (dts-native, touch, gpu-quiesce, modem-mhi, cameras) with no revert noise",
-          "evidence": "All 8 topic branches rebuilt from r8q-base-dts-fold against origin/omamobile: topic/r8q-qcom-core (11), topic/r8q-dts (3), topic/r8q-touch (3), topic/r8q-panel (2), topic/r8q-audio (1), topic/r8q-gpu (12), topic/r8q-cameras (10), topic/r8q-modem (27). Zero [PATCH] prefix artifacts. Tree equivalence verified: merging all 8 branches produces r8q-base-dts-fold state for all r8q-specific files (r8q.dts, hi847.c, s5k3l6xx.c, irq-qcom-pci-msi.c, pci_generic.c, sm8250.c). See UPSTREAM-KERNEL-PLAN.md §3 for full verification results.",
+          "evidence": "All 8 topic branches rebuilt from r8q-base-dts-fold against origin/omamobile: topic/r8q-qcom-core (11), topic/r8q-dts (3), topic/r8q-touch (3), topic/r8q-panel (2), topic/r8q-audio (1), topic/r8q-gpu (12), topic/r8q-cameras (10), topic/r8q-modem (31, updated 2026-11-26 with 4 verified mdm-05 commits). Zero [PATCH] prefix artifacts. Tree equivalence verified: merging all 8 branches produces r8q-base-dts-fold state for all r8q-specific files (r8q.dts, hi847.c, s5k3l6xx.c, irq-qcom-pci-msi.c, pci_generic.c, sm8250.c). See UPSTREAM-KERNEL-PLAN.md §3 for full verification results.",
           "notes": "Branches created in wt-r8q-split (not touching omamobile, r8q-base-dts-fold, or r8q-usbc-max77705). Worktree at linux uses topic/r8q-modem."
         },
         {
@@ -636,7 +636,7 @@
           "risk": "low",
           "requires_human": false,
           "verify": "Zero W=1 C errors, zero checkpatch errors, zero new dt-validate / dt_binding_check warnings",
-          "notes": "2026-11-22: Ran tools/kernel-pr-check --build --merge origin/omamobile in omamobile-build:24.04 with pinned clang-r596125 across all 8 topic branches: 0 checkpatch errors, 0 W=1 C warnings (fixed drivers/bus/mhi/host/pm.c:924 __must_check in topic/r8q-modem 5abb7898f), and 0 new W=1 DT warnings across 347 DTBs. dt_binding_check passed (0 errors/warnings) on all 5 binding schemas with dtschema 2026.9 + yamllint; dtbs_check on r8q-merge-test2 found 1 schema warning (ts-int-default-state input-enable)."
+          "notes": "2026-11-26: Re-ran tools/kernel-pr-check --build --merge origin/omamobile in omamobile-build:24.04 with pinned clang-r596125 across all 8 topic branches (after cherry-picking 4 mdm-05 commits onto topic/r8q-modem, now 31 commits): all 8 merge cleanly onto 82e3cf0b7, 0 checkpatch errors, 0 W=1 C warnings across all touched C files, and 0 new W=1 DT warnings across 347 DTBs. Fails only on missing human Signed-off-by: on 7 unsigned branches (topic/r8q-audio passes 100%). dtschema absent in container; 2026-11-22 dtbs_check noted 1 schema warning (ts-int-default-state input-enable)."
         },
         {
           "id": "krn-05",

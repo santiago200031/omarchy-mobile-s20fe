@@ -2,10 +2,10 @@
 
 # r8q (Galaxy S20 FE SM-G780G) — File Dashboard
 
-**Updated:** `2026-11-22` (`0.1.34-1` + `recovery-stable-20261122.img`)
+**Updated:** `2026-11-26` (`omamobile-device-r8q 0.1.39-1` + `omamobile-ai 0.1.2-1` + `tqftpserv 1.2-2` + `[mdm-05]` MHI/QRTR candidate; rollback pin `recovery-stable-20261122.img`)
 **Device:** Samsung Galaxy S20 FE (`r8q`, SM8250, Snapdragon 865)
-**Live Kernel:** `7.3.0-rc6-omamobile-push1-g4d235a595f28` (`recovery-stable-20261122.img` — overlay-free base DT: native root `sda36`, `1080x2400@120` display, Adreno 650 fault quiesce + `-p 512` hangcheck fix + Vulkan, Wi-Fi, BT, haptics (`max77705-haptic` + `gcc_gp2_clk_src`), remoteprocs, `SamsungGalaxyS2` full-duplex playback + `DMIC3` capture, `s5k3l6` + `hi847` cameras, RT8547 `white:torch`, SLPI sensors)
-**Live Packages:** `omamobile-device-r8q 0.1.34-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.0-1`, `omamobile-settings 0.1.3-1` (upgraded natively via `tools/phone-install-package`), `libcamera 0.7.2-4.25`
+**Live Kernel:** `7.3.0-rc6-omamobile-push1-g84e3a3589fc8-dirty` (`[mdm-05]` SDX55M mission-mode/LTE data live; rollback baseline `recovery-stable-20261122.img` `4d235a595f28`)
+**Live Packages:** `omamobile-device-r8q 0.1.39-1`, `pd-mapper 1.1-2`, `omamobile-ai 0.1.2-1`, `tqftpserv 1.2-2`, `omamobile-settings 0.1.3-1`, `libcamera 0.7.2-4.25`
 **Boot Method:** Samsung `recovery` (`sda24`) → native `/dev/sda36` (`LABEL=omamobile-root`); a plain power-on boots it ([NOTES §24](NOTES.md))
 **Safety:** `77/77` UFS partitions read-only (`ro=1`), `userdata` (`sda36`) `rw`; NV partitions untouched
 **Helper Scripts:** [`tools/r8q-progress`](../../tools/r8q-progress) (`--live`, `--next N`, `--json`) + [`tools/r8q-check-all`](../../tools/r8q-check-all) (`--quick`) backed by [`board/tasks.json`](board/tasks.json); hardware map in [`HARDWARE-DISCOVERY.md`](HARDWARE-DISCOVERY.md)
@@ -37,14 +37,14 @@ Verified on `2026-11-22` (`NOTES §57` on `recovery-stable-20261122.img`, `sha25
 
 ---
 
-## Progress & Status Overview (`2026-11-22`)
+## Progress & Status Overview (`2026-11-26`)
 
 | Metric | Progress | Notes |
 | --- | --- | --- |
-| **Overall (Hardware + Upstream)** | **76.9% (50/65 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
-| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **80.4% (45/56)** | Stages 1–6, 7–8, 9, 14 achieved; 10–13, 15 partial; Stage 16 deferred ([`FINGERPRINT-PLAN.md`](FINGERPRINT-PLAN.md)) |
-| **Daily Core (Stages 1–8 + UI)** | **95.5% (21/22)** | Usable daily phone on desk (`120 Hz`, haptics + torch, full-duplex audio, `0.5x`/`3x` cams, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI `75.8 pp512 / 12.5 tg128` at `4-7`) |
-| **Upstream & Docs (U1–U2)** | **55.6% (5/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` pass; 38/83 kernel commits need human `Signed-off-by:` |
+| **Overall (Hardware + Upstream)** | **91.0% (61/67 atomic tasks)** | Full breakdown in [`board/MISSING.md`](board/MISSING.md) |
+| **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **94.8% (55/58)** | Stages 1–11, 14, 15b achieved; 12, 13, 15a partial; Stage 16 deferred ([`FINGERPRINT-PLAN.md`](FINGERPRINT-PLAN.md)) |
+| **Daily Core (Stages 1–8 + UI)** | **100.0% (22/22)** | Usable daily phone on desk (`120 Hz`, haptics + torch, full-duplex audio, `0.5x`/`3x` cams, `settings 0.1.3`, Wi-Fi, BT, sensors, `LFM3` AI `84.2 pp512 / 12.69 tg128` at `4-7`, `LOAD_MODE=none`) |
+| **Upstream & Docs (U1–U2)** | **66.7% (6/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1, `DEVICES.md`, & 8 topic branch split pass; 64 commits across 7 unsigned branches await human `Signed-off-by:` |
 
 | Column | Count | Last Updated |
 | --- | --- | --- |
@@ -85,11 +85,10 @@ Verified on `2026-11-22` (`NOTES §57` on `recovery-stable-20261122.img`, `sha25
 
 ## 🔲 MISSING — Atomic Queue ([board/MISSING.md](board/MISSING.md) · `tools/r8q-progress`)
 
-> **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **38 of 83** commits in `~/omamobile-kernel/wt-r8q` (`omamobile..HEAD`) await Santiago's sign-off (`git -C ~/omamobile-kernel/wt-r8q rebase --signoff ...`).
+> **Human-action rule (`AGENTS.md` §2):** AI agents must never add human `Signed-off-by:`. Currently **64** commits across 7 of the 8 split topic branches (`topic/r8q-audio` is 100% signed) await Santiago's sign-off (`UPSTREAM-KERNEL-PLAN.md` §5).
 
-1. **Immediate Software / Offline Tasks (`1` open):** `[net-03]` BT A2DP audio + Wi-Fi concurrency.
-2. **High-Risk Hardware Bring-Up (`8` open):** `[usb-03..04]` Type-C replug/PD & OTG (`usbc-deadman`), `[mdm-03..05]` native `sda36` `modem.dtso` boot + NV verify + SIM/QMI/MBIM, `[pwr-03..04]` / `[slp-02..03]` `s2idle`/DVFS/`cpuidle`/UFS PM w/ watchdog, `[cam-05]` IMX555/IMX616 drivers.
-3. **Kernel Upstream (`4` open):** `[krn-02..05]` Human `Signed-off-by:` on 38 commits -> split topic branches -> `tools/kernel-pr-check --build --merge origin/omamobile` -> fork PRs.
+1. **High-Risk Hardware Bring-Up (`3` open):** `[usb-04]` OTG host (`max77705` `0x25` USBC/CCIC driver or powered hub via `usbc-deadman`), `[slp-03]` WFI `s2idle` soak decision vs `state1` TZ lockup before removing `10-r8q-no-suspend.conf`, `[cam-05]` IMX555/IMX616 drivers (`CAMERA-PLAN.md` §8.7).
+2. **Kernel Upstream (`3` open):** `[krn-02]` Human `Signed-off-by:` on 64 commits across 7 topic branches, `[krn-04]` drop `ts-int-default-state input-enable;` + re-run `tools/kernel-pr-check --build --merge origin/omamobile`, `[krn-05]` push fork & open PRs.
 
 ---
 
@@ -219,10 +218,10 @@ Verified on `2026-11-22` (`NOTES §57` on `recovery-stable-20261122.img`, `sha25
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Worktree | ⚠️ | `~/omamobile-kernel/wt-r8q`, branch `r8q-base-dts-fold` (`4d235a595f28`; `83` commits ahead of `omamobile`; `38` missing human `Signed-off-by:`) |
-| Output | ✅ | `~/omamobile-kernel/out-r8q` (`7.3.0-rc6-omamobile-push1-g4d235a595f28`) |
-| HEAD | ✅ | `4d235a595f28` (`arm64: dts: qcom: sm8250-samsung-r8q: fold verified subsystem overlays`) |
-| Upstream prep | 🔴 | Run human `git rebase --signoff`, split topic branches, then pass `tools/kernel-pr-check --build --merge origin/omamobile` |
+| Worktree | ⚠️ | `~/omamobile-kernel/linux` (8 clean `topic/r8q-*` branches, 74 branch commits, 64 missing human `Signed-off-by:`), `~/omamobile-kernel/wt-r8q-split` (`r8q-merge-test2` merged cleanly) |
+| Output | ✅ | `~/omamobile-kernel/out-r8q` (`recovery-stable-20261122.img` pin), `~/omamobile-kernel/out-r8q-modem-qrtr` (`[mdm-05]` live kernel) |
+| HEAD | ✅ | `4d235a595f28` (`recovery-stable-20261122.img` rollback pin); `topic/r8q-modem` `ebee87d80` |
+| Upstream prep | ⏳ | 8 topic branches pass `kernel-pr-check --build --merge` (`W=1` C/DT + `checkpatch --strict` 0 errors) & `dt_binding_check` 5/5; drop `ts-int-default-state` `input-enable;` + add human `Signed-off-by:` (`UPSTREAM-KERNEL-PLAN.md`) |
 
 ---
 

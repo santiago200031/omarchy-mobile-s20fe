@@ -1,9 +1,9 @@
 <!-- SPDX-License-Identifier: MIT -->
 # UPSTREAM-KERNEL-PLAN: r8q topic branch split from r8q-base-dts-fold
 
-**Date:** 2026-11-22
-**Status:** Topic branches rebuilt with clean subjects, Docker verification complete
-**Source:** `r8q-base-dts-fold` (87 commits) → 8 topic branches (83 commits, excluding 2 revert pairs)
+**Date:** 2026-11-26 (updated after `[mdm-05]` cherry-pick & `dt_binding_check` / `CHECK_DTBS` verification)
+**Status:** 8 topic branches built cleanly on `origin/omamobile` (`82e3cf0b7`); merged cleanly in `r8q-merge-test2`; CI builds & binding checks pass; awaiting human `Signed-off-by:` + `ts-int-default-state` DT schema cleanup
+**Source:** `r8q-base-dts-fold` → 8 topic branches (`74` branch commits incl. 3 shared base DTS dependencies on `touch`/`cameras`, plus `[mdm-05]` + `pm.c` fixes; 2 revert pairs excluded)
 **Base:** `origin/omamobile` (82e3cf0b7)
 
 ## 1. Overview
@@ -70,7 +70,7 @@ This plan documents the audit and split of `~/omamobile-kernel/wt-r8q` branch `r
 |---|---------|--------|
 | 1 | ASoC: qcom: sm8250: add TDM slot, clock and channel-map ops | Applied cleanly |
 
-### topic/r8q-gpu (13 commits)
+### topic/r8q-gpu (12 commits)
 **Subsystem:** gpucc/gdsc reset, a6xx recovery, adreno smmu quiesce, hangcheck progress retries
 
 | # | Subject | Status |
@@ -81,13 +81,12 @@ This plan documents the audit and split of `~/omamobile-kernel/wt-r8q` branch `r
 | 4 | clk: qcom: gpucc-sm8250: Add cx collapse reset support | Applied cleanly |
 | 5 | dt-bindings: display: msm: Document the gpu cx_collapse reset | Applied cleanly |
 | 6 | arm64: dts: qcom: sm8250: Add Reset support for gpu | Applied cleanly |
-| 7 | drm/msm/a6xx: drop the bare pm_runtime_suspend from the recover path | Applied cleanly |
-| 8 | drm/msm/a6xx: Ensure CX collapse during gpu recovery | Applied cleanly |
-| 9 | drm/msm: track the adreno smmu device in struct msm_gpu | Applied cleanly |
-| 10 | drm/msm/a6xx: force the adreno smmu's runtime suspend during recovery | Applied cleanly |
-| 11 | iommu/arm-smmu-qcom: gate the adreno fault path for gpu recovery | Applied cleanly |
-| 12 | drm/msm/a6xx: quiesce the adreno smmu across the CX collapse window | Applied with conflict resolution |
-| 13 | drm/msm: raise hangcheck progress retry cap for long compute submits | Applied cleanly |
+| 7 | drm/msm/a6xx: Ensure CX collapse during gpu recovery | Applied cleanly |
+| 8 | drm/msm: track the adreno smmu device in struct msm_gpu | Applied cleanly |
+| 9 | drm/msm/a6xx: force the adreno smmu's runtime suspend during recovery | Applied cleanly |
+| 10 | iommu/arm-smmu-qcom: gate the adreno fault path for gpu recovery | Applied cleanly |
+| 11 | drm/msm/a6xx: quiesce the adreno smmu across the CX collapse window | Applied with conflict resolution |
+| 12 | drm/msm: raise hangcheck progress retry cap for long compute submits | Applied cleanly |
 
 ### topic/r8q-cameras (10 commits)
 **Note:** Also includes the 3 dts commits from r8q-dts as dependencies (the r8q.dts file is created by these commits). 5 commits were applied during conflict resolution (no separate commit needed as content was already present).
@@ -106,8 +105,8 @@ This plan documents the audit and split of `~/omamobile-kernel/wt-r8q` branch `r
 | 9 | arm64: dts: qcom: sm8250-samsung-r8q: give the HI-847 its camera clock power domain | Applied with conflict resolution |
 | 10 | media: i2c: hi847: fix HBLANK pixel-rate timing, selection, and fwnode props | Applied cleanly
 
-### topic/r8q-modem (27 commits)
-**Subsystem:** qcom,pci-msi binding + driver, wwan SAHARA port, mhi host/pci_generic, af_qrtr
+### topic/r8q-modem (32 commits)
+**Subsystem:** qcom,pci-msi binding + driver, wwan SAHARA/EFS/IP_CTRL, mhi host/pci_generic, af_qrtr
 
 | # | Subject | Status |
 |---|---------|--------|
@@ -138,38 +137,43 @@ This plan documents the audit and split of `~/omamobile-kernel/wt-r8q` branch `r
 | 25 | bus: mhi: host: poll event rings when the device cannot signal MSI | Applied cleanly |
 | 26 | net: wwan: add WWAN_PORT_SAHARA and MHI SAHARA channel mapping | Applied cleanly |
 | 27 | irqchip: qcom-pci-msi: the doorbell is address-as-data — never map or read it | Applied with conflict resolution |
+| 28 | bus: mhi: host: check mhi_tryset_pm_state() result in SBL transition | Applied cleanly (`-Wunused-result` fix) |
+| 29 | net: qrtr: route control replies and broadcasts to every bridged node | Cherry-picked (`[mdm-05]`) |
+| 30 | net: wwan: mhi_wwan_ctrl: add r8q EFS and IP_CTRL DTR support | Cherry-picked (`[mdm-05]`) |
+| 31 | bus: mhi: pci_generic: reschedule poll_work across recovery | Cherry-picked (`[mdm-05]`) |
+| 32 | bus: mhi: pci_generic: align Samsung r8q SDX55M channels with stock | Cherry-picked (`[mdm-05]`) |
 
 ## 3. Verification Status
 
-### Checkpatch (2026-11-22, inside omamobile-build:24.04)
-**Result: ALL PASS** — `scripts/checkpatch.pl --strict --no-signoff` ran on every commit across all 8 topic branches.
+### Checkpatch (2026-11-26, inside omamobile-build:24.04)
+**Result: ALL PASS** — `tools/kernel-pr-check --build --merge origin/omamobile` (`scripts/checkpatch.pl --strict --no-signoff`) ran across all 8 topic branches (`clang-r596125`):
 
-| Branch | Commits | checkpatch result |
-|--------|---------|-------------------|
-| topic/r8q-qcom-core | 11 | 0 errors, 0 warnings |
-| topic/r8q-dts | 3 | 0 errors, 0 warnings |
-| topic/r8q-touch | 3 | 0 errors, 0 warnings |
-| topic/r8q-panel | 2 | 0 errors, 0 warnings |
-| topic/r8q-audio | 1 | 0 errors, 0 warnings |
-| topic/r8q-gpu | 12 | 0 errors, 0 warnings |
-| topic/r8q-cameras | 10 | 0 errors, 0 warnings |
-| topic/r8q-modem | 27 | 0 errors, 0 warnings |
+| Branch | Commits | Missing `Signed-off-by:` | checkpatch errors |
+|--------|---------|--------------------------|-------------------|
+| topic/r8q-qcom-core | 11 | 11 | 0 errors |
+| topic/r8q-dts | 3 | 3 | 0 errors |
+| topic/r8q-touch | 3 | 1 | 0 errors |
+| topic/r8q-panel | 2 | 2 | 0 errors |
+| topic/r8q-audio | 1 | 0 | 0 errors |
+| topic/r8q-gpu | 12 | 6 | 0 errors |
+| topic/r8q-cameras | 10 | 10 | 0 errors |
+| topic/r8q-modem | 32 | 31 | 0 errors |
 
-### kernel-pr-check, dt_binding_check & dtbs_check (2026-11-22)
+### kernel-pr-check, dt_binding_check & dtbs_check (2026-11-26)
 **Result:**
-1. With pinned Android clang (`clang-r596125`) mounted at `/opt/omamobile/clang` inside `omamobile-build:24.04` and `--build ... --merge origin/omamobile`, all 8 branches merge cleanly, pass `checkpatch --strict` (0 errors), pass policy checks, pass `W=1` C builds (0 warnings across all touched C files after fixing `drivers/bus/mhi/host/pm.c:924` `-Wunused-result` in `topic/r8q-modem` commit `5abb7898f`), and build all 347 DTBs with `W=1` (0 new warnings). Only `no human Signed-off-by` fails (expected until `[krn-02]`).
-2. With `dtschema` (`dt-validate 2026.9`) and `yamllint` on `r8q-merge-test2`, **`dt_binding_check` passed cleanly (`0` errors, `0` warnings)** across all 5 touched/new binding schemas (`display/msm/gpu.yaml`, `display/panel/samsung,s6e3fc3-p10.yaml`, `interrupt-controller/qcom,pci-msi.yaml`, `media/i2c/hynix,hi847.yaml`, `media/i2c/samsung,s5k3l6xx.yaml`), and `dtbs_check` on `qcom/sm8250-samsung-r8q.dtb` reported **1 schema warning** (`pinctrl@f100000: ts-int-default-state: 'oneOf' conditional failed` due to forbidden `input-enable` under `qcom,sm8250-pinctrl.yaml`).
+1. With pinned Android clang (`clang-r596125`) inside `omamobile-build:24.04` and `--build ... --merge origin/omamobile`, all 8 branches merge cleanly onto `82e3cf0b7`, pass `checkpatch --strict` (0 errors), pass policy checks, pass `W=1` C builds (0 warnings across all touched C files), and build all 347 DTBs with `W=1` (0 new warnings). Only `no human Signed-off-by` fails on 7 branches (`topic/r8q-audio` passes 100%).
+2. With `dtschema` (`dt-validate 2026.9`) and `yamllint 1.38.0` on `r8q-merge-test2` (after merging `topic/r8q-modem` `ebee87d80`), **`dt_binding_check` passed cleanly (`0` errors, `0` warnings)** across all 5 touched/new binding schemas (`display/msm/gpu.yaml`, `display/panel/samsung,s6e3fc3-p10.yaml`, `interrupt-controller/qcom,pci-msi.yaml`, `media/i2c/hynix,hi847.yaml`, `media/i2c/samsung,s5k3l6xx.yaml`), and `CHECK_DTBS=y W=1` on `qcom/sm8250-samsung-r8q.dtb` reported **1 r8q schema warning** (`pinctrl@f100000: ts-int-default-state: 'oneOf' conditional failed` due to `input-enable` forbidden by `qcom,tlmm-common.yaml:84` / `qcom,sm8250-pinctrl.yaml`, plus the pre-existing `sm8250.dtsi` `dsi@ae96000` `avoid_unnecessary_addr_size` warning also present on `sm8250-mtp.dtb`).
 
 | Branch | W=1 C files | 347 DTBs (W=1) | Result (`--build --merge`) |
 |--------|-------------|----------------|----------------------------|
-| topic/r8q-qcom-core | 9 ok (0 warn) | skip (no DTS) | ok except missing Signed-off-by |
-| topic/r8q-dts | skip (no C) | ok (0 new warn) | ok except missing Signed-off-by; `dtbs_check`: 1 schema warn (`ts-int-default-state` `input-enable`) |
-| topic/r8q-touch | 1 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by; `dtbs_check`: 1 schema warn (`ts-int-default-state` `input-enable`) |
-| topic/r8q-panel | 1 ok (0 warn) | skip (no DTS) | ok except missing Signed-off-by; `dt_binding_check`: pass |
-| topic/r8q-audio | 1 ok (0 warn) | skip (no DTS) | `EXIT:0` (all active checks pass) |
-| topic/r8q-gpu | 7 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by; `dt_binding_check`: pass |
-| topic/r8q-cameras | 2 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by; `dt_binding_check`: pass |
-| topic/r8q-modem | 9 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by (`5abb7898f` fixed `pm.c:924` `-Wunused-result`); `dt_binding_check`: pass |
+| topic/r8q-qcom-core | 9 ok (0 warn) | skip (no DTS) | ok except missing Signed-off-by (11/11) |
+| topic/r8q-dts | skip (no C) | ok (0 new warn) | ok except missing Signed-off-by (3/3); `CHECK_DTBS`: 1 warn (`ts-int-default-state` `input-enable`) |
+| topic/r8q-touch | 1 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by (1/3); `CHECK_DTBS`: 1 warn (`ts-int-default-state` `input-enable`) |
+| topic/r8q-panel | 1 ok (0 warn) | skip (no DTS) | ok except missing Signed-off-by (2/2); `dt_binding_check`: pass |
+| topic/r8q-audio | 1 ok (0 warn) | skip (no DTS) | `EXIT:0` (all active checks pass, 0/1 missing SoB) |
+| topic/r8q-gpu | 7 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by (6/12); `dt_binding_check`: pass |
+| topic/r8q-cameras | 2 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by (10/10); `dt_binding_check`: pass |
+| topic/r8q-modem | 9 ok (0 warn) | ok (0 new warn) | ok except missing Signed-off-by (31/32); `dt_binding_check`: pass |
 
 Notes: `kernel-pr-check` still reports non-blocking checkpatch warnings (`COMMIT_MESSAGE`, `UNDOCUMENTED_DT_STRING`, `FILE_PATH_CHANGES`, `PREFER_LORE_ARCHIVE`, etc.) with zero checkpatch errors. Removing `input-enable;` from `ts-int-default-state` resolves the remaining `dtbs_check` warning before `[krn-04]` sign-off.
 
@@ -274,17 +278,9 @@ for branch in topic/r8q-qcom-core topic/r8q-dts topic/r8q-touch topic/r8q-panel 
 done
 ```
 
-### 5.4 Fix commit message prefixes
-```bash
-# Fix [PATCH XX/87] prefix artifacts in commit messages
-cd ~/omamobile-kernel/linux
-for branch in topic/r8q-qcom-core topic/r8q-dts topic/r8q-touch topic/r8q-panel topic/r8q-audio topic/r8q-gpu topic/r8q-cameras topic/r8q-modem; do
-  git checkout $branch
-  # Interactive rebase to fix commit messages
-  git rebase -i origin/omamobile
-  # Replace [PATCH XX/87] prefix with original commit subjects
-done
-```
+### 5.4 Commit message & DTS schema items
+- `[PATCH XX/87]` prefix stripping is already complete (`0` remaining across all 8 topic branches).
+- Before opening `[krn-05]` PRs, drop `input-enable;` from `ts_int_default` (`arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dts:558`, flagged by `CHECK_DTBS=y`) during human `[krn-02]` sign-off, re-test touch on phone, and re-run `tools/kernel-pr-check`.
 
 ## 6. PR Creation ([krn-05])
 
@@ -317,6 +313,6 @@ Each PR should include:
 ## 7. Notes
 
 - The `r8q-base-dts-fold` branch was based on a different commit than `origin/omamobile`, so some patches had conflicts during application. All conflicts were resolved by accepting the r8q version.
-- Some commit messages have `[PATCH XX/87]` prefix artifacts that need to be cleaned up.
-- No `Signed-off-by:` trailers were added. Each commit needs a human `Signed-off-by:` before PR submission.
+- All `[PATCH XX/87]` prefixes were stripped when rebuilding the 8 topic branches.
+- No `Signed-off-by:` trailers were added by AI agents. Each commit on the 7 unsigned branches needs human `Signed-off-by:` (`[krn-02]`) before PR submission.
 - The existing branches `omamobile`, `r8q-base-dts-fold`, `omamobile-r8q-signed`, and `r8q-usbc-max77705` were NOT modified per safety rules.

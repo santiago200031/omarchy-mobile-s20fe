@@ -4,7 +4,7 @@
 
 This board tracks the hardware bring-up and upstreaming state of the **Samsung Galaxy S20 FE (`r8q`, SM8250)**.
 
-- **Live Machine Baseline (`2026-11-22`):** kernel `7.3.0-rc6-omamobile-push1-g4d235a595f28` (`recovery-stable-20261122.img`), native UFS root on `/dev/sda36` (`LABEL=omamobile-root`, `77/77` UFS partitions `ro=1`), `omamobile-device-r8q 0.1.36-1`, `pd-mapper 1.1-2`, `omamobile-settings 0.1.3-1`, `omamobile-omarchy 0.1.49-1`, `omamobile-shell 0.2.141-1`, `omamobile-ai 0.1.1-1`.
+- **Live Machine Baseline (`2026-11-26`):** `7.3.0-rc6-omamobile-push1-g84e3a3589fc8-dirty` (`[mdm-05]` MHI/QRTR modem candidate; rollback pin `recovery-stable-20261122.img`), native UFS root on `/dev/sda36` (`LABEL=omamobile-root`, `77/77` UFS partitions `ro=1`), `omamobile-device-r8q 0.1.39-1`, `omamobile-ai 0.1.2-1`, `tqftpserv 1.2-2`, `pd-mapper 1.1-2`, `omamobile-settings 0.1.3-1`, `omamobile-omarchy 0.1.49-1`, `omamobile-shell 0.2.141-1`.
 - **Stable Pin ([`../stable-image.conf`](../stable-image.conf)):** `out-r8q/recovery-stable-20261122.img` (`f84a754a…464e`).
 - **Helper Scripts:** [`tools/r8q-progress`](../../../tools/r8q-progress) (`--live`, `--next N`, `--json`) + [`tools/r8q-check-all`](../../../tools/r8q-check-all) (`--quick` for one-shot repo + worktree + phone health pass), backed by [`tasks.json`](tasks.json).
 
@@ -12,8 +12,8 @@ This board tracks the hardware bring-up and upstreaming state of the **Samsung G
 | --- | --- | --- |
 | **Overall (Hardware + Upstream)** | **91.0% (61/67)** | Full SM8250 hardware bring-up + kernel DCO/PR readiness |
 | **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16)** | **94.8% (55/58)** | Native root, 120 Hz display, Vulkan GPU (`5/5`), Wi-Fi/BT (`3/3`), haptics & torch (`4/4`), full-duplex audio, `0.5x`/`3x` cams, SDX55M modem + NFC (`6/6`), USB AI boost + Wi-Fi PS, FP assessed |
-| **Daily Core (Stages 1–8 + UI)** | **100.0% (22/22)** | Usable daily palmtop on desk with `omamobile-settings 0.1.3` + `LFM3-1.7B` AI (`75.84 pp512 / 12.46 tg128` in `performance`) |
-| **Upstream & Docs (U1–U2)** | **55.6% (5/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1 & `DEVICES.md` updated; 42 kernel commits awaiting human `Signed-off-by:` |
+| **Daily Core (Stages 1–8 + UI)** | **100.0% (22/22)** | Usable daily palmtop on desk with `omamobile-settings 0.1.3` + `LFM3-1.7B` AI (`84.2 pp512 / 12.69 tg128` in `performance`, `LOAD_MODE=none`) |
+| **Upstream & Docs (U1–U2)** | **66.7% (6/9)** | Repo CI gates, `CONTRIBUTING.md` §3.1, `DEVICES.md`, & 8 topic branch split done; 64 commits across 7 unsigned branches await human `Signed-off-by:` |
 
 ## Board Columns
 

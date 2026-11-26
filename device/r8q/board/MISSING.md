@@ -4,11 +4,11 @@
 
 Source of truth: [`tasks.json`](tasks.json) — check live percentages and next steps anytime with `tools/r8q-progress` (`--live`), or run `tools/r8q-check-all --quick` for a single read-only repo + worktree + phone health pass. Stock hardware findings live in [HARDWARE-DISCOVERY.md](../HARDWARE-DISCOVERY.md).
 
-As of **`2026-11-22`** (`7.3.0-rc6-omamobile-push1-g4d235a595f28`, `omamobile-settings 0.1.3-1`, `omamobile-device-r8q 0.1.36-1`, `omamobile-omarchy 0.1.49-1`, `omamobile-shell 0.2.141-1`):
-- **Overall (Hardware + Upstream):** `80.6%` (**54 / 67** atomic tasks)
-- **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `84.5%` (**49 / 58** atomic tasks)
+As of **`2026-11-26`** (`omamobile-device-r8q 0.1.39-1`, `omamobile-ai 0.1.2-1`, `tqftpserv 1.2-2`, rollback pin `recovery-stable-20261122.img`, `omamobile-settings 0.1.3-1`, `omamobile-omarchy 0.1.49-1`, `omamobile-shell 0.2.141-1`):
+- **Overall (Hardware + Upstream):** `91.0%` (**61 / 67** atomic tasks)
+- **Hardware Bring-Up (`CONTRIBUTING.md` §5.4 Stages 1–16):** `94.8%` (**55 / 58** atomic tasks)
 - **Daily Core (Stages 1–8):** `100.0%` (**22 / 22** atomic tasks)
-- **Upstream & Docs (Stages U1–U2):** `55.6%` (**5 / 9** atomic tasks)
+- **Upstream & Docs (Stages U1–U2):** `66.7%` (**6 / 9** atomic tasks)
 
 ## Stage-by-Stage Milestones (`CONTRIBUTING.md` §5.4)
 
@@ -21,27 +21,27 @@ As of **`2026-11-22`** (`7.3.0-rc6-omamobile-push1-g4d235a595f28`, `omamobile-se
 | `6` | Battery & Fuel Gauge (`max77705` / `max17042`) | `2/2` | `100.0%` | ✅ Achieved | — |
 | `7–8` | Wi-Fi & Bluetooth (`QCA6390`) | `3/3` | `100.0%` | ✅ Achieved | — (`net-03` BT A2DP + Wi-Fi concurrency verified) |
 | `9` | Haptics & Torch | `4/4` | `100.0%` | ✅ Achieved | — (`haptics` + `RT8547` `torch` verified physically) |
-| `10–11` | Power, Idle, Thermal & DVFS | `4/6` | `66.7%` | ⚠️ Mitigated | `[pwr-03]` scoped CPUfreq `schedutil` trace; `[pwr-04]` deeper `cpuidle` / UFS PM |
+| `10–11` | Power, Idle, Thermal & DVFS | `6/6` | `100.0%` | ⚠️ Mitigated | — (`[pwr-03]`, `[pwr-04]` root-caused/mitigated; `[pwr-05]` USB AI boost; `[pwr-06]` Wi-Fi PS `3`) |
 | `12` | USB-C Role Switch & Charging Control | `3/4` | `75.0%` | ⚠️ Partial | `[usb-04]` OTG host 5V VBUS (`max77705` `0x25` USBC/CCIC driver or powered hub) |
-| `13` | Suspend (`s2idle`) | `1/3` | `33.3%` | ❌ Disabled | `[slp-02]` attended single `s2idle` w/ watchdog; `[slp-03]` 10-cycle soak |
+| `13` | Suspend (`s2idle`) | `2/3` | `66.7%` | ⚠️ Partial | `[slp-03]` WFI `s2idle` `10/10` pass (`state1` TZ lockup; flash/unmask decision before removing `10-r8q-no-suspend.conf`) |
 | `14` | Remoteprocs, Sensors & Audio (`ADSP`/`SLPI`/`CS35L41`/`DMIC3`) | `6/6` | `100.0%` | ✅ Achieved | — (speaker + earpiece + `DMIC3` `pw-record` verified) |
 | `15a` | Cameras (`CAMSS` / `libcamera`) | `4/5` | `80.0%` | ⚠️ Partial | `[cam-05]` IMX555 (rear 1x) + IMX616 (front) drivers (`omacam` `0.5x <-> 3x` verified) |
 | `15b` | Modem (`SDX55M`), GNSS & NFC | `6/6` | `100.0%` | ✅ Achieved | — (`[mdm-05]` SIM unlock, `ModemManager`, `mhi_hwip0` LTE data, `omamobile-device-r8q` `0.1.38` + `tqftpserv` `1.2-2` opt-in) |
 | `16` | Fingerprint | `2/2` | `100.0%` | ⏸️ Deferred (TZ/QSEE) | — ([FINGERPRINT-PLAN.md](../FINGERPRINT-PLAN.md): deferred, XPU/QSEE/`qseecom` blockers) |
-| `U1` | Kernel Branch Hygiene & Upstream DCO (`wt-r8q`) | `1/5` | `20.0%` | 🔧 Open | `[krn-02..05]` human `Signed-off-by:` on 42 commits, split topic branches, `kernel-pr-check`, upstream PRs |
+| `U1` | Kernel Branch Hygiene & Upstream DCO (`linux` / `wt-r8q-split`) | `2/5` | `40.0%` | 🔧 In Progress | `[krn-02]` human `Signed-off-by:` (64/74 branch commits across 7 topics), `[krn-04]` post-SoB `kernel-pr-check` + `ts-int-default-state` DT schema fix, `[krn-05]` upstream PRs |
 | `U2` | Repo Registry & Stable Pin | `4/4` | `100.0%` | ✅ Achieved | — |
 
-## Complete Step-by-Step Queue (`13` Remaining Atomic Tasks)
+## Complete Step-by-Step Queue (`6` Remaining Atomic Tasks)
 
-### High-Risk / Hardware Bring-Up (`6` tasks — human gate for flashes/reboots)
-1. `[usb-04]` *(human-gate via `tools/usbc-deadman-r8q`)* Port GPL `max77705` `0x25` USBC/CCIC driver (or test with externally powered hub) for full USB host OTG VBUS + Type-C role reporting.
-2. `[pwr-03]` & `[pwr-04]` *(human-gate w/ watchdog)* Scope CPUfreq `schedutil` trace and deeper `cpuidle` / UFS PM.
-3. `[slp-02]` & `[slp-03]` *(human-gate w/ watchdog)* Attended single `s2idle` wake, then soak 10 sleep cycles before removing `10-r8q-no-suspend.conf`.
-4. `[cam-05]` *(human-gate)* Implement mainline V4L2 subdev drivers & DT nodes for IMX555 (rear wide) and IMX616 (front) from clean GPL/mainline specs.
+### High-Risk / Hardware Bring-Up (`3` tasks — human gate for flashes/reboots)
+1. `[usb-04]` *(human-gate via `tools/usbc-deadman-r8q`)* Test USB host (OTG) role switch with external USB peripheral (`max77705` `0x25` USBC/CCIC driver or powered hub) and confirm peripheral role restores cleanly on unplug.
+2. `[slp-03]` *(human-gate w/ watchdog)* Decide WFI `s2idle` shipping tradeoff vs `state1` TZ lockup (`POWER-SLEEP-PLAN.md`), re-verify 10-cycle soak on the target kernel (`10/10` SSH/DSI-1/touch/Wi-Fi), and remove `10-r8q-no-suspend.conf` if approved.
+3. `[cam-05]` *(human-gate for CCI probe flash & GPL source review)* Complete IMX555 (rear wide 1x) and IMX616 (front) V4L2 drivers from clean GPL/mainline specs ([`CAMERA-PLAN.md`](../CAMERA-PLAN.md) §8.7).
 
-### Kernel Upstream Submission (`4` tasks — `CONTRIBUTING.md` §6.2)
-6. `[krn-02]` *(human-only DCO)* Human maintainer adds `Signed-off-by: Santiago Villavicencio` to all **42** unsigned commits in `~/omamobile-kernel/wt-r8q` (`origin/omamobile..HEAD`).
-7. `[krn-03]` -> `[krn-05]` Split `wt-r8q` into clean subsystem topic branches (drop revert noise, gate shared drivers cleanly behind `samsung,r8q` match data), pass `tools/kernel-pr-check --build --merge origin/omamobile`, and open PRs against `linux-omarchy-mobile/omamobile`.
+### Kernel Upstream Submission (`3` tasks — `CONTRIBUTING.md` §6.2, [`UPSTREAM-KERNEL-PLAN.md`](../UPSTREAM-KERNEL-PLAN.md))
+4. `[krn-02]` *(human-only DCO)* Human maintainer adds `Signed-off-by: Santiago Villavicencio` to all **64** unsigned commits across 7 of the 8 topic branches (`topic/r8q-audio` already passes 100%).
+5. `[krn-04]` Drop `input-enable;` on `ts-int-default-state` (`sm8250-samsung-r8q.dts:558`, only `CHECK_DTBS` schema warning) with on-phone touch re-check, then re-run `tools/kernel-pr-check --build --merge origin/omamobile` on all signed topic branches (`dt_binding_check` already `5/5` clean).
+6. `[krn-05]` *(human-gate)* Push signed topic branches to user kernel fork and open PRs against `derekross/linux-omarchy-mobile:omamobile`.
 
 ---
 
